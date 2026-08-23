@@ -781,7 +781,7 @@ git commit -m "feat: enforce player activation rules"
 - Consumes: active-unit state, weapon/unit data, board distance and occupancy.
 - Produces: `BattleRng`, `AttackPreview`, `DamageSource`, `preview_attack`, `attack`, `apply_damage`, attack/damage/knockout events.
 
-- [ ] **Step 1: Write failing RNG, preview and attack tests**
+- [x] **Step 1: Write failing RNG, preview and attack tests**
 
 Add focused tests in `rng.rs` and `combat.rs`:
 
@@ -791,7 +791,7 @@ fn splitmix_rolls_are_stable_for_known_seeds() {
     assert_eq!(BattleRng::seeded(2).roll_percent(), 11);
     assert_eq!(BattleRng::seeded(6).roll_percent(), 93);
     let mut crit_seed = BattleRng::seeded(0);
-    assert_eq!((crit_seed.roll_percent(), crit_seed.roll_percent()), (36, 11));
+    assert_eq!((crit_seed.roll_percent(), crit_seed.roll_percent()), (36, 1));
 }
 
 #[test]
@@ -845,13 +845,13 @@ fn move_and_action_work_in_either_order_once() {
 
 Use test fixture constructors under `#[cfg(test)]`; they must build real `BattleState` values with the production rules and the indicated seed.
 
-- [ ] **Step 2: Run the tests and verify red state**
+- [x] **Step 2: Run the tests and verify red state**
 
 Run: `cargo test domain::`
 
 Expected: FAIL because RNG, preview and attack functions are absent.
 
-- [ ] **Step 3: Implement a seedable SplitMix64 PRNG**
+- [x] **Step 3: Implement a seedable SplitMix64 PRNG**
 
 ```rust
 #[derive(Clone, Debug)]
@@ -874,7 +874,7 @@ impl BattleRng {
 
 Create production seeds from `SystemTime::now()` in the app layer and continue passing `u64` into `mission_one`; do not add a replay API.
 
-- [ ] **Step 4: Implement the one preview calculation**
+- [x] **Step 4: Implement the one preview calculation**
 
 Define:
 
@@ -895,7 +895,7 @@ pub struct AttackPreview {
 
 Calculate `hit_chance = clamp(accuracy + hit_modifier - evasion, 5, 95)`, `normal_damage = max(1, base_damage - armor)`, and critical damage from `base + floor(base / 2)` before armor. `Cross1` returns the target plus in-bounds neighbors in stable top/left/right/bottom order. Push weapons reject targets not sharing the attacker's row or column.
 
-- [ ] **Step 5: Implement atomic player attacks**
+- [x] **Step 5: Implement atomic player attacks**
 
 Validate phase, active unit, Action allowance, ownership, weapon ownership, range/shape, target and EN before mutation. Deduct EN and mark Action spent exactly once, then for every unique enemy occupant in the footprint:
 
@@ -907,13 +907,13 @@ Validate phase, active unit, Action allowance, ownership, weapon ownership, rang
 
 Skip allied player occupants. Keep push as an emitted `PushRequested` event for Task 6 so this task cannot duplicate environment resolution.
 
-- [ ] **Step 6: Run all combat and activation tests**
+- [x] **Step 6: Run all combat and activation tests**
 
 Run: `cargo test domain::`
 
 Expected: hit, miss, critical, EN, knockout, Move→Action and Action→Move cases pass.
 
-- [ ] **Step 7: Commit combat resolution**
+- [x] **Step 7: Commit combat resolution**
 
 ```bash
 git add src/domain

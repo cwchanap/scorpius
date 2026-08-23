@@ -1,5 +1,7 @@
 use crate::domain::board::GridPos;
 
+use super::combat::DamageSource;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnitId(pub u16);
 
@@ -104,6 +106,29 @@ pub enum BattleEvent {
         from: GridPos,
         to: GridPos,
     },
+    AttackRolled {
+        attacker: UnitId,
+        weapon: WeaponId,
+        target: UnitId,
+        roll: u8,
+        hit: bool,
+        critical_roll: Option<u8>,
+        critical: bool,
+    },
+    DamageApplied {
+        target: UnitId,
+        amount: i16,
+        remaining_hp: i16,
+        source: DamageSource,
+    },
+    UnitKnockedOut {
+        unit: UnitId,
+        position: GridPos,
+    },
+    PushRequested {
+        attacker: UnitId,
+        target: UnitId,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,12 +144,33 @@ pub enum BattleError {
     ActivationAlreadyFinished(UnitId),
     UnitNotActive(UnitId),
     MoveAlreadySpent(UnitId),
+    ActionAlreadySpent(UnitId),
     ReactionRequired(UnitId),
+    UnknownWeapon(WeaponId),
+    WeaponNotOwned {
+        unit: UnitId,
+        weapon: WeaponId,
+    },
+    InsufficientEn {
+        unit: UnitId,
+        required: i16,
+        available: i16,
+    },
     OutOfBounds(GridPos),
     DestinationOccupied(GridPos),
     DestinationUnreachable {
         unit: UnitId,
         destination: GridPos,
+    },
+    InvalidTarget(GridPos),
+    TargetOutOfRange {
+        attacker: UnitId,
+        weapon: WeaponId,
+        target: GridPos,
+    },
+    PushTargetNotAligned {
+        attacker: GridPos,
+        target: GridPos,
     },
     NotOrthogonallyAdjacent {
         from: GridPos,

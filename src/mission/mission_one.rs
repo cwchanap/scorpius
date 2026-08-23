@@ -32,7 +32,7 @@ pub mod ids {
     pub const SIEGE_MORTAR: WeaponId = WeaponId(203);
 }
 
-pub fn mission_one(_seed: u64) -> BattleState {
+pub fn mission_one(seed: u64) -> BattleState {
     let board = BoardState::new(
         9,
         9,
@@ -277,7 +277,7 @@ pub fn mission_one(_seed: u64) -> BattleState {
         ),
     ];
 
-    BattleState::new(board, units, weapons)
+    BattleState::new(board, units, weapons, seed)
 }
 
 const fn stats(

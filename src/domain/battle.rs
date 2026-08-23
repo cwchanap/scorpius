@@ -6,6 +6,7 @@ use super::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype,
         UnitId, UnitState, UnitStats, WeaponId, WeaponSpec,
     },
+    rng::BattleRng,
 };
 
 #[derive(Clone, Debug)]
@@ -16,6 +17,7 @@ pub struct BattleState {
     phase: BattlePhase,
     round: u16,
     active_unit: Option<UnitId>,
+    rng: BattleRng,
 }
 
 impl BattleState {
@@ -23,6 +25,7 @@ impl BattleState {
         board: BoardState,
         units: impl IntoIterator<Item = UnitState>,
         weapons: impl IntoIterator<Item = WeaponSpec>,
+        seed: u64,
     ) -> Self {
         Self {
             board,
@@ -34,6 +37,7 @@ impl BattleState {
             phase: BattlePhase::EnemyPlanning,
             round: 1,
             active_unit: None,
+            rng: BattleRng::seeded(seed),
         }
     }
 
@@ -62,6 +66,7 @@ impl BattleState {
                 reaction: None,
             }],
             [],
+            0,
         );
         battle.phase = BattlePhase::Player;
         battle.active_unit = Some(UnitId(1));
@@ -78,6 +83,13 @@ impl BattleState {
 
     pub fn unit(&self, id: UnitId) -> Option<&UnitState> {
         self.units.get(&id)
+    }
+
+    pub fn occupant_at(&self, position: GridPos) -> Option<UnitId> {
+        self.units
+            .values()
+            .find(|unit| !unit.is_knocked_out() && unit.position == position)
+            .map(|unit| unit.id)
     }
 
     pub fn weapons(&self) -> impl Iterator<Item = &WeaponSpec> {
@@ -246,10 +258,31 @@ impl BattleState {
                 .any(|unit| unit.id != mover && !unit.is_knocked_out() && unit.position == position)
     }
 
+    pub(super) fn unit_mut(&mut self, id: UnitId) -> Option<&mut UnitState> {
+        self.units.get_mut(&id)
+    }
+
+    pub(super) fn roll_percent(&mut self) -> u8 {
+        self.rng.roll_percent()
+    }
+
     #[cfg(test)]
     pub(crate) fn enter_player_phase_for_test(&mut self) {
         self.phase = BattlePhase::Player;
         self.active_unit = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn move_unit_direct_for_test(&mut self, id: UnitId, position: GridPos) {
+        self.units
+            .get_mut(&id)
+            .expect("test unit must exist")
+            .position = position;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unit_mut_for_test(&mut self, id: UnitId) -> Option<&mut UnitState> {
+        self.units.get_mut(&id)
     }
 }
 
