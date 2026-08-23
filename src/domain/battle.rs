@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::{
     board::{BoardState, GridPos},
+    enemy::AttackIntent,
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype,
         UnitId, UnitState, UnitStats, WeaponId, WeaponSpec,
@@ -14,9 +15,10 @@ pub struct BattleState {
     board: BoardState,
     units: BTreeMap<UnitId, UnitState>,
     weapons: BTreeMap<WeaponId, WeaponSpec>,
-    phase: BattlePhase,
-    round: u16,
-    active_unit: Option<UnitId>,
+    pub(super) phase: BattlePhase,
+    pub(super) round: u16,
+    pub(super) active_unit: Option<UnitId>,
+    pub(super) intents: Vec<AttackIntent>,
     rng: BattleRng,
 }
 
@@ -35,8 +37,9 @@ impl BattleState {
                 .map(|weapon| (weapon.id, weapon))
                 .collect(),
             phase: BattlePhase::EnemyPlanning,
-            round: 1,
+            round: 0,
             active_unit: None,
+            intents: Vec::new(),
             rng: BattleRng::seeded(seed),
         }
     }
@@ -69,6 +72,7 @@ impl BattleState {
             0,
         );
         battle.phase = BattlePhase::Player;
+        battle.round = 1;
         battle.active_unit = Some(UnitId(1));
         battle
     }
@@ -295,6 +299,11 @@ impl BattleState {
     #[cfg(test)]
     pub(crate) fn unit_mut_for_test(&mut self, id: UnitId) -> Option<&mut UnitState> {
         self.units.get_mut(&id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_round_for_test(&mut self, round: u16) {
+        self.round = round;
     }
 }
 

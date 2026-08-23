@@ -1,0 +1,529 @@
+use std::cmp::Reverse;
+
+use crate::domain::{
+    battle::BattleState,
+    board::GridPos,
+    combat::{AttackPreview, attack_footprint, preview_for_units},
+    model::{
+        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, UnitArchetype, UnitId,
+        UnitState, WeaponId,
+    },
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttackProfile {
+    pub weapon: WeaponId,
+    pub base_damage: i16,
+    pub accuracy: i16,
+    pub hit_modifier: i16,
+    pub crit_chance: u8,
+    pub push: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttackIntent {
+    pub attacker: UnitId,
+    pub origin: GridPos,
+    pub profile: AttackProfile,
+    pub footprint: Vec<GridPos>,
+    pub intended_occupant: Option<UnitId>,
+    pub intended_preview: Option<AttackPreview>,
+    pub initiative: i16,
+}
+
+struct TargetChoice {
+    center: GridPos,
+    footprint: Vec<GridPos>,
+    intended_occupant: Option<UnitId>,
+}
+
+impl BattleState {
+    pub fn intents(&self) -> &[AttackIntent] {
+        &self.intents
+    }
+
+    pub fn intent_for(&self, attacker: UnitId) -> Option<&AttackIntent> {
+        self.intents
+            .iter()
+            .find(|intent| intent.attacker == attacker)
+    }
+
+    pub fn begin_round(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
+        if self.phase != BattlePhase::EnemyPlanning {
+            return Err(BattleError::WrongPhase {
+                expected: BattlePhase::EnemyPlanning,
+                actual: self.phase,
+            });
+        }
+
+        self.active_unit = None;
+        self.intents.clear();
+        let player_ids: Vec<_> = self
+            .units()
+            .filter(|unit| unit.faction == Faction::Player)
+            .map(|unit| unit.id)
+            .collect();
+        for id in player_ids {
+            let player = self.unit_mut(id).expect("collected player must exist");
+            player.activation = ActivationState::default();
+            player.reaction = None;
+        }
+
+        let opening = self.round == 0;
+        let mut events = if opening {
+            self.apply_authored_opening_movement()?
+        } else {
+            self.apply_later_enemy_movement()?
+        };
+        events.extend(self.commit_enemy_intents(opening)?);
+        self.round = self.round.saturating_add(1);
+        self.phase = BattlePhase::Player;
+        Ok(events)
+    }
+
+    fn apply_authored_opening_movement(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
+        let enemies: Vec<_> = self
+            .units()
+            .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
+            .map(|unit| (unit.id, unit.archetype, unit.position))
+            .collect();
+        let mut events = Vec::new();
+
+        for (id, archetype, origin) in enemies {
+            let destination = match archetype {
+                UnitArchetype::Rifleman if origin.x < 4 => GridPos::new(2, 5),
+                UnitArchetype::Rifleman => GridPos::new(6, 5),
+                UnitArchetype::Striker => GridPos::new(4, 6),
+                UnitArchetype::Artillery => origin,
+                _ => origin,
+            };
+            events.extend(self.move_enemy_to(id, destination)?);
+        }
+        Ok(events)
+    }
+
+    fn apply_later_enemy_movement(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
+        let enemy_ids: Vec<_> = self
+            .units()
+            .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
+            .map(|unit| unit.id)
+            .collect();
+        let mut events = Vec::new();
+
+        for id in enemy_ids {
+            let destination = choose_enemy_destination(self, id)?;
+            events.extend(self.move_enemy_to(id, destination)?);
+        }
+        Ok(events)
+    }
+
+    fn move_enemy_to(
+        &mut self,
+        id: UnitId,
+        destination: GridPos,
+    ) -> Result<Vec<BattleEvent>, BattleError> {
+        let origin = self.unit(id).ok_or(BattleError::UnknownUnit(id))?.position;
+        if origin == destination {
+            return Ok(Vec::new());
+        }
+        self.unit_mut(id)
+            .expect("validated enemy must exist")
+            .position = destination;
+        let mut events = vec![BattleEvent::UnitMoved {
+            unit: id,
+            from: origin,
+            to: destination,
+        }];
+        events.extend(self.resolve_hazard_if_present(id)?);
+        Ok(events)
+    }
+
+    fn commit_enemy_intents(
+        &mut self,
+        authored_opening: bool,
+    ) -> Result<Vec<BattleEvent>, BattleError> {
+        let enemy_ids: Vec<_> = self
+            .units()
+            .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
+            .map(|unit| unit.id)
+            .collect();
+        let mut intents = Vec::with_capacity(enemy_ids.len());
+
+        for attacker in enemy_ids {
+            let forced_target = authored_opening
+                .then(|| opening_target(self, attacker))
+                .flatten();
+            intents.push(build_intent(self, attacker, forced_target)?);
+        }
+        intents.sort_by(|left, right| {
+            right
+                .initiative
+                .cmp(&left.initiative)
+                .then_with(|| left.attacker.cmp(&right.attacker))
+        });
+        self.intents = intents;
+
+        Ok(self
+            .intents
+            .iter()
+            .map(|intent| BattleEvent::IntentCommitted {
+                attacker: intent.attacker,
+                weapon: intent.profile.weapon,
+                footprint: intent.footprint.clone(),
+                intended_occupant: intent.intended_occupant,
+            })
+            .collect())
+    }
+}
+
+fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos, BattleError> {
+    let unit = battle.unit(id).ok_or(BattleError::UnknownUnit(id))?;
+    let players: Vec<_> = living_players(battle);
+    if players.is_empty() {
+        return Ok(unit.position);
+    }
+
+    let mut candidates: Vec<_> = battle.reachable_cells(id)?.into_iter().collect();
+    candidates.push(unit.position);
+    candidates.sort_by_key(|position| (position.y, position.x));
+
+    match unit.archetype {
+        UnitArchetype::Rifleman | UnitArchetype::Striker => {
+            let weapon = unit
+                .weapons
+                .first()
+                .and_then(|weapon| battle.weapon(*weapon))
+                .ok_or(BattleError::InvalidTarget(unit.position))?;
+            Ok(*candidates
+                .iter()
+                .min_by_key(|position| {
+                    let band_distance = players
+                        .iter()
+                        .map(|player| {
+                            distance_to_band(
+                                position.manhattan(player.position),
+                                weapon.min_range,
+                                weapon.max_range,
+                            )
+                        })
+                        .min()
+                        .unwrap_or(0);
+                    let nearest = players
+                        .iter()
+                        .map(|player| position.manhattan(player.position))
+                        .min()
+                        .unwrap_or(0);
+                    (band_distance, nearest, position.y, position.x)
+                })
+                .expect("origin is always a movement candidate"))
+        }
+        UnitArchetype::Artillery => {
+            let weapon = unit
+                .weapons
+                .first()
+                .and_then(|weapon| battle.weapon(*weapon))
+                .ok_or(BattleError::InvalidTarget(unit.position))?;
+            if players.iter().any(|player| {
+                let distance = unit.position.manhattan(player.position);
+                distance >= weapon.min_range && distance <= weapon.max_range
+            }) {
+                return Ok(unit.position);
+            }
+            let lane: Vec<_> = candidates
+                .iter()
+                .copied()
+                .filter(|position| position.x == 4)
+                .collect();
+            let candidates = if lane.is_empty() { &candidates } else { &lane };
+            Ok(*candidates
+                .iter()
+                .min_by_key(|position| {
+                    let nearest = players
+                        .iter()
+                        .map(|player| position.manhattan(player.position))
+                        .min()
+                        .unwrap_or(0);
+                    (nearest, position.y, position.x)
+                })
+                .expect("origin is always a movement candidate"))
+        }
+        _ => Ok(unit.position),
+    }
+}
+
+fn build_intent(
+    battle: &BattleState,
+    attacker_id: UnitId,
+    forced_target: Option<GridPos>,
+) -> Result<AttackIntent, BattleError> {
+    let attacker = battle
+        .unit(attacker_id)
+        .ok_or(BattleError::UnknownUnit(attacker_id))?;
+    let weapon_id = attacker
+        .weapons
+        .first()
+        .copied()
+        .ok_or(BattleError::InvalidTarget(attacker.position))?;
+    let weapon = battle
+        .weapon(weapon_id)
+        .ok_or(BattleError::UnknownWeapon(weapon_id))?;
+    let choice = match forced_target {
+        Some(target) => choice_for_center(battle, weapon.shape, target),
+        None => choose_target(battle, attacker, weapon)?,
+    };
+    let intended_preview = choice.intended_occupant.and_then(|target_id| {
+        battle.unit(target_id).map(|target| {
+            preview_for_units(
+                attacker,
+                weapon,
+                choice.center,
+                choice.footprint.clone(),
+                target,
+            )
+        })
+    });
+
+    Ok(AttackIntent {
+        attacker: attacker_id,
+        origin: attacker.position,
+        profile: AttackProfile {
+            weapon: weapon_id,
+            base_damage: weapon.base_damage,
+            accuracy: attacker.stats.accuracy,
+            hit_modifier: weapon.hit_modifier,
+            crit_chance: weapon.crit_chance,
+            push: weapon.push,
+        },
+        footprint: choice.footprint,
+        intended_occupant: choice.intended_occupant,
+        intended_preview,
+        initiative: initiative(attacker),
+    })
+}
+
+fn choose_target(
+    battle: &BattleState,
+    attacker: &UnitState,
+    weapon: &crate::domain::model::WeaponSpec,
+) -> Result<TargetChoice, BattleError> {
+    let players = living_players(battle);
+    let mut choices: Vec<_> = (0..battle.board().height())
+        .flat_map(|y| (0..battle.board().width()).map(move |x| GridPos::new(x, y)))
+        .filter(|target| {
+            let distance = attacker.position.manhattan(*target);
+            distance >= weapon.min_range && distance <= weapon.max_range
+        })
+        .map(|target| choice_for_center(battle, weapon.shape, target))
+        .collect();
+    if choices.is_empty() {
+        return Err(BattleError::InvalidTarget(attacker.position));
+    }
+
+    if choices
+        .iter()
+        .any(|choice| choice.intended_occupant.is_some())
+    {
+        choices.sort_by_key(|choice| {
+            let threatened = players
+                .iter()
+                .filter(|player| choice.footprint.contains(&player.position))
+                .count();
+            let priority = choice
+                .intended_occupant
+                .and_then(|id| battle.unit(id))
+                .map(player_priority)
+                .unwrap_or(u8::MAX);
+            (
+                Reverse(threatened),
+                priority,
+                choice.center.y,
+                choice.center.x,
+            )
+        });
+    } else {
+        choices.sort_by_key(|choice| {
+            let distance = choice
+                .footprint
+                .iter()
+                .flat_map(|cell| {
+                    players
+                        .iter()
+                        .map(move |player| cell.manhattan(player.position))
+                })
+                .min()
+                .unwrap_or(0);
+            (distance, choice.center.y, choice.center.x)
+        });
+    }
+
+    Ok(choices.remove(0))
+}
+
+fn choice_for_center(
+    battle: &BattleState,
+    shape: crate::domain::model::WeaponShape,
+    center: GridPos,
+) -> TargetChoice {
+    let footprint = attack_footprint(battle, shape, center);
+    let intended_occupant = living_players(battle)
+        .into_iter()
+        .filter(|player| footprint.contains(&player.position))
+        .min_by_key(player_priority)
+        .map(|player| player.id);
+    TargetChoice {
+        center,
+        footprint,
+        intended_occupant,
+    }
+}
+
+fn opening_target(battle: &BattleState, attacker: UnitId) -> Option<GridPos> {
+    let enemy = battle.unit(attacker)?;
+    let target_archetype = match enemy.archetype {
+        UnitArchetype::Striker | UnitArchetype::Artillery => UnitArchetype::Vanguard,
+        UnitArchetype::Rifleman if enemy.position.x < 4 => UnitArchetype::Gunner,
+        UnitArchetype::Rifleman => UnitArchetype::Interceptor,
+        _ => return None,
+    };
+    battle
+        .units()
+        .find(|unit| {
+            unit.faction == Faction::Player
+                && unit.archetype == target_archetype
+                && !unit.is_knocked_out()
+        })
+        .map(|unit| unit.position)
+}
+
+fn living_players(battle: &BattleState) -> Vec<UnitState> {
+    battle
+        .units()
+        .filter(|unit| unit.faction == Faction::Player && !unit.is_knocked_out())
+        .cloned()
+        .collect()
+}
+
+fn player_priority(unit: &UnitState) -> u8 {
+    match unit.archetype {
+        UnitArchetype::Vanguard => 0,
+        UnitArchetype::Gunner => 1,
+        UnitArchetype::Interceptor => 2,
+        _ => u8::MAX,
+    }
+}
+
+fn initiative(unit: &UnitState) -> i16 {
+    match unit.archetype {
+        UnitArchetype::Striker => 30,
+        UnitArchetype::Rifleman if unit.position.x < 4 => 20,
+        UnitArchetype::Rifleman => 19,
+        UnitArchetype::Artillery => 10,
+        _ => 0,
+    }
+}
+
+fn distance_to_band(distance: u8, min_range: u8, max_range: u8) -> u8 {
+    if distance < min_range {
+        min_range - distance
+    } else {
+        distance.saturating_sub(max_range)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        domain::{
+            board::GridPos,
+            model::{BattleEvent, BattlePhase},
+        },
+        mission::mission_one::{ids, mission_one},
+    };
+
+    #[test]
+    fn authored_opening_places_four_locked_threats() {
+        let mut battle = mission_one(7);
+        let events = battle.begin_round().unwrap();
+
+        assert_eq!(
+            battle.unit(ids::RIFLEMAN_LEFT).unwrap().position,
+            GridPos::new(2, 5)
+        );
+        assert_eq!(
+            battle.unit(ids::RIFLEMAN_RIGHT).unwrap().position,
+            GridPos::new(6, 5)
+        );
+        assert_eq!(
+            battle.unit(ids::STRIKER).unwrap().position,
+            GridPos::new(4, 6)
+        );
+        assert_eq!(
+            battle.unit(ids::ARTILLERY).unwrap().position,
+            GridPos::new(4, 0)
+        );
+        assert_eq!(battle.round(), 1);
+        assert_eq!(battle.phase(), BattlePhase::Player);
+        assert_eq!(battle.intents().len(), 4);
+        assert_eq!(
+            battle
+                .intents()
+                .iter()
+                .map(|intent| intent.attacker)
+                .collect::<Vec<_>>(),
+            vec![
+                ids::STRIKER,
+                ids::RIFLEMAN_LEFT,
+                ids::RIFLEMAN_RIGHT,
+                ids::ARTILLERY,
+            ]
+        );
+        assert!(
+            battle
+                .intents()
+                .iter()
+                .all(|intent| intent.intended_preview.is_some())
+        );
+
+        let mortar = battle.intent_for(ids::ARTILLERY).unwrap();
+        assert_eq!(mortar.intended_occupant, Some(ids::VANGUARD));
+        assert_eq!(
+            mortar.footprint,
+            vec![
+                GridPos::new(4, 7),
+                GridPos::new(4, 6),
+                GridPos::new(3, 7),
+                GridPos::new(5, 7),
+                GridPos::new(4, 8),
+            ]
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::IntentCommitted { attacker, .. } if *attacker == ids::ARTILLERY
+        )));
+    }
+
+    #[test]
+    fn out_of_range_enemy_still_commits_a_legal_empty_footprint() {
+        let mut battle = isolated_striker_fixture();
+        battle.begin_round().unwrap();
+        let intent = battle.intent_for(ids::STRIKER).unwrap();
+
+        assert!(intent.intended_occupant.is_none());
+        assert!(
+            intent
+                .footprint
+                .iter()
+                .all(|cell| battle.board().contains(*cell))
+        );
+    }
+
+    fn isolated_striker_fixture() -> crate::domain::battle::BattleState {
+        let mut battle = mission_one(7);
+        battle.set_round_for_test(1);
+        battle.move_unit_direct_for_test(ids::STRIKER, GridPos::new(0, 0));
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(8, 8));
+        battle.move_unit_direct_for_test(ids::GUNNER, GridPos::new(7, 8));
+        battle.move_unit_direct_for_test(ids::INTERCEPTOR, GridPos::new(8, 7));
+        battle
+    }
+}

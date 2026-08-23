@@ -148,6 +148,12 @@ pub enum BattleEvent {
         position: GridPos,
         footprint: Vec<GridPos>,
     },
+    IntentCommitted {
+        attacker: UnitId,
+        weapon: WeaponId,
+        footprint: Vec<GridPos>,
+        intended_occupant: Option<UnitId>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

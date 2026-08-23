@@ -308,7 +308,32 @@ fn prop_attack_values(weapon: &WeaponSpec) -> AttackValues {
     }
 }
 
-fn attack_footprint(battle: &BattleState, shape: WeaponShape, target: GridPos) -> Vec<GridPos> {
+pub(super) fn preview_for_units(
+    attacker: &UnitState,
+    weapon: &WeaponSpec,
+    target: GridPos,
+    footprint: Vec<GridPos>,
+    defender: &UnitState,
+) -> AttackPreview {
+    let values = attack_values(attacker, weapon, defender);
+    AttackPreview {
+        attacker: attacker.id,
+        weapon: weapon.id,
+        target,
+        footprint,
+        hit_chance: values.hit_chance,
+        normal_damage: values.normal_damage,
+        critical_damage: values.critical_damage,
+        en_cost: weapon.en_cost,
+        push_destination: None,
+    }
+}
+
+pub(super) fn attack_footprint(
+    battle: &BattleState,
+    shape: WeaponShape,
+    target: GridPos,
+) -> Vec<GridPos> {
     let mut footprint = vec![target];
     if shape == WeaponShape::Cross1 {
         footprint

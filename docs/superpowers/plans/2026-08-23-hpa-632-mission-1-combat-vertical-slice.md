@@ -1025,7 +1025,7 @@ git commit -m "feat: add tactical environment interactions"
 - Consumes: board path/range helpers, enemy unit/weapon data and attack preview calculations.
 - Produces: `AttackProfile`, `AttackIntent`, `BattleState::begin_round`, deterministic positioning, `commit_enemy_intents`, `intents()`, and the authored resolution order.
 
-- [ ] **Step 1: Write failing opening-plan and empty-footprint tests**
+- [x] **Step 1: Write failing opening-plan and empty-footprint tests**
 
 Add to `enemy.rs`:
 
@@ -1063,13 +1063,13 @@ fn out_of_range_enemy_still_commits_a_legal_empty_footprint() {
 }
 ```
 
-- [ ] **Step 2: Run tests and confirm missing planning model**
+- [x] **Step 2: Run tests and confirm missing planning model**
 
 Run: `cargo test domain::enemy::tests`
 
 Expected: FAIL because intents and enemy planning do not exist.
 
-- [ ] **Step 3: Define committed intent values**
+- [x] **Step 3: Define committed intent values**
 
 ```rust
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1096,7 +1096,7 @@ pub struct AttackIntent {
 
 `BattleState` owns a `Vec<AttackIntent>` sorted by initiative descending, then `UnitId`. Use initiatives Striker 30, left Rifleman 20, right Rifleman 19, Artillery 10.
 
-- [ ] **Step 4: Implement the authored first-round positioning**
+- [x] **Step 4: Implement the authored first-round positioning**
 
 When `round == 0`, move the Striker `(4,4)→(4,6)`, Rifleman L `(2,3)→(2,5)`, Rifleman R `(6,3)→(6,5)`, and leave Artillery at `(4,0)`. Emit `UnitMoved` for actual moves. This is concrete Mission 1 content, not a general scripting layer.
 
@@ -1108,7 +1108,7 @@ For later rounds:
 - Artillery stays if any player is in range 3–8; otherwise it minimizes distance along the central lane
 - sort equal scores by `(y, x)` so results are stable
 
-- [ ] **Step 5: Commit one fixed footprint per surviving enemy**
+- [x] **Step 5: Commit one fixed footprint per surviving enemy**
 
 For each enemy after movement, enumerate in-range legal target cells. Prefer a footprint containing the most living players, then intended occupant priority Vanguard, Gunner, Interceptor, then `(y, x)`. If no occupied target cell is in range, choose the legal target cell whose footprint is closest to the nearest player and store `intended_occupant: None`.
 
@@ -1116,7 +1116,7 @@ Snapshot the attacker's current accuracy and weapon values in `AttackProfile`. B
 
 `begin_round` clears player reactions/activation flags and old intents, performs positioning, commits intents, increments the visible round from 0 to 1, and enters `BattlePhase::Player`.
 
-- [ ] **Step 6: Run planning and domain regressions**
+- [x] **Step 6: Run planning and domain regressions**
 
 Run: `cargo test domain::enemy::tests`
 
@@ -1124,7 +1124,7 @@ Run: `cargo test domain`
 
 Expected: exact opening positions and footprints pass; prior movement/combat/environment tests remain green.
 
-- [ ] **Step 7: Commit locked enemy planning**
+- [x] **Step 7: Commit locked enemy planning**
 
 ```bash
 git add src/domain src/mission
