@@ -278,6 +278,32 @@ impl BattleState {
         }
     }
 
+    pub(super) fn enter_terminal_phase_if_resolved(&mut self) -> bool {
+        let any_living_player = self
+            .units
+            .values()
+            .any(|unit| unit.faction == Faction::Player && !unit.is_knocked_out());
+        let any_living_enemy = self
+            .units
+            .values()
+            .any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out());
+        let terminal_phase = if !any_living_player {
+            Some(BattlePhase::Defeat)
+        } else if !any_living_enemy {
+            Some(BattlePhase::Victory)
+        } else {
+            None
+        };
+
+        if let Some(phase) = terminal_phase {
+            self.phase = phase;
+            self.active_unit = None;
+            true
+        } else {
+            false
+        }
+    }
+
     pub(super) fn roll_percent(&mut self) -> u8 {
         self.rng.roll_percent()
     }

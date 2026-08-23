@@ -1145,7 +1145,7 @@ git commit -m "feat: commit deterministic enemy intents"
 - Consumes: sorted `AttackIntent` snapshots, seeded RNG, damage/knockout, player reactions and counter weapon flags.
 - Produces: `resolve_enemy_phase`, `resolve_intent`, `resolve_counter`, `IntentCanceled`, `CounterFired`, `AttackHitEmpty` events.
 
-- [ ] **Step 1: Write failing locked-intent and cancellation tests**
+- [x] **Step 1: Write failing locked-intent and cancellation tests**
 
 Add to `enemy.rs`:
 
@@ -1153,7 +1153,7 @@ Add to `enemy.rs`:
 #[test]
 fn moved_victim_is_not_retargeted_and_enemy_in_footprint_is_hit() {
     let mut battle = locked_mortar_fixture(2);
-    battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(3, 7));
+    battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(2, 7));
     let striker_hp = battle.unit(ids::STRIKER).unwrap().hp;
 
     let events = battle.resolve_intent_for_test(ids::ARTILLERY).unwrap();
@@ -1172,7 +1172,7 @@ fn knocking_out_attacker_cancels_its_pending_intent() {
 }
 ```
 
-- [ ] **Step 2: Write failing reaction tests**
+- [x] **Step 2: Write failing reaction tests**
 
 Add to `combat.rs`:
 
@@ -1199,7 +1199,7 @@ fn counter_uses_authored_weapon_and_en_without_recursion() {
 }
 ```
 
-- [ ] **Step 3: Run focused tests and verify red state**
+- [x] **Step 3: Run focused tests and verify red state**
 
 Run: `cargo test domain::enemy::tests`
 
@@ -1207,7 +1207,7 @@ Run: `cargo test domain::combat::tests`
 
 Expected: FAIL because enemy resolution and reaction effects are absent.
 
-- [ ] **Step 4: Resolve footprints against current occupants**
+- [x] **Step 4: Resolve footprints against current occupants**
 
 `resolve_intent` first checks the attacker. If knocked out, emit only `IntentCanceled`. Otherwise, for each unique committed cell:
 
@@ -1218,7 +1218,7 @@ Expected: FAIL because enemy resolution and reaction effects are absent.
 
 Use the current occupant's defense but the committed attacker's profile. This is the one resolution path for intended victims, moved-in players and enemy friendly fire.
 
-- [ ] **Step 5: Apply reaction rules after each player hit**
+- [x] **Step 5: Apply reaction rules after each player hit**
 
 - Guard subtracts 3 after armor, minimum 0.
 - Evade adds 25 to current evasion before the 5–95 hit clamp.
@@ -1226,17 +1226,17 @@ Use the current occupant's defense but the committed attacker's profile. This is
 - Counter deducts normal EN once, uses normal hit/crit rules, targets only the attacker, and calls attack resolution with `allow_reaction = false`.
 - An area intent gives each affected player at most one counter opportunity.
 
-- [ ] **Step 6: Resolve the full enemy phase in stable order**
+- [x] **Step 6: Resolve the full enemy phase in stable order**
 
 `resolve_enemy_phase` requires `Player`, no active unit, and all living players finished. It enters `EnemyResolution`, drains a clone of the sorted intents through `resolve_intent`, checks terminal objectives after each intent, then either stays terminal or calls `begin_round` for the next round.
 
-- [ ] **Step 7: Run all domain tests**
+- [x] **Step 7: Run all domain tests**
 
 Run: `cargo test domain`
 
 Expected: fixed-footprint, empty-cell, friendly-fire, cancellation, Counter, Guard, Evade and no-recursion cases pass.
 
-- [ ] **Step 8: Commit enemy resolution and reactions**
+- [x] **Step 8: Commit enemy resolution and reactions**
 
 ```bash
 git add src/domain

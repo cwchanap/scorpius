@@ -1,9 +1,10 @@
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
+    enemy::AttackProfile,
     model::{
-        BattleError, BattleEvent, BattlePhase, Faction, UnitId, UnitState, WeaponId, WeaponShape,
-        WeaponSpec,
+        BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitId, UnitState, WeaponId,
+        WeaponShape, WeaponSpec,
     },
 };
 
@@ -157,6 +158,142 @@ impl BattleState {
         Ok(events)
     }
 
+    pub(super) fn resolve_enemy_profile_against(
+        &mut self,
+        attacker: UnitId,
+        profile: &AttackProfile,
+        target: UnitId,
+    ) -> Result<(Vec<BattleEvent>, bool), BattleError> {
+        let defender = self
+            .unit(target)
+            .ok_or(BattleError::UnknownUnit(target))?
+            .clone();
+        let values = incoming_attack_values(profile, &defender);
+        let roll = self.roll_percent();
+        let hit = roll <= values.hit_chance;
+        let critical_roll = hit.then(|| self.roll_percent());
+        let critical = critical_roll.is_some_and(|roll| roll <= profile.crit_chance);
+        let mut events = vec![BattleEvent::AttackRolled {
+            attacker,
+            weapon: profile.weapon,
+            target,
+            roll,
+            hit,
+            critical_roll,
+            critical,
+        }];
+
+        if !hit {
+            return Ok((events, false));
+        }
+
+        let damage = if critical {
+            values.critical_damage
+        } else {
+            values.normal_damage
+        };
+        events.extend(self.apply_damage(
+            target,
+            damage,
+            DamageSource::EnemyWeapon(attacker, profile.weapon),
+        )?);
+        if profile.push
+            && self
+                .unit(attacker)
+                .is_some_and(|unit| !unit.is_knocked_out())
+            && self.unit(target).is_some_and(|unit| !unit.is_knocked_out())
+        {
+            events.extend(self.resolve_push(attacker, target)?);
+        }
+
+        Ok((events, true))
+    }
+
+    pub(super) fn resolve_counter(
+        &mut self,
+        defender: UnitId,
+        attacker: UnitId,
+    ) -> Result<Vec<BattleEvent>, BattleError> {
+        let countering_unit = self
+            .unit(defender)
+            .ok_or(BattleError::UnknownUnit(defender))?
+            .clone();
+        let target = self
+            .unit(attacker)
+            .ok_or(BattleError::UnknownUnit(attacker))?
+            .clone();
+        if countering_unit.is_knocked_out()
+            || countering_unit.reaction != Some(Reaction::Counter)
+            || target.is_knocked_out()
+        {
+            return Ok(Vec::new());
+        }
+
+        let weapon = countering_unit
+            .weapons
+            .iter()
+            .filter_map(|weapon| self.weapon(*weapon))
+            .find(|weapon| {
+                weapon.counter_weapon
+                    && weapon_reaches(weapon, countering_unit.position, target.position)
+            })
+            .cloned();
+        let Some(weapon) = weapon else {
+            return Ok(Vec::new());
+        };
+        if countering_unit.en < weapon.en_cost {
+            return Ok(Vec::new());
+        }
+
+        self.unit_mut(defender)
+            .expect("validated countering unit must exist")
+            .en -= weapon.en_cost;
+        let values = attack_values(&countering_unit, &weapon, &target);
+        let roll = self.roll_percent();
+        let hit = roll <= values.hit_chance;
+        let critical_roll = hit.then(|| self.roll_percent());
+        let critical = critical_roll.is_some_and(|roll| roll <= weapon.crit_chance);
+        let mut events = vec![
+            BattleEvent::CounterFired {
+                defender,
+                attacker,
+                weapon: weapon.id,
+            },
+            BattleEvent::AttackRolled {
+                attacker: defender,
+                weapon: weapon.id,
+                target: attacker,
+                roll,
+                hit,
+                critical_roll,
+                critical,
+            },
+        ];
+
+        if !hit {
+            return Ok(events);
+        }
+        let damage = if critical {
+            values.critical_damage
+        } else {
+            values.normal_damage
+        };
+        events.extend(self.apply_damage(
+            attacker,
+            damage,
+            DamageSource::PlayerWeapon(weapon.id),
+        )?);
+        if weapon.push
+            && self
+                .unit(attacker)
+                .is_some_and(|unit| !unit.is_knocked_out())
+        {
+            events.extend(self.resolve_push(defender, attacker)?);
+        }
+
+        Ok(events)
+    }
+
     pub(super) fn apply_damage(
         &mut self,
         target: UnitId,
@@ -194,6 +331,17 @@ impl BattleState {
             });
         }
         Ok(events)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_direct_damage(
+        &mut self,
+        target: UnitId,
+        damage: i16,
+        source: DamageSource,
+    ) -> Vec<BattleEvent> {
+        self.apply_damage(target, damage, source)
+            .expect("direct test damage must target a known unit")
     }
 
     fn attack_context(
@@ -300,6 +448,31 @@ fn attack_values(attacker: &UnitState, weapon: &WeaponSpec, defender: &UnitState
     }
 }
 
+fn incoming_attack_values(profile: &AttackProfile, defender: &UnitState) -> AttackValues {
+    let evasion_bonus = if defender.reaction == Some(Reaction::Evade) {
+        25
+    } else {
+        0
+    };
+    let hit_chance =
+        (profile.accuracy + profile.hit_modifier - defender.stats.evasion - evasion_bonus)
+            .clamp(5, 95) as u8;
+    let guard_reduction = if defender.reaction == Some(Reaction::Guard) {
+        3
+    } else {
+        0
+    };
+    let normal_damage =
+        ((profile.base_damage - defender.stats.armor).max(1) - guard_reduction).max(0);
+    let critical_raw = profile.base_damage + profile.base_damage / 2;
+    let critical_damage = ((critical_raw - defender.stats.armor).max(1) - guard_reduction).max(0);
+    AttackValues {
+        hit_chance,
+        normal_damage,
+        critical_damage,
+    }
+}
+
 fn prop_attack_values(weapon: &WeaponSpec) -> AttackValues {
     AttackValues {
         hit_chance: 100,
@@ -308,23 +481,23 @@ fn prop_attack_values(weapon: &WeaponSpec) -> AttackValues {
     }
 }
 
-pub(super) fn preview_for_units(
-    attacker: &UnitState,
-    weapon: &WeaponSpec,
+pub(super) fn preview_for_profile(
+    attacker: UnitId,
+    profile: &AttackProfile,
     target: GridPos,
     footprint: Vec<GridPos>,
     defender: &UnitState,
 ) -> AttackPreview {
-    let values = attack_values(attacker, weapon, defender);
+    let values = incoming_attack_values(profile, defender);
     AttackPreview {
-        attacker: attacker.id,
-        weapon: weapon.id,
+        attacker,
+        weapon: profile.weapon,
         target,
         footprint,
         hit_chance: values.hit_chance,
         normal_damage: values.normal_damage,
         critical_damage: values.critical_damage,
-        en_cost: weapon.en_cost,
+        en_cost: 0,
         push_destination: None,
     }
 }
@@ -351,12 +524,20 @@ fn push_destination(battle: &BattleState, attacker: GridPos, target: GridPos) ->
     battle.board().contains(destination).then_some(destination)
 }
 
+fn weapon_reaches(weapon: &WeaponSpec, attacker: GridPos, target: GridPos) -> bool {
+    let distance = attacker.manhattan(target);
+    distance >= weapon.min_range
+        && distance <= weapon.max_range
+        && (!weapon.push || attacker.x == target.x || attacker.y == target.y)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{AttackPreview, preview_for_profile};
     use crate::{
         domain::{
             board::GridPos,
-            model::{BattleError, BattleEvent},
+            model::{BattleError, BattleEvent, Reaction},
         },
         mission::mission_one::{ids, mission_one},
     };
@@ -469,6 +650,62 @@ mod tests {
         );
     }
 
+    #[test]
+    fn guard_reduces_post_armor_damage_and_evade_changes_hit_chance() {
+        let guard = incoming_preview_fixture(Some(Reaction::Guard));
+        assert_eq!(guard.normal_damage, 1);
+
+        let evade = incoming_preview_fixture(Some(Reaction::Evade));
+        let none = incoming_preview_fixture(None);
+        assert_eq!(none.hit_chance.saturating_sub(evade.hit_chance), 25);
+    }
+
+    #[test]
+    fn counter_uses_authored_weapon_and_en_without_recursion() {
+        let mut battle = counter_fixture(2);
+        let en_before = battle.unit(ids::INTERCEPTOR).unwrap().en;
+        let events = battle.resolve_intent_for_test(ids::RIFLEMAN_RIGHT).unwrap();
+
+        assert_eq!(battle.unit(ids::INTERCEPTOR).unwrap().en, en_before - 1);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, BattleEvent::CounterFired { .. }))
+                .count(),
+            1
+        );
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            BattleEvent::CounterFired { defender, .. }
+                if *defender == ids::RIFLEMAN_RIGHT
+        )));
+    }
+
+    #[test]
+    fn counter_requires_current_range_and_sufficient_en() {
+        let mut out_of_range = counter_fixture(2);
+        let en_before = out_of_range.unit(ids::INTERCEPTOR).unwrap().en;
+        out_of_range.move_unit_direct_for_test(ids::RIFLEMAN_RIGHT, GridPos::new(0, 0));
+        let range_events = out_of_range
+            .resolve_intent_for_test(ids::RIFLEMAN_RIGHT)
+            .unwrap();
+        assert_eq!(out_of_range.unit(ids::INTERCEPTOR).unwrap().en, en_before);
+        assert!(
+            !range_events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::CounterFired { .. }))
+        );
+
+        let mut no_en = counter_fixture(2);
+        no_en.unit_mut_for_test(ids::INTERCEPTOR).unwrap().en = 0;
+        let en_events = no_en.resolve_intent_for_test(ids::RIFLEMAN_RIGHT).unwrap();
+        assert!(
+            !en_events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::CounterFired { .. }))
+        );
+    }
+
     fn adjacent_vanguard_and_striker(seed: u64) -> crate::domain::battle::BattleState {
         let mut battle = mission_one(seed);
         battle.enter_player_phase_for_test();
@@ -479,6 +716,29 @@ mod tests {
     fn low_hp_striker_fixture(seed: u64) -> crate::domain::battle::BattleState {
         let mut battle = adjacent_vanguard_and_striker(seed);
         battle.unit_mut_for_test(ids::STRIKER).unwrap().hp = 10;
+        battle
+    }
+
+    fn incoming_preview_fixture(reaction: Option<Reaction>) -> AttackPreview {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.unit_mut_for_test(ids::VANGUARD).unwrap().reaction = reaction;
+
+        let intent = battle.intent_for(ids::STRIKER).unwrap();
+        let defender = battle.unit(ids::VANGUARD).unwrap();
+        preview_for_profile(
+            intent.attacker,
+            &intent.profile,
+            defender.position,
+            intent.footprint.clone(),
+            defender,
+        )
+    }
+
+    fn counter_fixture(seed: u64) -> crate::domain::battle::BattleState {
+        let mut battle = mission_one(seed);
+        battle.begin_round().unwrap();
+        battle.unit_mut_for_test(ids::INTERCEPTOR).unwrap().reaction = Some(Reaction::Counter);
         battle
     }
 }

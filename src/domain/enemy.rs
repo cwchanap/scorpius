@@ -1,9 +1,9 @@
-use std::cmp::Reverse;
+use std::{cmp::Reverse, collections::BTreeSet};
 
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
-    combat::{AttackPreview, attack_footprint, preview_for_units},
+    combat::{AttackPreview, attack_footprint, preview_for_profile},
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, UnitArchetype, UnitId,
         UnitState, WeaponId,
@@ -79,6 +79,107 @@ impl BattleState {
         self.round = self.round.saturating_add(1);
         self.phase = BattlePhase::Player;
         Ok(events)
+    }
+
+    pub fn resolve_enemy_phase(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
+        if self.phase != BattlePhase::Player {
+            return Err(BattleError::WrongPhase {
+                expected: BattlePhase::Player,
+                actual: self.phase,
+            });
+        }
+        if !self.ready_to_resolve() {
+            return Err(BattleError::EnemyResolutionNotReady);
+        }
+
+        self.phase = BattlePhase::EnemyResolution;
+        let mut events = Vec::new();
+        if self.enter_terminal_phase_if_resolved() {
+            return Ok(events);
+        }
+
+        let intents = self.intents.clone();
+        for intent in &intents {
+            events.extend(self.resolve_intent(intent)?);
+            if self.enter_terminal_phase_if_resolved() {
+                return Ok(events);
+            }
+        }
+
+        self.phase = BattlePhase::EnemyPlanning;
+        events.extend(self.begin_round()?);
+        Ok(events)
+    }
+
+    fn resolve_intent(&mut self, intent: &AttackIntent) -> Result<Vec<BattleEvent>, BattleError> {
+        let attacker = self
+            .unit(intent.attacker)
+            .ok_or(BattleError::UnknownUnit(intent.attacker))?;
+        if attacker.is_knocked_out() {
+            return Ok(vec![BattleEvent::IntentCanceled {
+                attacker: intent.attacker,
+            }]);
+        }
+
+        let mut events = Vec::new();
+        let mut seen_cells = BTreeSet::new();
+        let mut counter_opportunities = BTreeSet::new();
+        for cell in intent
+            .footprint
+            .iter()
+            .copied()
+            .filter(|cell| seen_cells.insert(*cell))
+        {
+            let occupant = self.occupant_at(cell);
+            let has_explosive = self.board().has_live_explosive(cell);
+            if occupant.is_none() && !has_explosive {
+                events.push(BattleEvent::AttackHitEmpty {
+                    attacker: intent.attacker,
+                    weapon: intent.profile.weapon,
+                    cell,
+                });
+                continue;
+            }
+
+            if let Some(target) = occupant {
+                let target_faction = self
+                    .unit(target)
+                    .expect("living occupant must exist")
+                    .faction;
+                let (attack_events, hit) =
+                    self.resolve_enemy_profile_against(intent.attacker, &intent.profile, target)?;
+                events.extend(attack_events);
+
+                if hit && target_faction == Faction::Player && counter_opportunities.insert(target)
+                {
+                    events.extend(self.resolve_counter(target, intent.attacker)?);
+                }
+            }
+
+            if self.board().has_live_explosive(cell) {
+                events.extend(self.damage_explosive(
+                    cell,
+                    intent.profile.base_damage,
+                    crate::domain::combat::DamageSource::EnemyWeapon(
+                        intent.attacker,
+                        intent.profile.weapon,
+                    ),
+                )?);
+            }
+        }
+        Ok(events)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resolve_intent_for_test(
+        &mut self,
+        attacker: UnitId,
+    ) -> Result<Vec<BattleEvent>, BattleError> {
+        let intent = self
+            .intent_for(attacker)
+            .cloned()
+            .ok_or(BattleError::UnknownUnit(attacker))?;
+        self.resolve_intent(&intent)
     }
 
     fn apply_authored_opening_movement(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
@@ -271,11 +372,19 @@ fn build_intent(
         Some(target) => choice_for_center(battle, weapon.shape, target),
         None => choose_target(battle, attacker, weapon)?,
     };
+    let profile = AttackProfile {
+        weapon: weapon_id,
+        base_damage: weapon.base_damage,
+        accuracy: attacker.stats.accuracy,
+        hit_modifier: weapon.hit_modifier,
+        crit_chance: weapon.crit_chance,
+        push: weapon.push,
+    };
     let intended_preview = choice.intended_occupant.and_then(|target_id| {
         battle.unit(target_id).map(|target| {
-            preview_for_units(
-                attacker,
-                weapon,
+            preview_for_profile(
+                attacker_id,
+                &profile,
                 choice.center,
                 choice.footprint.clone(),
                 target,
@@ -286,14 +395,7 @@ fn build_intent(
     Ok(AttackIntent {
         attacker: attacker_id,
         origin: attacker.position,
-        profile: AttackProfile {
-            weapon: weapon_id,
-            base_damage: weapon.base_damage,
-            accuracy: attacker.stats.accuracy,
-            hit_modifier: weapon.hit_modifier,
-            crit_chance: weapon.crit_chance,
-            push: weapon.push,
-        },
+        profile,
         footprint: choice.footprint,
         intended_occupant: choice.intended_occupant,
         intended_preview,
@@ -435,6 +537,7 @@ mod tests {
     use crate::{
         domain::{
             board::GridPos,
+            combat::DamageSource,
             model::{BattleEvent, BattlePhase},
         },
         mission::mission_one::{ids, mission_one},
@@ -517,6 +620,149 @@ mod tests {
         );
     }
 
+    #[test]
+    fn moved_victim_is_not_retargeted_and_enemy_in_footprint_is_hit() {
+        let mut battle = locked_mortar_fixture(2);
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(2, 7));
+        let striker_hp = battle.unit(ids::STRIKER).unwrap().hp;
+
+        let events = battle.resolve_intent_for_test(ids::ARTILLERY).unwrap();
+
+        assert_eq!(battle.unit(ids::VANGUARD).unwrap().hp, 20);
+        assert!(battle.unit(ids::STRIKER).unwrap().hp < striker_hp);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::AttackHitEmpty { cell, .. } if *cell == GridPos::new(4, 7)
+        )));
+    }
+
+    #[test]
+    fn knocking_out_attacker_cancels_its_pending_intent() {
+        let mut battle = locked_mortar_fixture(2);
+        battle.apply_direct_damage(
+            ids::ARTILLERY,
+            99,
+            DamageSource::PlayerWeapon(ids::RAIL_RIFLE),
+        );
+
+        let events = battle.resolve_intent_for_test(ids::ARTILLERY).unwrap();
+
+        assert_eq!(
+            events,
+            vec![BattleEvent::IntentCanceled {
+                attacker: ids::ARTILLERY,
+            }]
+        );
+    }
+
+    #[test]
+    fn moved_in_player_is_hit_without_changing_the_committed_footprint() {
+        let mut battle = locked_mortar_fixture(2);
+        let committed = battle.intent_for(ids::ARTILLERY).unwrap().footprint.clone();
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(2, 7));
+        battle.move_unit_direct_for_test(ids::GUNNER, GridPos::new(4, 7));
+
+        battle.resolve_intent_for_test(ids::ARTILLERY).unwrap();
+
+        assert!(battle.unit(ids::GUNNER).unwrap().hp < 12);
+        assert_eq!(
+            battle.intent_for(ids::ARTILLERY).unwrap().footprint,
+            committed
+        );
+    }
+
+    #[test]
+    fn enemy_footprint_hits_the_explosive_once() {
+        let mut battle = mission_one(2);
+        battle.set_round_for_test(1);
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(6, 5));
+        battle.move_unit_direct_for_test(ids::GUNNER, GridPos::new(7, 5));
+        battle.move_unit_direct_for_test(ids::INTERCEPTOR, GridPos::new(6, 4));
+        battle.begin_round().unwrap();
+        assert!(
+            battle
+                .intent_for(ids::ARTILLERY)
+                .unwrap()
+                .footprint
+                .contains(&GridPos::new(6, 6))
+        );
+
+        let events = battle.resolve_intent_for_test(ids::ARTILLERY).unwrap();
+
+        assert!(
+            battle
+                .board()
+                .explosive_at(GridPos::new(6, 6))
+                .unwrap()
+                .exploded
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, BattleEvent::ExplosionTriggered { .. }))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn full_enemy_phase_requires_finished_players_and_preserves_intent_order() {
+        let mut battle = mission_one(2);
+        battle.begin_round().unwrap();
+        assert_eq!(
+            battle.resolve_enemy_phase(),
+            Err(crate::domain::model::BattleError::EnemyResolutionNotReady)
+        );
+
+        for player in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
+            battle.begin_activation(player).unwrap();
+            battle
+                .choose_reaction(player, crate::domain::model::Reaction::Guard)
+                .unwrap();
+            battle.finish_activation(player).unwrap();
+        }
+
+        let events = battle.resolve_enemy_phase().unwrap();
+        let mut resolved_attackers = Vec::new();
+        for event in &events {
+            let attacker = match event {
+                BattleEvent::AttackRolled { attacker, .. }
+                | BattleEvent::AttackHitEmpty { attacker, .. }
+                | BattleEvent::IntentCanceled { attacker } => *attacker,
+                _ => continue,
+            };
+            if resolved_attackers.last() != Some(&attacker) {
+                resolved_attackers.push(attacker);
+            }
+        }
+
+        assert_eq!(
+            &resolved_attackers[..4],
+            &[
+                ids::STRIKER,
+                ids::RIFLEMAN_LEFT,
+                ids::RIFLEMAN_RIGHT,
+                ids::ARTILLERY,
+            ]
+        );
+        assert_eq!(battle.round(), 2);
+        assert_eq!(battle.phase(), BattlePhase::Player);
+    }
+
+    #[test]
+    fn terminal_combatant_state_does_not_begin_another_round() {
+        let mut battle = locked_mortar_fixture(2);
+        for player in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
+            battle.apply_direct_damage(player, 99, DamageSource::Hazard);
+        }
+
+        let events = battle.resolve_enemy_phase().unwrap();
+
+        assert!(events.is_empty());
+        assert_eq!(battle.phase(), BattlePhase::Defeat);
+        assert_eq!(battle.round(), 1);
+    }
+
     fn isolated_striker_fixture() -> crate::domain::battle::BattleState {
         let mut battle = mission_one(7);
         battle.set_round_for_test(1);
@@ -524,6 +770,12 @@ mod tests {
         battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(8, 8));
         battle.move_unit_direct_for_test(ids::GUNNER, GridPos::new(7, 8));
         battle.move_unit_direct_for_test(ids::INTERCEPTOR, GridPos::new(8, 7));
+        battle
+    }
+
+    fn locked_mortar_fixture(seed: u64) -> crate::domain::battle::BattleState {
+        let mut battle = mission_one(seed);
+        battle.begin_round().unwrap();
         battle
     }
 }

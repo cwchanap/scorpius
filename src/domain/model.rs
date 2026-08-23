@@ -154,6 +154,19 @@ pub enum BattleEvent {
         footprint: Vec<GridPos>,
         intended_occupant: Option<UnitId>,
     },
+    IntentCanceled {
+        attacker: UnitId,
+    },
+    AttackHitEmpty {
+        attacker: UnitId,
+        weapon: WeaponId,
+        cell: GridPos,
+    },
+    CounterFired {
+        defender: UnitId,
+        attacker: UnitId,
+        weapon: WeaponId,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -171,6 +184,7 @@ pub enum BattleError {
     MoveAlreadySpent(UnitId),
     ActionAlreadySpent(UnitId),
     ReactionRequired(UnitId),
+    EnemyResolutionNotReady,
     UnknownWeapon(WeaponId),
     WeaponNotOwned {
         unit: UnitId,
