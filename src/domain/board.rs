@@ -97,6 +97,11 @@ impl BoardState {
         self.explosives.get(&position)
     }
 
+    pub fn has_live_explosive(&self, position: GridPos) -> bool {
+        self.explosive_at(position)
+            .is_some_and(|explosive| explosive.hp > 0 && !explosive.exploded)
+    }
+
     pub fn blocking_cells(&self) -> impl Iterator<Item = GridPos> + '_ {
         let mut cells: Vec<_> = self.blocking.iter().copied().collect();
         cells.sort_by_key(|position| (position.y, position.x));

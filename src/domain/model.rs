@@ -88,6 +88,15 @@ impl UnitState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BattlePhase {
+    EnemyPlanning,
+    Player,
+    EnemyResolution,
+    Victory,
+    Defeat,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BattleEvent {
     UnitMoved {
@@ -100,7 +109,25 @@ pub enum BattleEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BattleError {
     UnknownUnit(UnitId),
+    WrongPhase {
+        expected: BattlePhase,
+        actual: BattlePhase,
+    },
+    ActivationInProgress(UnitId),
+    UnitNotPlayer(UnitId),
+    UnitKnockedOut(UnitId),
+    ActivationAlreadyFinished(UnitId),
+    UnitNotActive(UnitId),
+    MoveAlreadySpent(UnitId),
+    ReactionRequired(UnitId),
     OutOfBounds(GridPos),
     DestinationOccupied(GridPos),
-    NotOrthogonallyAdjacent { from: GridPos, to: GridPos },
+    DestinationUnreachable {
+        unit: UnitId,
+        destination: GridPos,
+    },
+    NotOrthogonallyAdjacent {
+        from: GridPos,
+        to: GridPos,
+    },
 }

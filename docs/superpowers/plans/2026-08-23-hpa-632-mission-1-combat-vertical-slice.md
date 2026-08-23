@@ -681,7 +681,7 @@ git commit -m "feat: author Mission 1 combat data"
 - Consumes: Mission 1 units, stats, board occupancy and reactions.
 - Produces: `BattlePhase`, `BattleState::begin_activation`, `reachable_cells`, full `move_unit`, `choose_reaction`, `finish_activation`, and `ready_to_resolve`.
 
-- [ ] **Step 1: Write failing activation tests**
+- [x] **Step 1: Write failing activation tests**
 
 Add to `battle.rs`:
 
@@ -720,13 +720,13 @@ fn finishing_skips_unused_move_and_action() {
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm red state**
+- [x] **Step 2: Run the focused tests and confirm red state**
 
 Run: `cargo test domain::battle::tests`
 
 Expected: FAIL because phases and activation transitions do not exist.
 
-- [ ] **Step 3: Add phase and activation validation**
+- [x] **Step 3: Add phase and activation validation**
 
 Define:
 
@@ -744,13 +744,13 @@ pub struct BattleState {
 
 `begin_activation` accepts only a living, unfinished player during `Player`, and rejects a second active unit. `choose_reaction` accepts only the active unit. `finish_activation` requires a reaction, sets skipped Move/Action to spent, marks finished, and clears `active_unit`.
 
-- [ ] **Step 4: Replace one-cell viability movement with path-based movement**
+- [x] **Step 4: Replace one-cell viability movement with path-based movement**
 
 Implement `reachable_cells(UnitId) -> Result<BTreeSet<GridPos>, BattleError>` with a breadth-first traversal capped by `unit.stats.movement`. A legal path remains in bounds and cannot pass through blocking terrain, a live explosive, or another living unit. The unit's origin is not returned as a destination.
 
 Production `move_unit` must require the active unit during `Player`, reject `moved == true`, verify the requested destination is reachable, update position once, set `moved = true`, and emit one `UnitMoved` event. Keep a private viability-only single-step transition or configure the viability fixture as an active player so its existing test still exercises the same production rule.
 
-- [ ] **Step 5: Run movement, activation and presentation regressions**
+- [x] **Step 5: Run movement, activation and presentation regressions**
 
 Run: `cargo test domain::battle::tests`
 
@@ -758,7 +758,7 @@ Run: `cargo test --test presentation_app`
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit activation rules**
+- [x] **Step 6: Commit activation rules**
 
 ```bash
 git add src/domain
