@@ -2,10 +2,12 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::{
     board::{BoardState, GridPos},
+    combat::DamageSource,
     enemy::AttackIntent,
     model::{
-        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype,
-        UnitId, UnitState, UnitStats, WeaponId, WeaponSpec,
+        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MissionResult,
+        ObjectiveProgress, Reaction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId,
+        WeaponSpec,
     },
     rng::BattleRng,
 };
@@ -19,6 +21,8 @@ pub struct BattleState {
     pub(super) round: u16,
     pub(super) active_unit: Option<UnitId>,
     pub(super) intents: Vec<AttackIntent>,
+    objectives: ObjectiveProgress,
+    result: Option<MissionResult>,
     rng: BattleRng,
 }
 
@@ -40,6 +44,8 @@ impl BattleState {
             round: 0,
             active_unit: None,
             intents: Vec::new(),
+            objectives: ObjectiveProgress::default(),
+            result: None,
             rng: BattleRng::seeded(seed),
         }
     }
@@ -114,6 +120,14 @@ impl BattleState {
 
     pub const fn active_unit(&self) -> Option<UnitId> {
         self.active_unit
+    }
+
+    pub const fn objectives(&self) -> ObjectiveProgress {
+        self.objectives
+    }
+
+    pub const fn result(&self) -> Option<MissionResult> {
+        self.result
     }
 
     pub fn begin_activation(&mut self, id: UnitId) -> Result<(), BattleError> {
@@ -278,7 +292,37 @@ impl BattleState {
         }
     }
 
-    pub(super) fn enter_terminal_phase_if_resolved(&mut self) -> bool {
+    pub(super) fn observe_damage_for_objectives(
+        &mut self,
+        target: UnitId,
+        amount: i16,
+        source: DamageSource,
+    ) -> Vec<BattleEvent> {
+        let damages_enemy = amount > 0
+            && self
+                .units
+                .get(&target)
+                .is_some_and(|unit| unit.faction == Faction::Enemy);
+        let qualifies = matches!(
+            source,
+            DamageSource::EnemyWeapon(_, _)
+                | DamageSource::Collision
+                | DamageSource::Hazard
+                | DamageSource::Explosion
+        );
+        if !damages_enemy || !qualifies || self.objectives.turnabout_complete {
+            return Vec::new();
+        }
+
+        self.objectives.turnabout_complete = true;
+        vec![BattleEvent::OptionalObjectiveCompleted]
+    }
+
+    pub(super) fn check_terminal_state(&mut self) -> Vec<BattleEvent> {
+        if self.result.is_some() {
+            return Vec::new();
+        }
+
         let any_living_player = self
             .units
             .values()
@@ -287,21 +331,35 @@ impl BattleState {
             .units
             .values()
             .any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out());
-        let terminal_phase = if !any_living_player {
-            Some(BattlePhase::Defeat)
-        } else if !any_living_enemy {
-            Some(BattlePhase::Victory)
+        let victory = if any_living_player && !any_living_enemy {
+            Some(true)
+        } else if !any_living_player {
+            Some(false)
         } else {
             None
         };
 
-        if let Some(phase) = terminal_phase {
-            self.phase = phase;
-            self.active_unit = None;
-            true
+        let Some(victory) = victory else {
+            return Vec::new();
+        };
+        let result = MissionResult {
+            victory,
+            turnabout_complete: self.objectives.turnabout_complete,
+            rounds: self.round,
+        };
+        self.phase = if victory {
+            BattlePhase::Victory
         } else {
-            false
-        }
+            BattlePhase::Defeat
+        };
+        self.active_unit = None;
+        self.result = Some(result);
+
+        vec![if victory {
+            BattleEvent::MissionCompleted { result }
+        } else {
+            BattleEvent::MissionFailed { result }
+        }]
     }
 
     pub(super) fn roll_percent(&mut self) -> u8 {
@@ -337,7 +395,10 @@ impl BattleState {
 mod tests {
     use super::*;
     use crate::{
-        domain::model::{ActivationState, Reaction},
+        domain::{
+            combat::DamageSource,
+            model::{ActivationState, MissionResult, Reaction},
+        },
         mission::mission_one::{ids, mission_one},
     };
 
@@ -434,5 +495,116 @@ mod tests {
         }
 
         assert!(battle.ready_to_resolve());
+    }
+
+    #[test]
+    fn enemy_or_environment_damage_to_enemy_completes_turnabout() {
+        for source in [
+            DamageSource::EnemyWeapon(ids::ARTILLERY, ids::SIEGE_MORTAR),
+            DamageSource::Collision,
+            DamageSource::Hazard,
+            DamageSource::Explosion,
+        ] {
+            let mut battle = mission_one(7);
+            let events = battle.apply_direct_damage(ids::STRIKER, 1, source);
+
+            assert!(battle.objectives().turnabout_complete, "source {source:?}");
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
+                    .count(),
+                1
+            );
+            let later_events = battle.apply_direct_damage(ids::STRIKER, 1, source);
+            assert!(
+                !later_events
+                    .iter()
+                    .any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
+            );
+        }
+    }
+
+    #[test]
+    fn player_weapon_damage_alone_does_not_complete_turnabout() {
+        let mut battle = mission_one(7);
+        battle.apply_direct_damage(ids::STRIKER, 1, DamageSource::PlayerWeapon(ids::PILE_LANCE));
+
+        assert!(!battle.objectives().turnabout_complete);
+    }
+
+    #[test]
+    fn victory_failure_and_restart_are_clean() {
+        let mut battle = mission_one(7);
+        let victory_events = knock_out_all_enemies(&mut battle);
+        assert_eq!(
+            battle.result(),
+            Some(MissionResult {
+                victory: true,
+                turnabout_complete: false,
+                rounds: 0,
+            })
+        );
+        assert_eq!(
+            victory_events
+                .iter()
+                .filter(|event| matches!(event, BattleEvent::MissionCompleted { .. }))
+                .count(),
+            1
+        );
+
+        battle.restart_mission(11);
+        assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
+        assert_eq!(battle.round(), 0);
+        assert!(
+            battle
+                .units()
+                .all(|unit| unit.hp == unit.stats.max_hp && unit.en == unit.stats.max_en)
+        );
+        assert!(battle.intents().is_empty());
+        assert!(!battle.objectives().turnabout_complete);
+
+        let failure_events = knock_out_all_players(&mut battle);
+        assert_eq!(battle.phase(), BattlePhase::Defeat);
+        assert_eq!(
+            battle.result(),
+            Some(MissionResult {
+                victory: false,
+                turnabout_complete: false,
+                rounds: 0,
+            })
+        );
+        assert_eq!(
+            failure_events
+                .iter()
+                .filter(|event| matches!(event, BattleEvent::MissionFailed { .. }))
+                .count(),
+            1
+        );
+    }
+
+    fn knock_out_all_enemies(battle: &mut BattleState) -> Vec<BattleEvent> {
+        let mut events = Vec::new();
+        for enemy in [
+            ids::RIFLEMAN_LEFT,
+            ids::RIFLEMAN_RIGHT,
+            ids::STRIKER,
+            ids::ARTILLERY,
+        ] {
+            events.extend(battle.apply_direct_damage(
+                enemy,
+                99,
+                DamageSource::PlayerWeapon(ids::PILE_LANCE),
+            ));
+        }
+        events
+    }
+
+    fn knock_out_all_players(battle: &mut BattleState) -> Vec<BattleEvent> {
+        let mut events = Vec::new();
+        for player in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
+            events.extend(battle.apply_direct_damage(player, 99, DamageSource::Hazard));
+        }
+        events
     }
 }

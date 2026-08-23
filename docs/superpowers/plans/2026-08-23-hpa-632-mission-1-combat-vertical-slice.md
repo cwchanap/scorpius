@@ -1259,7 +1259,7 @@ git commit -m "feat: resolve locked attacks and reactions"
 - Consumes: every damage/knockout source and phase transition.
 - Produces: `ObjectiveProgress`, `MissionResult`, `observe_damage_for_objectives`, `check_terminal_state`, `restart_mission(seed)`, objective/result events.
 
-- [ ] **Step 1: Write failing objective and restart tests**
+- [x] **Step 1: Write failing objective and restart tests**
 
 Add to `battle.rs`:
 
@@ -1303,13 +1303,13 @@ fn victory_failure_and_restart_are_clean() {
 }
 ```
 
-- [ ] **Step 2: Run tests and confirm red state**
+- [x] **Step 2: Run tests and confirm red state**
 
 Run: `cargo test domain::battle::tests`
 
 Expected: FAIL because objective/result state is absent.
 
-- [ ] **Step 3: Add explicit objective and result values**
+- [x] **Step 3: Add explicit objective and result values**
 
 ```rust
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1325,7 +1325,7 @@ pub struct MissionResult {
 
 Every successful damage application calls one observer. Set Turnabout only when the damaged unit is an enemy and the source is enemy weapon, collision, hazard or explosion. Emit `OptionalObjectiveCompleted` only on the false→true transition.
 
-- [ ] **Step 4: Centralize terminal checks**
+- [x] **Step 4: Centralize terminal checks**
 
 After every damage batch and phase transition:
 
@@ -1334,11 +1334,11 @@ After every damage batch and phase transition:
 
 Do not enter the next round after a terminal result.
 
-- [ ] **Step 5: Reconstruct rather than partially reset**
+- [x] **Step 5: Reconstruct rather than partially reset**
 
 Implement `restart_mission(seed)` by replacing `*self` with `mission_one(seed)`. Do not manually reset selected fields. Presentation owns transient selection/event queues and clears those when it receives the restart command.
 
-- [ ] **Step 6: Run full domain suite and commit**
+- [x] **Step 6: Run full domain suite and commit**
 
 Run: `cargo test domain`
 

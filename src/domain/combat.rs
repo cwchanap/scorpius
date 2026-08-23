@@ -148,12 +148,13 @@ impl BattleState {
             .filter(|position| self.board().has_live_explosive(*position))
             .collect();
         for position in explosive_positions {
-            events.extend(self.damage_explosive(
+            events.extend(self.damage_explosive_raw(
                 position,
                 context.weapon.base_damage,
                 DamageSource::PlayerWeapon(weapon),
             )?);
         }
+        events.extend(self.check_terminal_state());
 
         Ok(events)
     }
@@ -330,6 +331,7 @@ impl BattleState {
                 position,
             });
         }
+        events.extend(self.observe_damage_for_objectives(target, applied, source));
         Ok(events)
     }
 
@@ -340,8 +342,11 @@ impl BattleState {
         damage: i16,
         source: DamageSource,
     ) -> Vec<BattleEvent> {
-        self.apply_damage(target, damage, source)
-            .expect("direct test damage must target a known unit")
+        let mut events = self
+            .apply_damage(target, damage, source)
+            .expect("direct test damage must target a known unit");
+        events.extend(self.check_terminal_state());
+        events
     }
 
     fn attack_context(

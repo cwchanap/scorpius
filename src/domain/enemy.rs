@@ -56,6 +56,11 @@ impl BattleState {
             });
         }
 
+        let mut events = self.check_terminal_state();
+        if self.result().is_some() {
+            return Ok(events);
+        }
+
         self.active_unit = None;
         self.intents.clear();
         let player_ids: Vec<_> = self
@@ -70,11 +75,15 @@ impl BattleState {
         }
 
         let opening = self.round == 0;
-        let mut events = if opening {
-            self.apply_authored_opening_movement()?
+        if opening {
+            events.extend(self.apply_authored_opening_movement()?);
         } else {
-            self.apply_later_enemy_movement()?
-        };
+            events.extend(self.apply_later_enemy_movement()?);
+        }
+        events.extend(self.check_terminal_state());
+        if self.result().is_some() {
+            return Ok(events);
+        }
         events.extend(self.commit_enemy_intents(opening)?);
         self.round = self.round.saturating_add(1);
         self.phase = BattlePhase::Player;
@@ -92,16 +101,16 @@ impl BattleState {
             return Err(BattleError::EnemyResolutionNotReady);
         }
 
-        self.phase = BattlePhase::EnemyResolution;
-        let mut events = Vec::new();
-        if self.enter_terminal_phase_if_resolved() {
+        let mut events = self.check_terminal_state();
+        if self.result().is_some() {
             return Ok(events);
         }
 
+        self.phase = BattlePhase::EnemyResolution;
         let intents = self.intents.clone();
         for intent in &intents {
             events.extend(self.resolve_intent(intent)?);
-            if self.enter_terminal_phase_if_resolved() {
+            if self.result().is_some() {
                 return Ok(events);
             }
         }
@@ -116,9 +125,11 @@ impl BattleState {
             .unit(intent.attacker)
             .ok_or(BattleError::UnknownUnit(intent.attacker))?;
         if attacker.is_knocked_out() {
-            return Ok(vec![BattleEvent::IntentCanceled {
+            let mut events = vec![BattleEvent::IntentCanceled {
                 attacker: intent.attacker,
-            }]);
+            }];
+            events.extend(self.check_terminal_state());
+            return Ok(events);
         }
 
         let mut events = Vec::new();
@@ -157,7 +168,7 @@ impl BattleState {
             }
 
             if self.board().has_live_explosive(cell) {
-                events.extend(self.damage_explosive(
+                events.extend(self.damage_explosive_raw(
                     cell,
                     intent.profile.base_damage,
                     crate::domain::combat::DamageSource::EnemyWeapon(
@@ -167,6 +178,7 @@ impl BattleState {
                 )?);
             }
         }
+        events.extend(self.check_terminal_state());
         Ok(events)
     }
 
@@ -199,6 +211,9 @@ impl BattleState {
                 _ => origin,
             };
             events.extend(self.move_enemy_to(id, destination)?);
+            if self.result().is_some() {
+                break;
+            }
         }
         Ok(events)
     }
@@ -214,6 +229,9 @@ impl BattleState {
         for id in enemy_ids {
             let destination = choose_enemy_destination(self, id)?;
             events.extend(self.move_enemy_to(id, destination)?);
+            if self.result().is_some() {
+                break;
+            }
         }
         Ok(events)
     }
@@ -756,11 +774,15 @@ mod tests {
             battle.apply_direct_damage(player, 99, DamageSource::Hazard);
         }
 
-        let events = battle.resolve_enemy_phase().unwrap();
-
-        assert!(events.is_empty());
         assert_eq!(battle.phase(), BattlePhase::Defeat);
         assert_eq!(battle.round(), 1);
+        assert_eq!(
+            battle.resolve_enemy_phase(),
+            Err(crate::domain::model::BattleError::WrongPhase {
+                expected: BattlePhase::Player,
+                actual: BattlePhase::Defeat,
+            })
+        );
     }
 
     fn isolated_striker_fixture() -> crate::domain::battle::BattleState {

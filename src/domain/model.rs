@@ -99,6 +99,18 @@ pub enum BattlePhase {
     Defeat,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ObjectiveProgress {
+    pub turnabout_complete: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MissionResult {
+    pub victory: bool,
+    pub turnabout_complete: bool,
+    pub rounds: u16,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BattleEvent {
     UnitMoved {
@@ -166,6 +178,13 @@ pub enum BattleEvent {
         defender: UnitId,
         attacker: UnitId,
         weapon: WeaponId,
+    },
+    OptionalObjectiveCompleted,
+    MissionCompleted {
+        result: MissionResult,
+    },
+    MissionFailed {
+        result: MissionResult,
     },
 }
 

@@ -280,6 +280,12 @@ pub fn mission_one(seed: u64) -> BattleState {
     BattleState::new(board, units, weapons, seed)
 }
 
+impl BattleState {
+    pub fn restart_mission(&mut self, seed: u64) {
+        *self = mission_one(seed);
+    }
+}
+
 const fn stats(
     max_hp: i16,
     armor: i16,

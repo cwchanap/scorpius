@@ -44,6 +44,7 @@ impl BattleState {
                 blocked_at,
             }];
             events.extend(self.apply_damage(target, 3, DamageSource::Collision)?);
+            events.extend(self.check_terminal_state());
             return Ok(events);
         };
 
@@ -56,10 +57,22 @@ impl BattleState {
             to: destination,
         }];
         events.extend(self.resolve_hazard_if_present(target)?);
+        events.extend(self.check_terminal_state());
         Ok(events)
     }
 
     pub fn damage_explosive(
+        &mut self,
+        position: GridPos,
+        damage: i16,
+        source: DamageSource,
+    ) -> Result<Vec<BattleEvent>, BattleError> {
+        let mut events = self.damage_explosive_raw(position, damage, source)?;
+        events.extend(self.check_terminal_state());
+        Ok(events)
+    }
+
+    pub(super) fn damage_explosive_raw(
         &mut self,
         position: GridPos,
         damage: i16,
@@ -109,6 +122,7 @@ impl BattleState {
         let position = state.position;
         let mut events = vec![BattleEvent::HazardTriggered { unit, position }];
         events.extend(self.apply_damage(unit, 3, DamageSource::Hazard)?);
+        events.extend(self.check_terminal_state());
         Ok(events)
     }
 
