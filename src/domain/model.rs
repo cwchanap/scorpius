@@ -125,9 +125,28 @@ pub enum BattleEvent {
         unit: UnitId,
         position: GridPos,
     },
-    PushRequested {
-        attacker: UnitId,
-        target: UnitId,
+    UnitPushed {
+        unit: UnitId,
+        from: GridPos,
+        to: GridPos,
+    },
+    CollisionOccurred {
+        unit: UnitId,
+        blocked_at: GridPos,
+    },
+    HazardTriggered {
+        unit: UnitId,
+        position: GridPos,
+    },
+    ExplosiveDamaged {
+        position: GridPos,
+        amount: i16,
+        remaining_hp: i16,
+        source: DamageSource,
+    },
+    ExplosionTriggered {
+        position: GridPos,
+        footprint: Vec<GridPos>,
     },
 }
 
@@ -172,6 +191,7 @@ pub enum BattleError {
         attacker: GridPos,
         target: GridPos,
     },
+    ExplosiveNotFound(GridPos),
     NotOrthogonallyAdjacent {
         from: GridPos,
         to: GridPos,

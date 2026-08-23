@@ -936,7 +936,7 @@ git commit -m "feat: resolve seeded player attacks"
 - Consumes: successful player attack events, board occupancy, props and `apply_damage`.
 - Produces: `resolve_push`, `damage_explosive`, `resolve_explosion`, collision/hazard/explosion events, and Turnabout-relevant `DamageSource` variants.
 
-- [ ] **Step 1: Write failing single-resolution environment tests**
+- [x] **Step 1: Write failing single-resolution environment tests**
 
 Add to `environment.rs`:
 
@@ -972,21 +972,21 @@ fn explosive_applies_one_cross_event_and_cannot_repeat() {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify the red state**
+- [x] **Step 2: Run tests and verify the red state**
 
 Run: `cargo test domain::environment::tests`
 
 Expected: FAIL because environment transitions do not exist.
 
-- [ ] **Step 3: Implement direct environment damage sources**
+- [x] **Step 3: Implement direct environment damage sources**
 
 Expand `DamageSource` with `Collision`, `Hazard`, `Explosion`, and `EnemyWeapon(UnitId, WeaponId)`. Environment damage bypasses armor, hit and critical checks. Route it through one `apply_direct_damage` helper so HP clamp, knockout and objective observation remain identical.
 
-- [ ] **Step 4: Implement deterministic push direction and collision**
+- [x] **Step 4: Implement deterministic push direction and collision**
 
 For a same-row or same-column attacker/target pair, calculate the sign of the coordinate delta and one destination cell away from the attacker. If the destination is off-board or blocked by terrain, a live prop or a living unit, retain the target's position and apply 3 collision damage to the pushed unit only. Otherwise move once and emit `UnitPushed`.
 
-- [ ] **Step 5: Implement exactly-once hazard and explosive transitions**
+- [x] **Step 5: Implement exactly-once hazard and explosive transitions**
 
 Immediately after a successful push/move transaction ends on `(2, 6)`, emit `HazardTriggered` and apply 3 direct damage once. Do not run hazards from a per-frame Bevy system.
 
@@ -994,7 +994,7 @@ Immediately after a successful push/move transaction ends on `(2, 6)`, emit `Haz
 
 Connect successful player attacks to props automatically, and replace `PushRequested` with one synchronous call to `resolve_push` after a successful push-weapon hit.
 
-- [ ] **Step 6: Run focused and full domain tests**
+- [x] **Step 6: Run focused and full domain tests**
 
 Run: `cargo test domain::environment::tests`
 
@@ -1002,7 +1002,7 @@ Run: `cargo test domain`
 
 Expected: all environment cases pass with no duplicate damage; earlier attack tests remain green.
 
-- [ ] **Step 7: Commit environment rules**
+- [x] **Step 7: Commit environment rules**
 
 ```bash
 git add src/domain

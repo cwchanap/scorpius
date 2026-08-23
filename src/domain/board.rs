@@ -97,6 +97,10 @@ impl BoardState {
         self.explosives.get(&position)
     }
 
+    pub(crate) fn explosive_at_mut(&mut self, position: GridPos) -> Option<&mut ExplosiveState> {
+        self.explosives.get_mut(&position)
+    }
+
     pub fn has_live_explosive(&self, position: GridPos) -> bool {
         self.explosive_at(position)
             .is_some_and(|explosive| explosive.hp > 0 && !explosive.exploded)

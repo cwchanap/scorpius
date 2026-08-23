@@ -10,6 +10,10 @@ use crate::domain::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DamageSource {
     PlayerWeapon(WeaponId),
+    EnemyWeapon(UnitId, WeaponId),
+    Collision,
+    Hazard,
+    Explosion,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,7 +34,7 @@ struct AttackContext {
     attacker: UnitState,
     weapon: WeaponSpec,
     footprint: Vec<GridPos>,
-    target_unit: UnitState,
+    target_unit: Option<UnitState>,
     push_destination: Option<GridPos>,
 }
 
@@ -49,7 +53,11 @@ impl BattleState {
         target: GridPos,
     ) -> Result<AttackPreview, BattleError> {
         let context = self.attack_context(attacker, weapon, target)?;
-        let values = attack_values(&context.attacker, &context.weapon, &context.target_unit);
+        let values = context
+            .target_unit
+            .as_ref()
+            .map(|target| attack_values(&context.attacker, &context.weapon, target))
+            .unwrap_or_else(|| prop_attack_values(&context.weapon));
 
         Ok(AttackPreview {
             attacker,
@@ -128,11 +136,22 @@ impl BattleState {
                     .unit(target_id)
                     .is_some_and(|unit| !unit.is_knocked_out())
             {
-                events.push(BattleEvent::PushRequested {
-                    attacker,
-                    target: target_id,
-                });
+                events.extend(self.resolve_push(attacker, target_id)?);
             }
+        }
+
+        let explosive_positions: Vec<_> = context
+            .footprint
+            .iter()
+            .copied()
+            .filter(|position| self.board().has_live_explosive(*position))
+            .collect();
+        for position in explosive_positions {
+            events.extend(self.damage_explosive(
+                position,
+                context.weapon.base_damage,
+                DamageSource::PlayerWeapon(weapon),
+            )?);
         }
 
         Ok(events)
@@ -156,6 +175,11 @@ impl BattleState {
         let applied = previous_hp - unit.hp;
         let position = unit.position;
         let remaining_hp = unit.hp;
+        let knocked_out = remaining_hp == 0;
+
+        if knocked_out {
+            self.clear_active_unit_if(target);
+        }
 
         let mut events = vec![BattleEvent::DamageApplied {
             target,
@@ -163,7 +187,7 @@ impl BattleState {
             remaining_hp,
             source,
         }];
-        if remaining_hp == 0 {
+        if knocked_out {
             events.push(BattleEvent::UnitKnockedOut {
                 unit: target,
                 position,
@@ -239,13 +263,14 @@ impl BattleState {
             });
         }
 
-        let target_id = self
-            .occupant_at(target)
-            .ok_or(BattleError::InvalidTarget(target))?;
         let target_unit = self
-            .unit(target_id)
+            .occupant_at(target)
+            .and_then(|target_id| self.unit(target_id))
             .filter(|unit| unit.faction == Faction::Enemy)
-            .ok_or(BattleError::InvalidTarget(target))?;
+            .cloned();
+        if target_unit.is_none() && !self.board().has_live_explosive(target) {
+            return Err(BattleError::InvalidTarget(target));
+        }
         let footprint = attack_footprint(self, weapon_spec.shape, target);
         let push_destination = weapon_spec
             .push
@@ -256,7 +281,7 @@ impl BattleState {
             attacker: attacking_unit.clone(),
             weapon: weapon_spec.clone(),
             footprint,
-            target_unit: target_unit.clone(),
+            target_unit,
             push_destination,
         })
     }
@@ -272,6 +297,14 @@ fn attack_values(attacker: &UnitState, weapon: &WeaponSpec, defender: &UnitState
         hit_chance,
         normal_damage,
         critical_damage,
+    }
+}
+
+fn prop_attack_values(weapon: &WeaponSpec) -> AttackValues {
+    AttackValues {
+        hit_chance: 100,
+        normal_damage: weapon.base_damage,
+        critical_damage: weapon.base_damage,
     }
 }
 

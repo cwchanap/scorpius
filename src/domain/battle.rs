@@ -193,7 +193,9 @@ impl BattleState {
         unit.position = to;
         unit.activation.moved = true;
 
-        Ok(vec![BattleEvent::UnitMoved { unit: id, from, to }])
+        let mut events = vec![BattleEvent::UnitMoved { unit: id, from, to }];
+        events.extend(self.resolve_hazard_if_present(id)?);
+        Ok(events)
     }
 
     pub fn choose_reaction(&mut self, id: UnitId, reaction: Reaction) -> Result<(), BattleError> {
@@ -249,7 +251,7 @@ impl BattleState {
         Ok(())
     }
 
-    fn is_open_for(&self, mover: UnitId, position: GridPos) -> bool {
+    pub(super) fn is_open_for(&self, mover: UnitId, position: GridPos) -> bool {
         !self.board.is_blocking(position)
             && !self.board.has_live_explosive(position)
             && !self
@@ -260,6 +262,16 @@ impl BattleState {
 
     pub(super) fn unit_mut(&mut self, id: UnitId) -> Option<&mut UnitState> {
         self.units.get_mut(&id)
+    }
+
+    pub(super) fn board_mut(&mut self) -> &mut BoardState {
+        &mut self.board
+    }
+
+    pub(super) fn clear_active_unit_if(&mut self, id: UnitId) {
+        if self.active_unit == Some(id) {
+            self.active_unit = None;
+        }
     }
 
     pub(super) fn roll_percent(&mut self) -> u8 {
