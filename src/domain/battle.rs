@@ -1,39 +1,86 @@
 use std::collections::BTreeMap;
 
 use super::{
-    board::GridPos,
-    model::{BattleError, BattleEvent, UnitId, UnitState},
+    board::{BoardState, GridPos},
+    model::{
+        ActivationState, BattleError, BattleEvent, Faction, UnitArchetype, UnitId, UnitState,
+        UnitStats, WeaponId, WeaponSpec,
+    },
 };
 
+#[derive(Clone, Debug)]
 pub struct BattleState {
-    width: u8,
-    height: u8,
+    board: BoardState,
     units: BTreeMap<UnitId, UnitState>,
+    weapons: BTreeMap<WeaponId, WeaponSpec>,
 }
 
 impl BattleState {
-    pub fn viability_fixture() -> Self {
+    pub(crate) fn new(
+        board: BoardState,
+        units: impl IntoIterator<Item = UnitState>,
+        weapons: impl IntoIterator<Item = WeaponSpec>,
+    ) -> Self {
         Self {
-            width: 3,
-            height: 3,
-            units: [(
-                UnitId(1),
-                UnitState {
-                    id: UnitId(1),
-                    position: GridPos::new(1, 1),
-                },
-            )]
-            .into_iter()
-            .collect(),
+            board,
+            units: units.into_iter().map(|unit| (unit.id, unit)).collect(),
+            weapons: weapons
+                .into_iter()
+                .map(|weapon| (weapon.id, weapon))
+                .collect(),
         }
+    }
+
+    pub fn viability_fixture() -> Self {
+        let stats = UnitStats {
+            max_hp: 20,
+            armor: 3,
+            movement: 3,
+            accuracy: 78,
+            evasion: 5,
+            max_en: 7,
+        };
+        Self::new(
+            BoardState::empty(3, 3),
+            [UnitState {
+                id: UnitId(1),
+                name: "Vanguard",
+                archetype: UnitArchetype::Vanguard,
+                faction: Faction::Player,
+                stats,
+                hp: stats.max_hp,
+                en: stats.max_en,
+                position: GridPos::new(1, 1),
+                weapons: Vec::new(),
+                activation: ActivationState::default(),
+                reaction: None,
+            }],
+            [],
+        )
+    }
+
+    pub const fn board(&self) -> &BoardState {
+        &self.board
+    }
+
+    pub fn units(&self) -> impl Iterator<Item = &UnitState> {
+        self.units.values()
     }
 
     pub fn unit(&self, id: UnitId) -> Option<&UnitState> {
         self.units.get(&id)
     }
 
+    pub fn weapons(&self) -> impl Iterator<Item = &WeaponSpec> {
+        self.weapons.values()
+    }
+
+    pub fn weapon(&self, id: WeaponId) -> Option<&WeaponSpec> {
+        self.weapons.get(&id)
+    }
+
     pub fn move_unit(&mut self, id: UnitId, to: GridPos) -> Result<Vec<BattleEvent>, BattleError> {
-        if to.x >= self.width || to.y >= self.height {
+        if !self.board.contains(to) {
             return Err(BattleError::OutOfBounds(to));
         }
 
@@ -45,7 +92,11 @@ impl BattleState {
         if from.manhattan(to) != 1 {
             return Err(BattleError::NotOrthogonallyAdjacent { from, to });
         }
-        if self.units.values().any(|unit| unit.position == to) {
+        if self
+            .units
+            .values()
+            .any(|unit| !unit.is_knocked_out() && unit.position == to)
+        {
             return Err(BattleError::DestinationOccupied(to));
         }
 

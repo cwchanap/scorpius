@@ -497,7 +497,7 @@ Do not begin Task 3 if the real checkpoint exposes an impractical 3D/UI composit
 - Consumes: `GridPos`, `UnitId`, the viability movement behavior.
 - Produces: `WeaponId`, `Faction`, `UnitArchetype`, `UnitStats`, `WeaponShape`, `WeaponSpec`, expanded `UnitState`, `BoardState`, `MissionOneIds`, `mission_one(seed: u64) -> BattleState`, and immutable weapon/unit lookup methods.
 
-- [ ] **Step 1: Write failing authored-content tests**
+- [x] **Step 1: Write failing authored-content tests**
 
 Add to `src/mission/mission_one.rs`:
 
@@ -537,13 +537,13 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the tests and confirm missing typed content**
+- [x] **Step 2: Run the tests and confirm missing typed content**
 
 Run: `cargo test mission::mission_one::tests`
 
 Expected: FAIL because the mission module and expanded model do not exist.
 
-- [ ] **Step 3: Expand the model with explicit authored values**
+- [x] **Step 3: Expand the model with explicit authored values**
 
 Use these core types in `model.rs`:
 
@@ -617,7 +617,7 @@ impl UnitState {
 
 Represent blocking cells, one hazard, and one `ExplosiveState { position, hp, exploded }` in `BoardState`. Expose read-only iterators/lookups from `BattleState`; do not expose its collections mutably.
 
-- [ ] **Step 4: Author the exact Mission 1 constants**
+- [x] **Step 4: Author the exact Mission 1 constants**
 
 Create stable IDs in `mission_one::ids`: player IDs 1–3, Riflemen 11–12, Striker 13, Artillery 14; player weapon IDs 101–109; enemy weapon IDs 201–203.
 
@@ -647,11 +647,11 @@ let units = [
 
 Author the nine player weapons and three enemy weapons verbatim from the spec tables. Use blocking cells `(2,1)`, `(6,1)`, `(1,4)`, `(7,4)`, `(3,5)`, `(5,5)`, hazard `(2,6)`, and explosive `(6,6)` with 4 HP.
 
-- [ ] **Step 5: Preserve the viability fixture as a real `BattleState`**
+- [x] **Step 5: Preserve the viability fixture as a real `BattleState`**
 
 Rebuild `BattleState::viability_fixture()` with the expanded types and one Vanguard on a 3×3 empty board. Keep Task 1 and Task 2 tests passing while `mission_one(seed)` becomes the production constructor.
 
-- [ ] **Step 6: Run content and regression tests**
+- [x] **Step 6: Run content and regression tests**
 
 Run: `cargo test mission::mission_one::tests`
 
@@ -661,7 +661,7 @@ Run: `cargo test --test presentation_app`
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit typed Mission 1 content**
+- [x] **Step 7: Commit typed Mission 1 content**
 
 ```bash
 git add src/domain src/mission src/lib.rs

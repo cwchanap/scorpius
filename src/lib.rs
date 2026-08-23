@@ -1,5 +1,6 @@
 pub mod app;
 pub mod domain;
+pub mod mission;
 pub mod presentation;
 
 use bevy::prelude::*;
