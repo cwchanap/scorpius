@@ -6,7 +6,10 @@ use crate::domain::{
     model::{BattleError, BattleEvent, UnitId},
 };
 
-use super::{BattleRuntime, CellVisual, SelectedCell};
+use super::{
+    BattleRuntime, CellVisual, SelectedCell,
+    assets::{AssetLoadStatus, mission_assets_ready},
+};
 
 pub fn handle_viability_cell_click(
     battle: &mut BattleState,
@@ -27,12 +30,16 @@ pub fn handle_viability_cell_click(
     Ok(events)
 }
 
-pub fn on_viability_cell_click(
+pub fn on_battlefield_cell_click(
     click: On<Pointer<Click>>,
     cells: Query<&CellVisual>,
     mut battle: ResMut<BattleRuntime>,
     mut selected: ResMut<SelectedCell>,
+    asset_status: Res<AssetLoadStatus>,
 ) {
+    if !mission_assets_ready(asset_status) {
+        return;
+    }
     let Ok(cell) = cells.get(click.entity) else {
         return;
     };

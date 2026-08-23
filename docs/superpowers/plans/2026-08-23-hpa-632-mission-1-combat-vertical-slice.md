@@ -1366,7 +1366,7 @@ git commit -m "feat: complete Mission 1 objectives and retry"
 - Consumes: `mission_one(seed)`, units, board cells/props, fixed intents and ordered `BattleEvent` values.
 - Produces: `PresentationRoot`, `TelegraphVisual`, `PropVisual`, `BattleEventQueue`, complete board/unit spawning, state synchronization and telegraph reconciliation.
 
-- [ ] **Step 1: Write failing renderer-free telegraph reconciliation test**
+- [x] **Step 1: Write failing renderer-free telegraph reconciliation test**
 
 Add to `tests/presentation_app.rs`:
 
@@ -1395,13 +1395,13 @@ fn committed_footprints_create_one_marker_per_unique_cell() {
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm missing full-board projection**
+- [x] **Step 2: Run the test and confirm missing full-board projection**
 
 Run: `cargo test --test presentation_app committed_footprints_create_one_marker_per_unique_cell`
 
 Expected: FAIL because `TelegraphVisual` and reconciliation do not exist.
 
-- [ ] **Step 3: Add disposable presentation roots and stable markers**
+- [x] **Step 3: Add disposable presentation roots and stable markers**
 
 ```rust
 #[derive(Component)]
@@ -1419,7 +1419,7 @@ pub struct BattleEventQueue(pub VecDeque<BattleEvent>);
 
 All Mission 1 scene entities are descendants of one `PresentationRoot`. Reconciliation compares canonical `(attacker, cell)` pairs with marker components, spawning missing markers and despawning stale markers. The renderer-free test exercises components only; a rendering system attaches meshes/materials in the real app.
 
-- [ ] **Step 4: Replace the 3×3 checkpoint board with the authored 9×9 board**
+- [x] **Step 4: Replace the 3×3 checkpoint board with the authored 9×9 board**
 
 For every logical cell spawn a shallow, pickable mesh tagged `CellVisual`; alternate two dark deck materials by coordinate parity. Spawn glTF scene roots for living units using this exact mapping:
 
@@ -1447,7 +1447,7 @@ pub fn grid_to_world(pos: GridPos) -> Vec3 {
 }
 ```
 
-- [ ] **Step 5: Synchronize from canonical state only**
+- [x] **Step 5: Synchronize from canonical state only**
 
 Each update:
 
@@ -1460,15 +1460,15 @@ Each update:
 
 No presentation system writes a logical position, HP, EN, phase, intent or objective back into `BattleState`.
 
-- [ ] **Step 6: Add readable world-space telegraphs**
+- [x] **Step 6: Add readable world-space telegraphs**
 
 Render committed cells as raised translucent red tiles with a pulsing scale/alpha. Place a thin white ring around each `intended_occupant` and a red line or arrow from attacker to the footprint center. Use different edge glyph meshes for single and Cross 1 footprints so shape remains legible without color.
 
-- [ ] **Step 7: Preserve a visible asset-load failure state**
+- [x] **Step 7: Preserve a visible asset-load failure state**
 
 `assets.rs` owns handles for all ten glTF scenes and observes `AssetServer` load state. Do not enter battle interaction until dependencies load. On failure, set `AssetLoadStatus::Failed("assets/models/mission_one.gltf")`; `ui.rs` renders that exact path in a persistent error panel and logs it once.
 
-- [ ] **Step 8: Run presentation tests and real-app compile**
+- [x] **Step 8: Run presentation tests and real-app compile**
 
 Run: `cargo test --test presentation_app`
 
@@ -1476,7 +1476,7 @@ Run: `cargo check --all-targets`
 
 Expected: renderer-free marker/transform tests pass and the real 9×9 app compiles.
 
-- [ ] **Step 9: Commit full battlefield projection**
+- [x] **Step 9: Commit full battlefield projection**
 
 ```bash
 git add src/presentation src/app.rs assets tests/presentation_app.rs

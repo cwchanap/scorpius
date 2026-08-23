@@ -1,9 +1,13 @@
+use std::collections::BTreeSet;
+
 use bevy::prelude::*;
 use scorpius::{
     domain::{battle::BattleState, board::GridPos, model::UnitId},
+    mission::mission_one::mission_one,
     presentation::{
-        BattleRuntime, UnitVisual, battlefield::viability_grid_cells, grid_to_world,
+        BattleRuntime, TelegraphVisual, UnitVisual, battlefield::mission_grid_cells, grid_to_world,
         interaction::handle_viability_cell_click, sync::apply_unit_transforms,
+        sync::reconcile_telegraph_markers,
     },
 };
 
@@ -43,19 +47,40 @@ fn adjacent_cell_click_moves_canonical_unit() {
 }
 
 #[test]
-fn viability_board_exposes_nine_logical_cells() {
-    assert_eq!(
-        viability_grid_cells(),
-        vec![
-            GridPos::new(0, 0),
-            GridPos::new(1, 0),
-            GridPos::new(2, 0),
-            GridPos::new(0, 1),
-            GridPos::new(1, 1),
-            GridPos::new(2, 1),
-            GridPos::new(0, 2),
-            GridPos::new(1, 2),
-            GridPos::new(2, 2),
-        ]
-    );
+fn mission_board_exposes_all_eighty_one_logical_cells() {
+    let cells = mission_grid_cells(9, 9);
+
+    assert_eq!(cells.len(), 81);
+    assert_eq!(cells.first(), Some(&GridPos::new(0, 0)));
+    assert_eq!(cells.last(), Some(&GridPos::new(8, 8)));
+}
+
+#[test]
+fn committed_footprints_create_one_marker_per_unique_cell() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let expected: BTreeSet<_> = battle
+        .intents()
+        .iter()
+        .flat_map(|intent| {
+            intent
+                .footprint
+                .iter()
+                .copied()
+                .map(move |cell| (intent.attacker, cell))
+        })
+        .collect();
+
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(battle))
+        .add_systems(Update, reconcile_telegraph_markers);
+    app.update();
+
+    let actual: BTreeSet<_> = app
+        .world_mut()
+        .query::<&TelegraphVisual>()
+        .iter(app.world())
+        .map(|marker| (marker.attacker, marker.cell))
+        .collect();
+    assert_eq!(actual, expected);
 }

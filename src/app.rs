@@ -1,13 +1,21 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::{
-    domain::battle::BattleState,
+    mission::mission_one::mission_one,
     presentation::{
-        BattleRuntime, SelectedCell,
-        battlefield::setup_viability_scene,
-        sync::apply_unit_transforms,
-        ui::{setup_viability_ui, update_selected_cell_text},
+        AttackPreviewCells, BattleEventQueue, BattleRuntime, SelectedCell,
+        assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
+        battlefield::setup_mission_scene,
+        sync::{
+            apply_prop_visibility, apply_unit_transforms, attach_intent_line_rendering,
+            attach_intent_target_rendering, attach_reaction_rendering, attach_telegraph_rendering,
+            pulse_telegraphs, reconcile_intent_guides, reconcile_reaction_markers,
+            reconcile_telegraph_markers, sync_auxiliary_transforms, sync_cell_highlights,
+        },
+        ui::{setup_mission_ui, update_asset_status_text, update_selected_cell_text},
     },
 };
 
@@ -15,16 +23,26 @@ pub struct ScorpiusPlugin;
 
 impl Plugin for ScorpiusPlugin {
     fn build(&self, app: &mut App) {
+        let mut battle = mission_one(fresh_seed());
+        battle
+            .begin_round()
+            .expect("authored Mission 1 opening must be valid");
+
         app.add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Scorpius — Mission 1".into(),
-                    resolution: (1280, 720).into(),
-                    position: WindowPosition::Centered(MonitorSelection::Primary),
+            DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Scorpius — Mission 1".into(),
+                        resolution: (1280, 720).into(),
+                        position: WindowPosition::Centered(MonitorSelection::Primary),
+                        ..default()
+                    }),
                     ..default()
                 }),
-                ..default()
-            }),
             MeshPickingPlugin,
         ))
         .insert_resource(ClearColor(Color::srgb(0.025, 0.035, 0.055)))
@@ -32,18 +50,50 @@ impl Plugin for ScorpiusPlugin {
             require_markers: true,
             ..default()
         })
-        .insert_resource(BattleRuntime(BattleState::viability_fixture()))
+        .insert_resource(BattleRuntime(battle))
         .init_resource::<SelectedCell>()
+        .init_resource::<BattleEventQueue>()
+        .init_resource::<AttackPreviewCells>()
+        .init_resource::<MissionAssets>()
+        .init_resource::<AssetLoadStatus>()
         .add_systems(
             Startup,
-            (
-                center_primary_window,
-                setup_viability_scene,
-                setup_viability_ui,
-            ),
+            (center_primary_window, setup_mission_scene, setup_mission_ui),
         )
-        .add_systems(Update, (apply_unit_transforms, update_selected_cell_text));
+        .add_systems(Update, monitor_mission_assets)
+        .add_systems(
+            Update,
+            (
+                reconcile_telegraph_markers,
+                reconcile_intent_guides,
+                reconcile_reaction_markers,
+                attach_telegraph_rendering,
+                attach_intent_target_rendering,
+                attach_intent_line_rendering,
+                attach_reaction_rendering,
+            )
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                apply_unit_transforms,
+                apply_prop_visibility,
+                sync_auxiliary_transforms,
+                sync_cell_highlights,
+                pulse_telegraphs,
+                update_selected_cell_text,
+                update_asset_status_text,
+            ),
+        );
     }
+}
+
+fn fresh_seed() -> u64 {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    elapsed.as_secs() ^ u64::from(elapsed.subsec_nanos())
 }
 
 fn center_primary_window(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
