@@ -295,7 +295,7 @@ git commit -m "chore: bootstrap Scorpius Bevy application"
 - Consumes: `BattleState::viability_fixture`, `BattleState::move_unit`, `UnitId`, `GridPos`, `BattleEvent::UnitMoved`.
 - Produces: `ScorpiusPlugin`, `BattleRuntime`, `CellVisual`, `UnitVisual`, `SelectedCell`, `grid_to_world`, `apply_unit_transforms`, and the checked-in glTF scene labels used by later presentation tasks.
 
-- [ ] **Step 1: Write the failing renderer-free transform handoff test**
+- [x] **Step 1: Write the failing renderer-free transform handoff test**
 
 Create `tests/presentation_app.rs`:
 
@@ -328,13 +328,13 @@ fn canonical_move_drives_visual_transform_without_renderer() {
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm missing presentation symbols**
+- [x] **Step 2: Run the test and confirm missing presentation symbols**
 
 Run: `cargo test --test presentation_app canonical_move_drives_visual_transform_without_renderer`
 
 Expected: FAIL because the presentation module and types do not exist.
 
-- [ ] **Step 3: Add the real app/plugin boundary and renderer-free sync**
+- [x] **Step 3: Add the real app/plugin boundary and renderer-free sync**
 
 Implement `src/lib.rs` and `src/main.rs` as:
 
@@ -387,13 +387,13 @@ pub fn apply_unit_transforms(
 
 Keep this system in `presentation/sync.rs` and re-export the stable types from `presentation/mod.rs`.
 
-- [ ] **Step 4: Make the renderer-free handoff test pass**
+- [x] **Step 4: Make the renderer-free handoff test pass**
 
 Run: `cargo test --test presentation_app canonical_move_drives_visual_transform_without_renderer`
 
 Expected: PASS without initializing `DefaultPlugins`, Winit, a window, or a renderer.
 
-- [ ] **Step 5: Add a valid checked-in glTF with stable scene indices**
+- [x] **Step 5: Add a valid checked-in glTF with stable scene indices**
 
 Create one glTF 2.0 document with an embedded binary buffer and these scene indices/names:
 
@@ -416,7 +416,7 @@ Run: `python3 -m json.tool assets/models/mission_one.gltf >/dev/null`
 
 Expected: exit 0.
 
-- [ ] **Step 6: Build the real checkpoint scene**
+- [x] **Step 6: Build the real checkpoint scene**
 
 Implement `ScorpiusPlugin` with `DefaultPlugins`, `MeshPickingPlugin`, a 1280×720 window, and startup systems. Spawn:
 
@@ -448,7 +448,7 @@ app.add_plugins((
 
 Attach `Pickable::default()` to cell meshes and an `On<Pointer<Click>>` observer that copies the clicked entity's `CellVisual.0` into `SelectedCell`. A second click on an orthogonally adjacent cell calls the viability `move_unit`; do not derive logical coordinates from transforms.
 
-- [ ] **Step 7: Compile and run the real app**
+- [x] **Step 7: Compile and run the real app**
 
 Run: `cargo check --all-targets`
 
@@ -458,11 +458,11 @@ Run: `cargo run`
 
 Expected manual evidence: the app opens with an orthographic 3D grid, the checked-in glTF mech, a native UI overlay, clickable logical cells, and one unit whose transform follows `BattleState` after an adjacent click.
 
-- [ ] **Step 8: Record the viability evidence**
+- [x] **Step 8: Record the viability evidence**
 
 Create `docs/validation/hpa-632.md` with a dated checklist containing the seven HPA-632 viability requirements, the exact commands run, Bevy version from `Cargo.lock`, and observed results. Mark only evidence actually observed as passed.
 
-- [ ] **Step 9: Run the checkpoint gates and commit**
+- [x] **Step 9: Run the checkpoint gates and commit**
 
 Run: `cargo fmt --check`
 
