@@ -68,7 +68,7 @@
 - Produces: `GridPos`, `UnitId`, `UnitState`, `BattleState::viability_fixture()`, `BattleState::move_unit(UnitId, GridPos) -> Result<Vec<BattleEvent>, BattleError>`.
 - Consumes: nothing; this is the repository foundation.
 
-- [ ] **Step 1: Write the failing coordinate and movement tests**
+- [x] **Step 1: Write the failing coordinate and movement tests**
 
 Add these tests at the bottoms of `src/domain/board.rs` and `src/domain/battle.rs`:
 
@@ -119,13 +119,13 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm the red state**
+- [x] **Step 2: Run the focused tests and confirm the red state**
 
 Run: `cargo test domain::`
 
 Expected: compilation fails because the crate and referenced types do not exist yet.
 
-- [ ] **Step 3: Add the minimal Rust 2024 crate**
+- [x] **Step 3: Add the minimal Rust 2024 crate**
 
 Create `Cargo.toml`:
 
@@ -148,7 +148,7 @@ opt-level = 3
 
 Create `.gitignore` containing `/target` and `.DS_Store`. Create `src/main.rs` with an empty `fn main() {}` until Task 2 adds the real runner. Export `pub mod domain;` from `src/lib.rs`, and export `battle`, `board`, and `model` from `src/domain/mod.rs`.
 
-- [ ] **Step 4: Implement the viability domain types and transition**
+- [x] **Step 4: Implement the viability domain types and transition**
 
 Use these minimal definitions, keeping them free of Bevy types:
 
@@ -234,7 +234,7 @@ impl BattleState {
 }
 ```
 
-- [ ] **Step 5: Add the initial CI workflow**
+- [x] **Step 5: Add the initial CI workflow**
 
 Create `.github/workflows/ci.yml` with one Ubuntu job using `actions/checkout@v4`, `rustup update stable`, `rustup component add rustfmt clippy`, then the four required commands in order:
 
@@ -258,7 +258,7 @@ jobs:
       - run: cargo build --release
 ```
 
-- [ ] **Step 6: Verify the green state and lock dependencies**
+- [x] **Step 6: Verify the green state and lock dependencies**
 
 Run: `cargo fmt --check`
 
@@ -266,7 +266,7 @@ Run: `cargo test domain::`
 
 Expected: both tests pass and `Cargo.lock` is created with Bevy 0.19.x.
 
-- [ ] **Step 7: Commit the foundation**
+- [x] **Step 7: Commit the foundation**
 
 ```bash
 git add .gitignore Cargo.toml Cargo.lock src .github/workflows/ci.yml
