@@ -2,12 +2,22 @@ use std::collections::BTreeSet;
 
 use bevy::prelude::*;
 use scorpius::{
-    domain::{battle::BattleState, board::GridPos, model::UnitId},
-    mission::mission_one::mission_one,
+    domain::{
+        battle::BattleState,
+        board::GridPos,
+        model::{BattlePhase, Reaction, UnitId},
+    },
+    mission::mission_one::{ids, mission_one},
     presentation::{
-        BattleRuntime, TelegraphVisual, UnitVisual, battlefield::mission_grid_cells, grid_to_world,
-        interaction::handle_viability_cell_click, sync::apply_unit_transforms,
-        sync::reconcile_telegraph_markers,
+        BattleRuntime, TelegraphVisual, UnitVisual,
+        battlefield::mission_grid_cells,
+        grid_to_world,
+        interaction::{
+            CommandAction, InteractionMode, InteractionState, execute_command,
+            handle_viability_cell_click, route_cell_click, update_hover_preview,
+        },
+        sync::{apply_unit_transforms, reconcile_telegraph_markers},
+        ui::HudSnapshot,
     },
 };
 
@@ -83,4 +93,72 @@ fn committed_footprints_create_one_marker_per_unique_cell() {
         .map(|marker| (marker.attacker, marker.cell))
         .collect();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn selected_unit_can_move_then_arm_a_weapon() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut interaction = InteractionState::default();
+
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(5, 8)).unwrap();
+    assert_eq!(interaction.selected_unit, Some(ids::INTERCEPTOR));
+    execute_command(&mut battle, &mut interaction, CommandAction::Move).unwrap();
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(5, 7)).unwrap();
+    assert!(battle.unit(ids::INTERCEPTOR).unwrap().activation.moved);
+
+    execute_command(&mut battle, &mut interaction, CommandAction::WeaponSlot(1)).unwrap();
+    assert_eq!(
+        interaction.mode,
+        InteractionMode::Attack(ids::PULSE_CARBINE)
+    );
+
+    update_hover_preview(&battle, &mut interaction, GridPos::new(4, 6));
+    let preview = interaction.preview.as_ref().unwrap();
+    assert_eq!(preview.target, GridPos::new(4, 6));
+    assert_eq!(preview.footprint, vec![GridPos::new(4, 6)]);
+    assert_eq!(preview.en_cost, 1);
+}
+
+#[test]
+fn command_routing_finishes_the_squad_then_resolves_enemy_attacks() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut interaction = InteractionState::default();
+
+    for id in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
+        let position = battle.unit(id).unwrap().position;
+        route_cell_click(&mut battle, &mut interaction, position).unwrap();
+        execute_command(
+            &mut battle,
+            &mut interaction,
+            CommandAction::Reaction(Reaction::Guard),
+        )
+        .unwrap();
+        execute_command(&mut battle, &mut interaction, CommandAction::FinishUnit).unwrap();
+    }
+
+    assert!(battle.ready_to_resolve());
+    let events =
+        execute_command(&mut battle, &mut interaction, CommandAction::ResolveAttacks).unwrap();
+    assert!(!events.is_empty());
+    assert!(matches!(
+        battle.phase(),
+        BattlePhase::Player | BattlePhase::Defeat
+    ));
+    assert_eq!(interaction.selected_unit, None);
+}
+
+#[test]
+fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let hud = HudSnapshot::from_battle(&battle, Some(ids::VANGUARD));
+
+    assert_eq!(hud.round_phase, "Round 1 · Player Phase");
+    assert_eq!(hud.primary, "Eliminate all enemies · 4 remaining");
+    assert_eq!(hud.optional, "Turnabout · Not yet");
+    assert_eq!(hud.selected_name, Some("Vanguard"));
+    assert_eq!(hud.threats.len(), 4);
 }

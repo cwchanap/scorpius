@@ -1499,7 +1499,7 @@ git commit -m "feat: render Mission 1 battlefield and threats"
 - Consumes: domain command methods/previews, `CellVisual`, `UnitVisual`, load/battle/result state.
 - Produces: `InteractionMode`, `SelectedUnit`, `StatusMessage`, `HudSnapshot`, pointer/keyboard command routing and the complete native HUD.
 
-- [ ] **Step 1: Write failing interaction routing and HUD snapshot tests**
+- [x] **Step 1: Write failing interaction routing and HUD snapshot tests**
 
 Add renderer-free tests:
 
@@ -1535,13 +1535,13 @@ fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
 }
 ```
 
-- [ ] **Step 2: Run tests and confirm missing routing/view model**
+- [x] **Step 2: Run tests and confirm missing routing/view model**
 
 Run: `cargo test --test presentation_app`
 
 Expected: FAIL because interaction state and HUD snapshot do not exist.
 
-- [ ] **Step 3: Define transient interaction values outside canonical state**
+- [x] **Step 3: Define transient interaction values outside canonical state**
 
 ```rust
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1566,13 +1566,13 @@ pub struct StatusMessage(pub String);
 
 `route_cell_click` performs only these explicit paths: select/begin an unfinished player activation; issue Move to a reachable empty cell; issue Attack against a valid occupied/prop cell; otherwise inspect. Every command calls the domain transition and copies `BattleError` display text into `StatusMessage` without mutating state on failure.
 
-- [ ] **Step 4: Make pointer play complete**
+- [x] **Step 4: Make pointer play complete**
 
 Cell click observers call `route_cell_click`. UI buttons set `InteractionMode`, select one of the active unit's three weapons, choose Counter/Guard/Evade, finish the unit, confirm enemy resolution, or restart. Disable buttons from `HudSnapshot` eligibility, while retaining domain validation as the authority.
 
 Hovering a cell updates inspection and, in attack mode, calls `preview_attack`; show amber footprint, exact hit chance, normal/critical damage, EN cost, and push/collision/hazard outcome. Clear stale preview whenever selection, mode, phase or canonical state changes.
 
-- [ ] **Step 5: Build the native screen-space HUD**
+- [x] **Step 5: Build the native screen-space HUD**
 
 Create one full-screen root with `Pickable::IGNORE` on noninteractive panels and these stable child markers:
 
@@ -1597,11 +1597,11 @@ Render the exact design regions:
 
 Keep telegraphs unobscured and board center visible at 1280×720. Use icon-like glyphs plus short labels; do not create a dashboard-style wall of text.
 
-- [ ] **Step 6: Add keyboard mirrors without making them required**
+- [x] **Step 6: Add keyboard mirrors without making them required**
 
 Map `M` Move, `1`/`2`/`3` weapons, `C` Counter, `G` Guard, `E` Evade, `F` Finish Unit, `Space` Resolve Attacks, and `R` Restart on terminal state. Ignore shortcuts when their corresponding domain command is unavailable.
 
-- [ ] **Step 7: Run renderer-free UI/interaction tests and compile**
+- [x] **Step 7: Run renderer-free UI/interaction tests and compile**
 
 Run: `cargo test --test presentation_app`
 
@@ -1609,7 +1609,7 @@ Run: `cargo check --all-targets`
 
 Expected: routing/snapshot tests pass; the native UI compiles with no second UI dependency.
 
-- [ ] **Step 8: Commit interaction and HUD**
+- [x] **Step 8: Commit interaction and HUD**
 
 ```bash
 git add src/presentation src/app.rs tests/presentation_app.rs

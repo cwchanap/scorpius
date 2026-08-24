@@ -8,8 +8,10 @@ use crate::domain::{
 };
 
 use super::{
-    BattleRuntime, CellVisual, PresentationRoot, PropVisual, UnitVisual, assets::MissionAssets,
-    grid_to_world, interaction::on_battlefield_cell_click,
+    BattleRuntime, CellVisual, PresentationRoot, PropVisual, UnitVisual,
+    assets::MissionAssets,
+    grid_to_world,
+    interaction::{on_battlefield_cell_click, on_battlefield_cell_out, on_battlefield_cell_over},
 };
 
 #[derive(Resource)]
@@ -118,7 +120,9 @@ pub fn setup_mission_scene(
                 Pickable::default(),
                 ChildOf(root),
             ))
-            .observe(on_battlefield_cell_click);
+            .observe(on_battlefield_cell_click)
+            .observe(on_battlefield_cell_over)
+            .observe(on_battlefield_cell_out);
     }
 
     for unit in battle.0.units() {

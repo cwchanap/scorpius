@@ -190,6 +190,7 @@ pub enum BattleEvent {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BattleError {
+    NoUnitSelected,
     UnknownUnit(UnitId),
     WrongPhase {
         expected: BattlePhase,
@@ -236,3 +237,112 @@ pub enum BattleError {
         to: GridPos,
     },
 }
+
+impl std::fmt::Display for BattleError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoUnitSelected => formatter.write_str("Select a player mech first."),
+            Self::UnknownUnit(unit) => write!(formatter, "Unknown unit {}.", unit.0),
+            Self::WrongPhase { expected, actual } => {
+                write!(
+                    formatter,
+                    "Command requires {expected:?}; current phase is {actual:?}."
+                )
+            }
+            Self::ActivationInProgress(unit) => {
+                write!(
+                    formatter,
+                    "Finish unit {} before selecting another mech.",
+                    unit.0
+                )
+            }
+            Self::UnitNotPlayer(unit) => {
+                write!(formatter, "Unit {} is not player-controlled.", unit.0)
+            }
+            Self::UnitKnockedOut(unit) => write!(formatter, "Unit {} is knocked out.", unit.0),
+            Self::ActivationAlreadyFinished(unit) => {
+                write!(formatter, "Unit {} already finished this round.", unit.0)
+            }
+            Self::UnitNotActive(unit) => write!(formatter, "Unit {} is not active.", unit.0),
+            Self::MoveAlreadySpent(unit) => write!(formatter, "Unit {} already moved.", unit.0),
+            Self::ActionAlreadySpent(unit) => write!(formatter, "Unit {} already acted.", unit.0),
+            Self::ReactionRequired(unit) => {
+                write!(
+                    formatter,
+                    "Choose Counter, Guard, or Evade for unit {}.",
+                    unit.0
+                )
+            }
+            Self::EnemyResolutionNotReady => {
+                formatter.write_str("Finish every surviving player mech before resolving attacks.")
+            }
+            Self::UnknownWeapon(weapon) => write!(formatter, "Unknown weapon {}.", weapon.0),
+            Self::WeaponNotOwned { unit, weapon } => {
+                write!(
+                    formatter,
+                    "Unit {} does not own weapon {}.",
+                    unit.0, weapon.0
+                )
+            }
+            Self::InsufficientEn {
+                unit,
+                required,
+                available,
+            } => write!(
+                formatter,
+                "Unit {} needs {required} EN but has {available}.",
+                unit.0
+            ),
+            Self::OutOfBounds(position) => {
+                write!(
+                    formatter,
+                    "Cell ({}, {}) is outside the board.",
+                    position.x, position.y
+                )
+            }
+            Self::DestinationOccupied(position) => write!(
+                formatter,
+                "Cell ({}, {}) is occupied.",
+                position.x, position.y
+            ),
+            Self::DestinationUnreachable { unit, destination } => write!(
+                formatter,
+                "Unit {} cannot reach ({}, {}).",
+                unit.0, destination.x, destination.y
+            ),
+            Self::InvalidTarget(position) => {
+                write!(
+                    formatter,
+                    "Cell ({}, {}) is not a valid target.",
+                    position.x, position.y
+                )
+            }
+            Self::TargetOutOfRange {
+                attacker,
+                weapon,
+                target,
+            } => write!(
+                formatter,
+                "Target ({}, {}) is out of range for unit {} weapon {}.",
+                target.x, target.y, attacker.0, weapon.0
+            ),
+            Self::PushTargetNotAligned { attacker, target } => write!(
+                formatter,
+                "Push requires a shared row or column: ({}, {}) to ({}, {}).",
+                attacker.x, attacker.y, target.x, target.y
+            ),
+            Self::ExplosiveNotFound(position) => write!(
+                formatter,
+                "No live explosive exists at ({}, {}).",
+                position.x, position.y
+            ),
+            Self::NotOrthogonallyAdjacent { from, to } => write!(
+                formatter,
+                "Cells ({}, {}) and ({}, {}) are not orthogonally adjacent.",
+                from.x, from.y, to.x, to.y
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BattleError {}

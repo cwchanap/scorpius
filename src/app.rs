@@ -9,13 +9,14 @@ use crate::{
         AttackPreviewCells, BattleEventQueue, BattleRuntime, SelectedCell,
         assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
         battlefield::setup_mission_scene,
+        interaction::{InteractionState, StatusMessage, handle_keyboard_shortcuts},
         sync::{
             apply_prop_visibility, apply_unit_transforms, attach_intent_line_rendering,
             attach_intent_target_rendering, attach_reaction_rendering, attach_telegraph_rendering,
             pulse_telegraphs, reconcile_intent_guides, reconcile_reaction_markers,
             reconcile_telegraph_markers, sync_auxiliary_transforms, sync_cell_highlights,
         },
-        ui::{setup_mission_ui, update_asset_status_text, update_selected_cell_text},
+        ui::{setup_mission_ui, update_asset_status_text, update_hud},
     },
 };
 
@@ -54,6 +55,8 @@ impl Plugin for ScorpiusPlugin {
         .init_resource::<SelectedCell>()
         .init_resource::<BattleEventQueue>()
         .init_resource::<AttackPreviewCells>()
+        .init_resource::<InteractionState>()
+        .init_resource::<StatusMessage>()
         .init_resource::<MissionAssets>()
         .init_resource::<AssetLoadStatus>()
         .add_systems(
@@ -61,6 +64,7 @@ impl Plugin for ScorpiusPlugin {
             (center_primary_window, setup_mission_scene, setup_mission_ui),
         )
         .add_systems(Update, monitor_mission_assets)
+        .add_systems(Update, stabilize_primary_window_position)
         .add_systems(
             Update,
             (
@@ -82,7 +86,8 @@ impl Plugin for ScorpiusPlugin {
                 sync_auxiliary_transforms,
                 sync_cell_highlights,
                 pulse_telegraphs,
-                update_selected_cell_text,
+                handle_keyboard_shortcuts,
+                update_hud,
                 update_asset_status_text,
             ),
         );
@@ -99,5 +104,18 @@ fn fresh_seed() -> u64 {
 fn center_primary_window(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     if let Ok(mut window) = windows.single_mut() {
         window.position.center(MonitorSelection::Primary);
+    }
+}
+
+fn stabilize_primary_window_position(
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut startup_frames: Local<u16>,
+) {
+    if *startup_frames >= 120 {
+        return;
+    }
+    if let Ok(mut window) = windows.single_mut() {
+        window.position.center(MonitorSelection::Primary);
+        *startup_frames += 1;
     }
 }
