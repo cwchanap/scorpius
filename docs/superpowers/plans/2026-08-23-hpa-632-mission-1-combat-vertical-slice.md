@@ -1738,35 +1738,35 @@ git commit -m "feat: present combat outcomes and clean retry"
 - Consumes: the complete Mission 1 application and every HPA-632 acceptance criterion.
 - Produces: reproducible run/control documentation, acceptance matrix, automated-gate evidence and manual playtest conclusions.
 
-- [ ] **Step 1: Add concise run and control documentation**
+- [x] **Step 1: Add concise run and control documentation**
 
 Create `README.md` with prerequisites (stable Rust supporting edition 2024), `cargo run`, the pointer flow, keyboard mappings, Mission 1 primary/Turnabout objectives, and the four local verification commands. State that the app starts directly in Mission 1 and contains no save/campaign flow yet.
 
-- [ ] **Step 2: Run formatting and fix only reported formatting changes**
+- [x] **Step 2: Run formatting and fix only reported formatting changes**
 
 Run: `cargo fmt --check`
 
 If it fails, run `cargo fmt`, inspect the formatting-only diff, then rerun `cargo fmt --check` until exit 0.
 
-- [ ] **Step 3: Run strict Clippy and fix concrete findings**
+- [x] **Step 3: Run strict Clippy and fix concrete findings**
 
 Run: `cargo clippy --all-targets --all-features -- -D warnings`
 
 Expected: exit 0. Fix warnings at their source; do not add broad `allow` attributes.
 
-- [ ] **Step 4: Run the complete automated suite**
+- [x] **Step 4: Run the complete automated suite**
 
 Run: `cargo test --all-targets`
 
 Expected: exit 0 with focused coverage for movement, activation, all nine player weapons, seeded hit/miss/crit, EN, knockout, locked intents, empty/different occupants, cancelation, reactions, environment exactly-once behavior, objectives and restart.
 
-- [ ] **Step 5: Run the release-build sanity check**
+- [x] **Step 5: Run the release-build sanity check**
 
 Run: `cargo build --release`
 
 Expected: exit 0.
 
-- [ ] **Step 6: Perform the retained Mission 1 playtest**
+- [x] **Step 6: Perform the retained Mission 1 playtest**
 
 Run: `cargo run --release`
 
@@ -1785,11 +1785,11 @@ Play at least one complete victory and one failure/restart. Record in `docs/vali
 
 If either conclusion is no, keep HPA-632 open and make the smallest evidence-driven revision inside this branch before rerunning the gates.
 
-- [ ] **Step 7: Complete the acceptance matrix**
+- [x] **Step 7: Complete the acceptance matrix**
 
 Copy every checkbox from the live HPA-632 acceptance criteria into `docs/validation/hpa-632.md`. For each, link or name its automated test, source seam, manual observation, or CI command. Do not mark a criterion passed without evidence.
 
-- [ ] **Step 8: Inspect the whole diff for scope**
+- [x] **Step 8: Inspect the whole diff for scope**
 
 Run: `git status --short`
 
