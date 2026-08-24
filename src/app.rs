@@ -6,10 +6,14 @@ use bevy::window::PrimaryWindow;
 use crate::{
     mission::mission_one::mission_one,
     presentation::{
-        AttackPreviewCells, BattleEventQueue, BattleRuntime, SelectedCell,
+        AttackPreviewCells, BattleEventQueue, BattleRuntime, EventPlayback, RestartRequest,
+        RestartRoundPending, SelectedCell,
         assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
-        battlefield::setup_mission_scene,
-        interaction::{InteractionState, StatusMessage, handle_keyboard_shortcuts},
+        battlefield::{rebuild_mission_scene, setup_mission_scene},
+        interaction::{
+            InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
+        },
+        playback::{begin_restarted_round, play_battle_events},
         sync::{
             apply_prop_visibility, apply_unit_transforms, attach_intent_line_rendering,
             attach_intent_target_rendering, attach_reaction_rendering, attach_telegraph_rendering,
@@ -54,9 +58,12 @@ impl Plugin for ScorpiusPlugin {
         .insert_resource(BattleRuntime(battle))
         .init_resource::<SelectedCell>()
         .init_resource::<BattleEventQueue>()
+        .init_resource::<EventPlayback>()
         .init_resource::<AttackPreviewCells>()
         .init_resource::<InteractionState>()
         .init_resource::<StatusMessage>()
+        .init_resource::<RestartRequest>()
+        .init_resource::<RestartRoundPending>()
         .init_resource::<MissionAssets>()
         .init_resource::<AssetLoadStatus>()
         .add_systems(
@@ -68,6 +75,15 @@ impl Plugin for ScorpiusPlugin {
         .add_systems(
             Update,
             (
+                process_restart_request,
+                rebuild_mission_scene,
+                begin_restarted_round,
+            )
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            (
                 reconcile_telegraph_markers,
                 reconcile_intent_guides,
                 reconcile_reaction_markers,
@@ -76,7 +92,8 @@ impl Plugin for ScorpiusPlugin {
                 attach_intent_line_rendering,
                 attach_reaction_rendering,
             )
-                .chain(),
+                .chain()
+                .after(begin_restarted_round),
         )
         .add_systems(
             Update,
@@ -86,10 +103,14 @@ impl Plugin for ScorpiusPlugin {
                 sync_auxiliary_transforms,
                 sync_cell_highlights,
                 pulse_telegraphs,
-                handle_keyboard_shortcuts,
-                update_hud,
-                update_asset_status_text,
-            ),
+            )
+                .after(reconcile_reaction_markers),
+        )
+        .add_systems(Update, play_battle_events.after(apply_unit_transforms))
+        .add_systems(Update, handle_keyboard_shortcuts.after(play_battle_events))
+        .add_systems(
+            Update,
+            (update_hud, update_asset_status_text).after(play_battle_events),
         );
     }
 }

@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod battlefield;
 pub mod interaction;
+pub mod playback;
 pub mod sync;
 pub mod ui;
 
@@ -25,6 +26,9 @@ pub struct CellVisual(pub GridPos);
 
 #[derive(Component)]
 pub struct PresentationRoot;
+
+#[derive(Component)]
+pub(crate) struct PresentationNeedsRebuild;
 
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TelegraphVisual {
@@ -63,6 +67,21 @@ pub struct ReactionVisual {
 
 #[derive(Resource, Default)]
 pub struct BattleEventQueue(pub VecDeque<BattleEvent>);
+
+#[derive(Resource, Default)]
+pub struct EventPlayback {
+    pub current: Option<(BattleEvent, Timer)>,
+    pub input_locked: bool,
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct RestartRoundPending(pub bool);
+
+#[derive(Resource, Default)]
+pub(crate) struct RestartRequest(pub Option<u64>);
+
+#[derive(Component)]
+pub(crate) struct EventEffect;
 
 #[derive(Resource, Default)]
 pub struct AttackPreviewCells(pub BTreeSet<GridPos>);

@@ -10,7 +10,8 @@ use crate::domain::{
 };
 
 use super::{
-    AttackPreviewCells, BattleEventQueue, BattleRuntime, CellVisual, SelectedCell,
+    AttackPreviewCells, BattleEventQueue, BattleRuntime, CellVisual, EventPlayback,
+    PresentationNeedsRebuild, PresentationRoot, RestartRequest, RestartRoundPending, SelectedCell,
     assets::{AssetLoadStatus, mission_assets_ready},
 };
 
@@ -170,10 +171,7 @@ pub fn execute_command(
                     actual: battle.phase(),
                 });
             }
-            battle.restart_mission(fresh_seed());
-            let events = battle.begin_round()?;
-            *interaction = InteractionState::default();
-            Ok(events)
+            Ok(Vec::new())
         }
     }
 }
@@ -190,6 +188,46 @@ pub fn update_hover_preview(
         }
         _ => None,
     };
+}
+
+pub fn restart_battle(world: &mut World, seed: u64) {
+    world
+        .resource_mut::<BattleRuntime>()
+        .0
+        .restart_mission(seed);
+
+    let roots: Vec<_> = world
+        .query_filtered::<Entity, With<PresentationRoot>>()
+        .iter(world)
+        .collect();
+    for root in roots {
+        world.entity_mut(root).despawn();
+    }
+
+    *world.resource_mut::<InteractionState>() = InteractionState::default();
+    *world.resource_mut::<StatusMessage>() = StatusMessage::default();
+    world.resource_mut::<BattleEventQueue>().0.clear();
+    *world.resource_mut::<EventPlayback>() = EventPlayback::default();
+    world.resource_mut::<AttackPreviewCells>().0.clear();
+    world.resource_mut::<SelectedCell>().0 = None;
+    if let Some(mut pending) = world.get_resource_mut::<RestartRoundPending>() {
+        pending.0 = true;
+    }
+
+    world.spawn((
+        Name::new("Mission 1 Presentation"),
+        PresentationRoot,
+        PresentationNeedsRebuild,
+        Transform::default(),
+        Visibility::Visible,
+    ));
+}
+
+pub(crate) fn process_restart_request(world: &mut World) {
+    let seed = world.resource_mut::<RestartRequest>().0.take();
+    if let Some(seed) = seed {
+        restart_battle(world, seed);
+    }
 }
 
 pub fn handle_viability_cell_click(
@@ -220,10 +258,11 @@ pub fn on_battlefield_cell_click(
     mut interaction: ResMut<InteractionState>,
     mut status: ResMut<StatusMessage>,
     mut event_queue: ResMut<BattleEventQueue>,
+    mut playback: ResMut<EventPlayback>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     asset_status: Res<AssetLoadStatus>,
 ) {
-    if !mission_assets_ready(asset_status) {
+    if !mission_assets_ready(asset_status) || playback.input_locked {
         return;
     }
     let Ok(cell) = cells.get(click.entity) else {
@@ -232,6 +271,7 @@ pub fn on_battlefield_cell_click(
     selected.0 = Some(cell.0);
     match route_cell_click(&mut battle.0, &mut interaction, cell.0) {
         Ok(events) => {
+            playback.input_locked |= !events.is_empty();
             event_queue.0.extend(events);
             status.0.clear();
         }
@@ -246,9 +286,10 @@ pub fn on_battlefield_cell_over(
     battle: Res<BattleRuntime>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
+    playback: Res<EventPlayback>,
     asset_status: Res<AssetLoadStatus>,
 ) {
-    if !mission_assets_ready(asset_status) {
+    if !mission_assets_ready(asset_status) || playback.input_locked {
         return;
     }
     let Ok(cell) = cells.get(over.entity) else {
@@ -263,7 +304,11 @@ pub fn on_battlefield_cell_out(
     cells: Query<&CellVisual>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
+    playback: Res<EventPlayback>,
 ) {
+    if playback.input_locked {
+        return;
+    }
     let Ok(cell) = cells.get(out.entity) else {
         return;
     };
@@ -282,7 +327,7 @@ fn copy_preview_cells(interaction: &InteractionState, cells: &mut AttackPreviewC
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn on_command_button_click(
+pub(crate) fn on_command_button_click(
     click: On<Pointer<Click>>,
     buttons: Query<&CommandButton>,
     mut battle: ResMut<BattleRuntime>,
@@ -291,9 +336,11 @@ pub fn on_command_button_click(
     mut event_queue: ResMut<BattleEventQueue>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     mut selected_cell: ResMut<SelectedCell>,
+    mut playback: ResMut<EventPlayback>,
+    mut restart_request: ResMut<RestartRequest>,
     asset_status: Res<AssetLoadStatus>,
 ) {
-    if !mission_assets_ready(asset_status) {
+    if !mission_assets_ready(asset_status) || playback.input_locked {
         return;
     }
     let Ok(button) = buttons.get(click.entity) else {
@@ -301,17 +348,21 @@ pub fn on_command_button_click(
     };
     run_command(
         button.0,
-        &mut battle.0,
-        &mut interaction,
-        &mut status,
-        &mut event_queue,
-        &mut preview_cells,
-        &mut selected_cell,
+        CommandContext {
+            battle: &mut battle.0,
+            interaction: &mut interaction,
+            status: &mut status,
+            event_queue: &mut event_queue,
+            preview_cells: &mut preview_cells,
+            selected_cell: &mut selected_cell,
+            playback: &mut playback,
+            restart_request: &mut restart_request,
+        },
     );
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn handle_keyboard_shortcuts(
+pub(crate) fn handle_keyboard_shortcuts(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut battle: ResMut<BattleRuntime>,
     mut interaction: ResMut<InteractionState>,
@@ -319,9 +370,11 @@ pub fn handle_keyboard_shortcuts(
     mut event_queue: ResMut<BattleEventQueue>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     mut selected_cell: ResMut<SelectedCell>,
+    mut playback: ResMut<EventPlayback>,
+    mut restart_request: ResMut<RestartRequest>,
     asset_status: Res<AssetLoadStatus>,
 ) {
-    if !mission_assets_ready(asset_status) {
+    if !mission_assets_ready(asset_status) || playback.input_locked {
         return;
     }
     let action = if keyboard.just_pressed(KeyCode::KeyM) {
@@ -352,35 +405,46 @@ pub fn handle_keyboard_shortcuts(
     };
     run_command(
         action,
-        &mut battle.0,
-        &mut interaction,
-        &mut status,
-        &mut event_queue,
-        &mut preview_cells,
-        &mut selected_cell,
+        CommandContext {
+            battle: &mut battle.0,
+            interaction: &mut interaction,
+            status: &mut status,
+            event_queue: &mut event_queue,
+            preview_cells: &mut preview_cells,
+            selected_cell: &mut selected_cell,
+            playback: &mut playback,
+            restart_request: &mut restart_request,
+        },
     );
 }
 
-fn run_command(
-    action: CommandAction,
-    battle: &mut BattleState,
-    interaction: &mut InteractionState,
-    status: &mut StatusMessage,
-    event_queue: &mut BattleEventQueue,
-    preview_cells: &mut AttackPreviewCells,
-    selected_cell: &mut SelectedCell,
-) {
-    match execute_command(battle, interaction, action) {
+struct CommandContext<'a> {
+    battle: &'a mut BattleState,
+    interaction: &'a mut InteractionState,
+    status: &'a mut StatusMessage,
+    event_queue: &'a mut BattleEventQueue,
+    preview_cells: &'a mut AttackPreviewCells,
+    selected_cell: &'a mut SelectedCell,
+    playback: &'a mut EventPlayback,
+    restart_request: &'a mut RestartRequest,
+}
+
+fn run_command(action: CommandAction, context: CommandContext<'_>) {
+    match execute_command(context.battle, context.interaction, action) {
         Ok(events) => {
-            event_queue.0.extend(events);
-            status.0 = command_success_message(action).to_owned();
-            if interaction.selected_unit.is_none() {
-                selected_cell.0 = None;
+            context.playback.input_locked |= !events.is_empty();
+            context.event_queue.0.extend(events);
+            context.status.0 = command_success_message(action).to_owned();
+            if action == CommandAction::Restart {
+                context.restart_request.0 = Some(fresh_seed());
+            }
+            if context.interaction.selected_unit.is_none() {
+                context.selected_cell.0 = None;
             }
         }
-        Err(error) => status.0 = error.to_string(),
+        Err(error) => context.status.0 = error.to_string(),
     }
-    copy_preview_cells(interaction, preview_cells);
+    copy_preview_cells(context.interaction, context.preview_cells);
 }
 
 fn require_selected_active_unit(

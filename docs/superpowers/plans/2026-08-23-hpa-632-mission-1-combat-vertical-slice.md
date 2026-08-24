@@ -1633,7 +1633,7 @@ git commit -m "feat: add Mission 1 controls and combat HUD"
 - Consumes: ordered `BattleEvent` lists, terminal `MissionResult`, `restart_mission(seed)` and disposable `PresentationRoot`.
 - Produces: `EventPlayback`, short event animations, result overlay, `restart_battle`, and renderer-free restart lifecycle proof.
 
-- [ ] **Step 1: Write the failing restart lifecycle test**
+- [x] **Step 1: Write the failing restart lifecycle test**
 
 Add to `tests/presentation_app.rs`:
 
@@ -1661,13 +1661,13 @@ fn restart_replaces_presentation_root_and_transient_state() {
 }
 ```
 
-- [ ] **Step 2: Run the test and confirm missing restart coordination**
+- [x] **Step 2: Run the test and confirm missing restart coordination**
 
 Run: `cargo test --test presentation_app restart_replaces_presentation_root_and_transient_state`
 
 Expected: FAIL because coordinated restart does not exist.
 
-- [ ] **Step 3: Add a small ordered event player**
+- [x] **Step 3: Add a small ordered event player**
 
 ```rust
 #[derive(Resource, Default)]
@@ -1681,7 +1681,7 @@ Domain commands append returned events to `BattleEventQueue`. Playback pops one 
 
 Input observers return early only while `input_locked`; inspection remains available when no animation is active. Canonical state is already final, so skipping an animation cannot change outcomes.
 
-- [ ] **Step 4: Show clear terminal overlays**
+- [x] **Step 4: Show clear terminal overlays**
 
 Victory copy:
 
@@ -1702,23 +1702,23 @@ Restart Mission
 
 Disable normal command buttons in terminal phases. `R` and the visible Restart button call the same restart function.
 
-- [ ] **Step 5: Rebuild canonical and presentation state together**
+- [x] **Step 5: Rebuild canonical and presentation state together**
 
 `restart_battle(world, seed)` calls `BattleRuntime.0.restart_mission(seed)`, recursively despawns the old `PresentationRoot`, clears `InteractionState`, `StatusMessage`, `BattleEventQueue` and `EventPlayback`, then queues the normal spawn system. It must not patch individual unit entities or UI labels.
 
-- [ ] **Step 6: Run lifecycle and full automated tests**
+- [x] **Step 6: Run lifecycle and full automated tests**
 
 Run: `cargo test --all-targets`
 
 Expected: restart test passes; domain and presentation suites remain green.
 
-- [ ] **Step 7: Run the app through one failure/restart and victory/restart**
+- [x] **Step 7: Run the app through one failure/restart and victory/restart**
 
 Run: `cargo run`
 
 Expected manual evidence: both result overlays appear, Restart returns to the initial full-HP/full-EN board with no stale highlights/intents, and input never mutates state during event playback.
 
-- [ ] **Step 8: Commit event presentation and retry**
+- [x] **Step 8: Commit event presentation and retry**
 
 ```bash
 git add src/presentation src/app.rs tests/presentation_app.rs

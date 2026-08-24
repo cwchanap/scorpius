@@ -8,7 +8,7 @@ use crate::domain::{
 };
 
 use super::{
-    BattleRuntime, CellVisual, PresentationRoot, PropVisual, UnitVisual,
+    BattleRuntime, CellVisual, PresentationNeedsRebuild, PresentationRoot, PropVisual, UnitVisual,
     assets::MissionAssets,
     grid_to_world,
     interaction::{on_battlefield_cell_click, on_battlefield_cell_out, on_battlefield_cell_over},
@@ -95,15 +95,54 @@ pub fn setup_mission_scene(
     ));
 
     let visual_assets = create_visual_assets(&mut meshes, &mut materials);
-    let root = commands
+    let root = spawn_presentation_root(&mut commands);
+    populate_mission_root(
+        &mut commands,
+        root,
+        &mission_assets,
+        &battle,
+        &visual_assets,
+    );
+    commands.insert_resource(visual_assets);
+}
+
+pub(crate) fn rebuild_mission_scene(
+    mut commands: Commands,
+    mission_assets: Res<MissionAssets>,
+    battle: Res<BattleRuntime>,
+    visual_assets: Res<BattlefieldVisualAssets>,
+    roots: Query<Entity, (With<PresentationRoot>, With<PresentationNeedsRebuild>)>,
+) {
+    for root in &roots {
+        populate_mission_root(
+            &mut commands,
+            root,
+            &mission_assets,
+            &battle,
+            &visual_assets,
+        );
+        commands.entity(root).remove::<PresentationNeedsRebuild>();
+    }
+}
+
+fn spawn_presentation_root(commands: &mut Commands) -> Entity {
+    commands
         .spawn((
             Name::new("Mission 1 Presentation"),
             PresentationRoot,
             Transform::default(),
             Visibility::Visible,
         ))
-        .id();
+        .id()
+}
 
+fn populate_mission_root(
+    commands: &mut Commands,
+    root: Entity,
+    mission_assets: &MissionAssets,
+    battle: &BattleRuntime,
+    visual_assets: &BattlefieldVisualAssets,
+) {
     for cell in mission_grid_cells(battle.0.board().width(), battle.0.board().height()) {
         let material = if (cell.x + cell.y) % 2 == 0 {
             visual_assets.tile_light.clone()
@@ -186,8 +225,6 @@ pub fn setup_mission_scene(
             ChildOf(root),
         ));
     }
-
-    commands.insert_resource(visual_assets);
 }
 
 fn create_visual_assets(

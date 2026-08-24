@@ -5,21 +5,35 @@ use scorpius::{
     domain::{
         battle::BattleState,
         board::GridPos,
-        model::{BattlePhase, Reaction, UnitId},
+        model::{BattlePhase, MissionResult, Reaction, UnitId},
     },
     mission::mission_one::{ids, mission_one},
     presentation::{
-        BattleRuntime, TelegraphVisual, UnitVisual,
+        AttackPreviewCells, BattleEventQueue, BattleRuntime, EventPlayback, PresentationRoot,
+        SelectedCell, TelegraphVisual, UnitVisual,
         battlefield::mission_grid_cells,
         grid_to_world,
         interaction::{
-            CommandAction, InteractionMode, InteractionState, execute_command,
-            handle_viability_cell_click, route_cell_click, update_hover_preview,
+            CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
+            handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
         },
         sync::{apply_unit_transforms, reconcile_telegraph_markers},
-        ui::HudSnapshot,
+        ui::{HudSnapshot, result_overlay_copy},
     },
 };
+
+fn presentation_fixture_app() -> App {
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(mission_one(7)))
+        .init_resource::<InteractionState>()
+        .init_resource::<StatusMessage>()
+        .init_resource::<BattleEventQueue>()
+        .init_resource::<EventPlayback>()
+        .init_resource::<AttackPreviewCells>()
+        .init_resource::<SelectedCell>();
+    app.world_mut().spawn(PresentationRoot);
+    app
+}
 
 #[test]
 fn canonical_move_drives_visual_transform_without_renderer() {
@@ -161,4 +175,71 @@ fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
     assert_eq!(hud.optional, "Turnabout · Not yet");
     assert_eq!(hud.selected_name, Some("Vanguard"));
     assert_eq!(hud.threats.len(), 4);
+}
+
+#[test]
+fn restart_replaces_presentation_root_and_transient_state() {
+    let mut app = presentation_fixture_app();
+    app.update();
+    let old_root = app
+        .world_mut()
+        .query_filtered::<Entity, With<PresentationRoot>>()
+        .single(app.world())
+        .unwrap();
+    let stale_child = app.world_mut().spawn(ChildOf(old_root)).id();
+
+    app.world_mut()
+        .resource_mut::<InteractionState>()
+        .selected_unit = Some(ids::VANGUARD);
+    app.world_mut()
+        .resource_mut::<BattleEventQueue>()
+        .0
+        .push_back(scorpius::domain::model::BattleEvent::OptionalObjectiveCompleted);
+    app.world_mut().resource_mut::<EventPlayback>().input_locked = true;
+    app.world_mut().resource_mut::<StatusMessage>().0 = "stale".to_owned();
+    app.world_mut()
+        .resource_mut::<AttackPreviewCells>()
+        .0
+        .insert(GridPos::new(4, 4));
+    app.world_mut().resource_mut::<SelectedCell>().0 = Some(GridPos::new(4, 4));
+    restart_battle(app.world_mut(), 11);
+    app.update();
+
+    let new_root = app
+        .world_mut()
+        .query_filtered::<Entity, With<PresentationRoot>>()
+        .single(app.world())
+        .unwrap();
+    assert_ne!(new_root, old_root);
+    assert!(app.world().get_entity(stale_child).is_err());
+    assert_eq!(
+        app.world().resource::<InteractionState>().selected_unit,
+        None
+    );
+    assert!(app.world().resource::<BattleEventQueue>().0.is_empty());
+    assert!(!app.world().resource::<EventPlayback>().input_locked);
+    assert!(app.world().resource::<StatusMessage>().0.is_empty());
+    assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
+    assert_eq!(app.world().resource::<SelectedCell>().0, None);
+    assert_eq!(app.world().resource::<BattleRuntime>().0.round(), 0);
+}
+
+#[test]
+fn terminal_overlay_copy_matches_the_mission_result() {
+    assert_eq!(
+        result_overlay_copy(MissionResult {
+            victory: true,
+            turnabout_complete: true,
+            rounds: 2,
+        }),
+        "MISSION COMPLETE\nRelay Nine secured\nTurnabout: Achieved"
+    );
+    assert_eq!(
+        result_overlay_copy(MissionResult {
+            victory: false,
+            turnabout_complete: false,
+            rounds: 3,
+        }),
+        "MISSION FAILED\nSquad knocked out"
+    );
 }

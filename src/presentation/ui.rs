@@ -1,13 +1,13 @@
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemParam, prelude::*};
 
 use crate::domain::{
     battle::BattleState,
     combat::AttackPreview,
-    model::{BattlePhase, Faction, Reaction, UnitId},
+    model::{BattleEvent, BattlePhase, Faction, MissionResult, Reaction, UnitId},
 };
 
 use super::{
-    BattleRuntime,
+    BattleRuntime, EventPlayback,
     assets::{AssetLoadStatus, MISSION_ONE_GLTF_DISPLAY_PATH},
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
@@ -39,6 +39,7 @@ pub struct HudSnapshot {
     pub can_choose_reaction: bool,
     pub can_finish: bool,
     pub can_resolve: bool,
+    pub is_terminal: bool,
 }
 
 impl HudSnapshot {
@@ -148,6 +149,7 @@ impl HudSnapshot {
             can_choose_reaction: active.is_some_and(|unit| !unit.activation.finished),
             can_finish: active.is_some_and(|unit| unit.reaction.is_some()),
             can_resolve: battle.ready_to_resolve(),
+            is_terminal: battle.result().is_some(),
             weapon_names,
             weapon_enabled,
         }
@@ -183,6 +185,9 @@ pub struct PreviewText;
 pub struct StatusText;
 
 #[derive(Component)]
+pub struct PlaybackText;
+
+#[derive(Component)]
 pub struct ResultOverlay;
 
 #[derive(Component)]
@@ -198,6 +203,7 @@ pub(crate) enum HudTextRole {
     Unit,
     Preview,
     Status,
+    Playback,
     Result,
 }
 
@@ -301,23 +307,62 @@ pub fn setup_mission_ui(mut commands: Commands) {
     ));
     commands.spawn((
         Text::new(""),
-        text_font(28.0),
-        TextColor(Color::WHITE),
+        text_font(22.0),
+        TextColor(Color::srgb(1.0, 0.88, 0.52)),
         Node {
             position_type: PositionType::Absolute,
-            left: percent(32),
-            top: percent(32),
-            width: percent(36),
-            padding: UiRect::all(px(28)),
+            left: percent(38),
+            top: percent(45),
+            width: percent(24),
+            padding: UiRect::all(px(10)),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.015, 0.025, 0.045, 0.97)),
+        BackgroundColor(Color::srgba(0.04, 0.025, 0.015, 0.86)),
         Visibility::Hidden,
-        ResultOverlay,
-        HudTextRole::Result,
+        PlaybackText,
+        HudTextRole::Playback,
         Pickable::IGNORE,
         ChildOf(root),
     ));
+
+    let result_overlay = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: percent(32),
+                top: percent(30),
+                width: percent(36),
+                padding: UiRect::all(px(28)),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(18),
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.015, 0.025, 0.045, 0.97)),
+            Visibility::Hidden,
+            GlobalZIndex(50),
+            ResultOverlay,
+            Pickable::IGNORE,
+            ChildOf(root),
+        ))
+        .id();
+    commands.spawn((
+        Text::new(""),
+        text_font(28.0),
+        TextColor(Color::WHITE),
+        HudTextRole::Result,
+        Pickable::IGNORE,
+        ChildOf(result_overlay),
+    ));
+    spawn_command_button(
+        &mut commands,
+        result_overlay,
+        CommandAction::Restart,
+        "[R] RESTART MISSION",
+        190.0,
+        None,
+    );
 
     let command_bar = commands
         .spawn((
@@ -415,13 +460,39 @@ pub fn setup_mission_ui(mut commands: Commands) {
     ));
 }
 
+#[derive(SystemParam)]
+pub(crate) struct HudQueries<'w, 's> {
+    texts: Query<
+        'w,
+        's,
+        (
+            &'static HudTextRole,
+            &'static mut Text,
+            Option<&'static mut Visibility>,
+        ),
+        Without<ResultOverlay>,
+    >,
+    weapon_labels:
+        Query<'w, 's, (&'static WeaponButtonLabel, &'static mut Text), Without<HudTextRole>>,
+    buttons: Query<
+        'w,
+        's,
+        (
+            &'static CommandButton,
+            &'static mut BackgroundColor,
+            &'static mut Pickable,
+        ),
+    >,
+    result_overlays:
+        Query<'w, 's, &'static mut Visibility, (With<ResultOverlay>, Without<HudTextRole>)>,
+}
+
 pub(crate) fn update_hud(
     battle: Res<BattleRuntime>,
     interaction: Res<InteractionState>,
     status: Res<StatusMessage>,
-    mut texts: Query<(&HudTextRole, &mut Text, Option<&mut Visibility>)>,
-    mut weapon_labels: Query<(&WeaponButtonLabel, &mut Text), Without<HudTextRole>>,
-    mut buttons: Query<(&CommandButton, &mut BackgroundColor)>,
+    playback: Res<EventPlayback>,
+    mut queries: HudQueries,
 ) {
     let hud = HudSnapshot::from_battle(&battle.0, interaction.selected_unit);
     let threat_text = format_threats(&hud);
@@ -429,13 +500,15 @@ pub(crate) fn update_hud(
         || "TARGET PREVIEW\nArm a weapon and hover a target.".to_owned(),
         |preview| format_preview(&battle.0, preview),
     );
-    let status_text = if status.0.is_empty() {
+    let status_text = if playback.input_locked {
+        "Resolving committed events...".to_owned()
+    } else if status.0.is_empty() {
         "[M] MOVE  [1-3] WEAPONS  [C/G/E] STANCE  [F] FINISH  [SPACE] RESOLVE".to_owned()
     } else {
         status.0.clone()
     };
 
-    for (role, mut text, visibility) in &mut texts {
+    for (role, mut text, visibility) in &mut queries.texts {
         text.0 = match role {
             HudTextRole::Objective => format!(
                 "// OBJECTIVES\n{}\n[P] {}\n[B] {}",
@@ -447,27 +520,19 @@ pub(crate) fn update_hud(
             HudTextRole::Unit => format!("// UNIT\n{}", hud.selected_summary),
             HudTextRole::Preview => preview_text.clone(),
             HudTextRole::Status => status_text.clone(),
-            HudTextRole::Result => battle.0.result().map_or_else(String::new, |result| {
-                format!(
-                    "{}\n{}\nROUNDS {}\n\n[R] RESTART",
-                    if result.victory {
-                        "MISSION COMPLETE"
-                    } else {
-                        "MISSION FAILED"
-                    },
-                    if result.turnabout_complete {
-                        "TURNABOUT COMPLETE"
-                    } else {
-                        "TURNABOUT MISSED"
-                    },
-                    result.rounds
-                )
-            }),
+            HudTextRole::Playback => playback
+                .current
+                .as_ref()
+                .map_or_else(String::new, |(event, _)| format_event(event, &battle.0)),
+            HudTextRole::Result => battle
+                .0
+                .result()
+                .map_or_else(String::new, result_overlay_copy),
         };
-        if matches!(role, HudTextRole::Result)
+        if matches!(role, HudTextRole::Playback)
             && let Some(mut visibility) = visibility
         {
-            *visibility = if battle.0.result().is_some() {
+            *visibility = if playback.current.is_some() {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
@@ -475,13 +540,20 @@ pub(crate) fn update_hud(
         }
     }
 
-    for (label, mut text) in &mut weapon_labels {
+    for (label, mut text) in &mut queries.weapon_labels {
         text.0 = hud.weapon_names[label.0]
             .map(|name| format!("[{}] {name}", label.0 + 1))
             .unwrap_or_else(|| format!("[{}] --", label.0 + 1));
     }
-    for (button, mut background) in &mut buttons {
-        let enabled = command_enabled(button.0, &hud);
+    for mut visibility in &mut queries.result_overlays {
+        *visibility = if hud.is_terminal {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for (button, mut background, mut pickable) in &mut queries.buttons {
+        let enabled = !playback.input_locked && command_enabled(button.0, &hud);
         let armed = match (button.0, interaction.mode) {
             (CommandAction::Move, InteractionMode::Move) => true,
             (CommandAction::WeaponSlot(slot), InteractionMode::Attack(weapon)) => {
@@ -501,6 +573,11 @@ pub(crate) fn update_hud(
             Color::srgb(0.08, 0.25, 0.34)
         } else {
             Color::srgb(0.055, 0.07, 0.09)
+        };
+        *pickable = if enabled {
+            Pickable::default()
+        } else {
+            Pickable::IGNORE
         };
     }
 }
@@ -574,8 +651,80 @@ fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
         CommandAction::Reaction(_) => hud.can_choose_reaction,
         CommandAction::FinishUnit => hud.can_finish,
         CommandAction::ResolveAttacks => hud.can_resolve,
-        CommandAction::Restart => false,
+        CommandAction::Restart => hud.is_terminal,
     }
+}
+
+pub fn result_overlay_copy(result: MissionResult) -> String {
+    if result.victory {
+        format!(
+            "MISSION COMPLETE\nRelay Nine secured\nTurnabout: {}",
+            if result.turnabout_complete {
+                "Achieved"
+            } else {
+                "Missed"
+            }
+        )
+    } else {
+        "MISSION FAILED\nSquad knocked out".to_owned()
+    }
+}
+
+fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
+    match event {
+        BattleEvent::UnitMoved { unit, .. } => battle.unit(*unit).map_or_else(
+            || "UNIT MOVING".to_owned(),
+            |unit| format!("{} MOVING", unit.name),
+        ),
+        BattleEvent::AttackRolled {
+            attacker,
+            target,
+            hit,
+            critical,
+            ..
+        } => {
+            let attacker = unit_name(battle, *attacker);
+            let target = unit_name(battle, *target);
+            let outcome = if *critical {
+                "CRITICAL"
+            } else if *hit {
+                "HIT"
+            } else {
+                "MISS"
+            };
+            format!("{attacker} -> {target}\n{outcome}")
+        }
+        BattleEvent::DamageApplied { target, amount, .. } => {
+            format!("{}\n-{amount} HP", unit_name(battle, *target))
+        }
+        BattleEvent::UnitKnockedOut { unit, .. } => {
+            format!("{} KNOCKED OUT", unit_name(battle, *unit))
+        }
+        BattleEvent::UnitPushed { unit, .. } => {
+            format!("{} PUSHED", unit_name(battle, *unit))
+        }
+        BattleEvent::CollisionOccurred { .. } => "COLLISION  -3 HP".to_owned(),
+        BattleEvent::HazardTriggered { .. } => "HAZARD  -3 HP".to_owned(),
+        BattleEvent::ExplosiveDamaged { amount, .. } => format!("EXPLOSIVE  -{amount} HP"),
+        BattleEvent::ExplosionTriggered { .. } => "EXPLOSION".to_owned(),
+        BattleEvent::IntentCommitted { attacker, .. } => {
+            format!("{} LOCKED INTENT", unit_name(battle, *attacker))
+        }
+        BattleEvent::IntentCanceled { attacker } => {
+            format!("{} INTENT CANCELED", unit_name(battle, *attacker))
+        }
+        BattleEvent::AttackHitEmpty { .. } => "ATTACK HIT EMPTY".to_owned(),
+        BattleEvent::CounterFired { defender, .. } => {
+            format!("{} COUNTER", unit_name(battle, *defender))
+        }
+        BattleEvent::OptionalObjectiveCompleted => "TURNABOUT ACHIEVED".to_owned(),
+        BattleEvent::MissionCompleted { .. } => "MISSION COMPLETE".to_owned(),
+        BattleEvent::MissionFailed { .. } => "MISSION FAILED".to_owned(),
+    }
+}
+
+fn unit_name(battle: &BattleState, unit: UnitId) -> &'static str {
+    battle.unit(unit).map_or("UNKNOWN", |unit| unit.name)
 }
 
 fn format_threats(hud: &HudSnapshot) -> String {

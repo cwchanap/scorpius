@@ -6,18 +6,24 @@ use bevy::prelude::*;
 use crate::domain::model::{Faction, WeaponShape};
 
 use super::{
-    AttackPreviewCells, BattleRuntime, CellVisual, IntentLineVisual, IntentTargetVisual,
-    PresentationRoot, PropVisual, ReactionVisual, SelectedCell, TelegraphGlyphVisual,
-    TelegraphVisual, UnitVisual, battlefield::BattlefieldVisualAssets, grid_to_world,
+    AttackPreviewCells, BattleRuntime, CellVisual, EventPlayback, IntentLineVisual,
+    IntentTargetVisual, PresentationRoot, PropVisual, ReactionVisual, SelectedCell,
+    TelegraphGlyphVisual, TelegraphVisual, UnitVisual, battlefield::BattlefieldVisualAssets,
+    grid_to_world,
 };
 
 pub fn apply_unit_transforms(
     battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
     mut visuals: Query<(&UnitVisual, &mut Transform, Option<&mut Visibility>)>,
 ) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
     for (visual, mut transform, visibility) in &mut visuals {
         if let Some(unit) = battle.0.unit(visual.0) {
             transform.translation = grid_to_world(unit.position);
+            transform.scale = Vec3::splat(0.72);
             if let Some(mut visibility) = visibility {
                 *visibility = if unit.is_knocked_out() {
                     Visibility::Hidden
@@ -31,8 +37,12 @@ pub fn apply_unit_transforms(
 
 pub fn apply_prop_visibility(
     battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
     mut props: Query<(&PropVisual, &mut Visibility)>,
 ) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
     for (prop, mut visibility) in &mut props {
         if let PropVisual::Explosive(position) = prop {
             let live = battle.0.board().has_live_explosive(*position);
@@ -48,9 +58,13 @@ pub fn apply_prop_visibility(
 pub fn reconcile_telegraph_markers(
     mut commands: Commands,
     battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &TelegraphVisual)>,
 ) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
     let expected: BTreeMap<_, _> = battle
         .0
         .intents()
@@ -98,10 +112,14 @@ pub fn reconcile_telegraph_markers(
 pub fn reconcile_intent_guides(
     mut commands: Commands,
     battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing_targets: Query<(Entity, &IntentTargetVisual)>,
     existing_lines: Query<(Entity, &IntentLineVisual)>,
 ) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
     let expected_targets: BTreeSet<_> = battle
         .0
         .intents()
@@ -184,9 +202,13 @@ pub fn reconcile_intent_guides(
 pub fn reconcile_reaction_markers(
     mut commands: Commands,
     battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &ReactionVisual)>,
 ) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
     let expected: BTreeMap<_, _> = battle
         .0
         .units()
@@ -223,9 +245,13 @@ pub fn reconcile_reaction_markers(
 
 pub fn sync_auxiliary_transforms(
     battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
     mut targets: Query<(&IntentTargetVisual, &mut Transform), Without<ReactionVisual>>,
     mut reactions: Query<(&ReactionVisual, &mut Transform), Without<IntentTargetVisual>>,
 ) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
     for (marker, mut transform) in &mut targets {
         if let Some(unit) = battle.0.unit(marker.target) {
             transform.translation = grid_to_world(unit.position) + Vec3::Y * 0.17;
