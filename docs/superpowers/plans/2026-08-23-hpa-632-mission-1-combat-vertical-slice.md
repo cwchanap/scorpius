@@ -1799,14 +1799,14 @@ Run: `git diff --stat main...HEAD`
 
 Expected: only the one application crate, checked-in assets, focused tests, CI, README, design/plan and validation evidence; no campaign/save/backend/physics/editor/framework additions.
 
-- [ ] **Step 9: Commit final validation evidence**
+- [x] **Step 9: Commit final validation evidence**
 
 ```bash
 git add README.md docs/validation/hpa-632.md src tests assets Cargo.toml Cargo.lock .github/workflows/ci.yml
 git commit -m "docs: record HPA-632 validation evidence"
 ```
 
-- [ ] **Step 10: Re-run all four gates on the final commit**
+- [x] **Step 10: Re-run all four gates on the final commit**
 
 Run: `cargo fmt --check`
 
