@@ -22,10 +22,20 @@ jobs:
   unit-test:
     name: Unit test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update
       - run: sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
       - run: rustup update stable
       - run: rustup default stable
-      - run: cargo test --all-targets
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov --all-targets --lcov --output-path lcov.info
+      - uses: codecov/codecov-action@v7
+        with:
+          files: lcov.info
+          disable_search: true
+          fail_ci_if_error: true
+          use_oidc: true
