@@ -2,6 +2,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
 
+use crate::app::GameScreen;
+use crate::campaign::session::complete_current_mission;
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
@@ -47,6 +49,7 @@ pub enum CommandAction {
     FinishUnit,
     ResolveAttacks,
     Restart,
+    ContinueVictory,
 }
 
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
@@ -204,6 +207,16 @@ pub fn execute_command(
                     actual: battle.phase(),
                 });
             }
+            Ok(Vec::new())
+        }
+        CommandAction::ContinueVictory => {
+            battle
+                .result()
+                .filter(|result| result.victory)
+                .ok_or(BattleError::WrongPhase {
+                    expected: BattlePhase::Victory,
+                    actual: battle.phase(),
+                })?;
             Ok(Vec::new())
         }
     }
@@ -382,6 +395,9 @@ pub(crate) fn on_command_button_click(
     mut selected_cell: ResMut<SelectedCell>,
     mut playback: ResMut<EventPlayback>,
     mut restart_request: ResMut<RestartRequest>,
+    mut campaign: ResMut<CampaignRuntime>,
+    active_mission: Res<ActiveMission>,
+    mut next_state: ResMut<NextState<GameScreen>>,
     asset_status: Res<AssetLoadStatus>,
 ) {
     if !mission_assets_ready(asset_status) || playback.input_locked {
@@ -394,6 +410,9 @@ pub(crate) fn on_command_button_click(
         button.0,
         CommandContext {
             battle: &mut battle.0,
+            campaign: &mut campaign,
+            active_mission: &active_mission,
+            next_state: &mut next_state,
             interaction: &mut interaction,
             status: &mut status,
             event_queue: &mut event_queue,
@@ -416,6 +435,9 @@ pub(crate) fn handle_keyboard_shortcuts(
     mut selected_cell: ResMut<SelectedCell>,
     mut playback: ResMut<EventPlayback>,
     mut restart_request: ResMut<RestartRequest>,
+    mut campaign: ResMut<CampaignRuntime>,
+    active_mission: Res<ActiveMission>,
+    mut next_state: ResMut<NextState<GameScreen>>,
     asset_status: Res<AssetLoadStatus>,
 ) {
     if !mission_assets_ready(asset_status) || playback.input_locked {
@@ -453,6 +475,9 @@ pub(crate) fn handle_keyboard_shortcuts(
         action,
         CommandContext {
             battle: &mut battle.0,
+            campaign: &mut campaign,
+            active_mission: &active_mission,
+            next_state: &mut next_state,
             interaction: &mut interaction,
             status: &mut status,
             event_queue: &mut event_queue,
@@ -466,6 +491,9 @@ pub(crate) fn handle_keyboard_shortcuts(
 
 struct CommandContext<'a> {
     battle: &'a mut BattleState,
+    campaign: &'a mut CampaignRuntime,
+    active_mission: &'a ActiveMission,
+    next_state: &'a mut NextState<GameScreen>,
     interaction: &'a mut InteractionState,
     status: &'a mut StatusMessage,
     event_queue: &'a mut BattleEventQueue,
@@ -475,7 +503,11 @@ struct CommandContext<'a> {
     restart_request: &'a mut RestartRequest,
 }
 
-fn run_command(action: CommandAction, context: CommandContext<'_>) {
+fn run_command(action: CommandAction, mut context: CommandContext<'_>) {
+    if action == CommandAction::ContinueVictory {
+        run_continue_victory(&mut context);
+        return;
+    }
     match execute_command(context.battle, context.interaction, action) {
         Ok(events) => {
             context.playback.input_locked |= !events.is_empty();
@@ -491,6 +523,32 @@ fn run_command(action: CommandAction, context: CommandContext<'_>) {
         Err(error) => context.status.0 = error.to_string(),
     }
     copy_preview_cells(context.interaction, context.preview_cells);
+}
+
+/// Save-backed victory continue: complete the mission identified by
+/// [`ActiveMission`], persist it, and open the aftermath. Any failure keeps
+/// Battle and the current campaign state untouched; the mission is never
+/// re-derived from `runtime.0.state.next_mission` after completion.
+fn run_continue_victory(context: &mut CommandContext<'_>) {
+    let result = context.battle.result().filter(|result| result.victory);
+    match result.map(|result| {
+        complete_current_mission(&mut context.campaign.0, context.active_mission.0, result)
+    }) {
+        Some(Ok(_)) => {
+            context.status.0 =
+                command_success_message(CommandAction::ContinueVictory, context.interaction.mode)
+                    .to_owned();
+            context.next_state.set(GameScreen::Aftermath);
+        }
+        Some(Err(error)) => context.status.0 = error.to_string(),
+        None => {
+            context.status.0 = BattleError::WrongPhase {
+                expected: BattlePhase::Victory,
+                actual: context.battle.phase(),
+            }
+            .to_string();
+        }
+    }
 }
 
 fn require_selected_active_unit(
@@ -529,6 +587,7 @@ fn command_success_message(action: CommandAction, mode: InteractionMode) -> &'st
         CommandAction::FinishUnit => "Unit finished.",
         CommandAction::ResolveAttacks => "Committed enemy attacks resolved.",
         CommandAction::Restart => "Mission restarted.",
+        CommandAction::ContinueVictory => "Campaign progress saved.",
     }
 }
 
@@ -537,4 +596,145 @@ fn fresh_seed() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     elapsed.as_secs() ^ u64::from(elapsed.subsec_nanos())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+    use crate::campaign::model::CampaignState;
+    use crate::campaign::save::SaveFile;
+    use crate::campaign::session::CampaignSession;
+    use crate::domain::combat::DamageSource;
+    use crate::mission::mission_one::{ids, mission_one};
+    use crate::mission::{MissionId, mission_definition};
+
+    static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+
+    fn temp_save_path(label: &str) -> PathBuf {
+        let n = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "scorpius-interaction-{label}-{}-{n}.json",
+            std::process::id()
+        ))
+    }
+
+    fn pending(next: &NextState<GameScreen>) -> Option<GameScreen> {
+        match next {
+            NextState::Unchanged => None,
+            NextState::Pending(state) | NextState::PendingIfNeq(state) => Some(*state),
+        }
+    }
+
+    fn terminal_victory_battle() -> BattleState {
+        let mut battle = mission_one(7);
+        for enemy in [
+            ids::RIFLEMAN_LEFT,
+            ids::RIFLEMAN_RIGHT,
+            ids::STRIKER,
+            ids::ARTILLERY,
+        ] {
+            battle.apply_direct_damage(enemy, 99, DamageSource::PlayerWeapon(ids::PILE_LANCE));
+        }
+        battle
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_continue(
+        battle: &mut BattleState,
+        runtime: &mut CampaignRuntime,
+        active_mission: &ActiveMission,
+        status: &mut StatusMessage,
+        next: &mut NextState<GameScreen>,
+    ) {
+        let mut interaction = InteractionState::default();
+        let mut event_queue = BattleEventQueue::default();
+        let mut preview_cells = AttackPreviewCells::default();
+        let mut selected_cell = SelectedCell::default();
+        let mut playback = EventPlayback::default();
+        let mut restart_request = RestartRequest::default();
+        run_command(
+            CommandAction::ContinueVictory,
+            CommandContext {
+                battle,
+                campaign: runtime,
+                active_mission,
+                next_state: next,
+                interaction: &mut interaction,
+                status,
+                event_queue: &mut event_queue,
+                preview_cells: &mut preview_cells,
+                selected_cell: &mut selected_cell,
+                playback: &mut playback,
+                restart_request: &mut restart_request,
+            },
+        );
+    }
+
+    #[test]
+    fn continue_victory_completes_the_mission_and_opens_aftermath() {
+        let mut session = CampaignSession::new(SaveFile::new(temp_save_path("continue-ok")));
+        session.state = Some(CampaignState::new_game());
+        session.save.store(&CampaignState::new_game()).unwrap();
+        let mut runtime = CampaignRuntime(session);
+        let mut battle = terminal_victory_battle();
+        let active_mission = ActiveMission(mission_definition(MissionId::One).unwrap());
+        let mut status = StatusMessage::default();
+        let mut next = NextState::Unchanged;
+
+        run_continue(
+            &mut battle,
+            &mut runtime,
+            &active_mission,
+            &mut status,
+            &mut next,
+        );
+
+        let disk = runtime.0.save.load().unwrap().unwrap();
+        assert_eq!(disk.next_mission, MissionId::Two);
+        assert_eq!(disk.credits, 300);
+        let state = runtime.0.state.as_ref().unwrap();
+        assert_eq!(state.next_mission, MissionId::Two);
+        assert_eq!(state.credits, 300);
+        assert!(runtime.0.last_completion.is_some());
+        assert_eq!(active_mission.0.id, MissionId::One);
+        assert_eq!(pending(&next), Some(GameScreen::Aftermath));
+        assert_eq!(status.0, "Campaign progress saved.");
+    }
+
+    #[test]
+    fn continue_victory_save_failure_keeps_battle_and_campaign_state() {
+        // A SaveFile whose parent path is an ordinary file makes store() fail
+        // (create_dir_all on a file path errors), so write the file first.
+        let blocker = temp_save_path("continue-blocker");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let mut session = CampaignSession::new(SaveFile::new(blocker.join("campaign.json")));
+        let mut original = CampaignState::new_game();
+        original.credits = 120;
+        session.state = Some(original);
+        let mut runtime = CampaignRuntime(session);
+        let mut battle = terminal_victory_battle();
+        let active_mission = ActiveMission(mission_definition(MissionId::One).unwrap());
+        let mut status = StatusMessage::default();
+        let mut next = NextState::Unchanged;
+
+        run_continue(
+            &mut battle,
+            &mut runtime,
+            &active_mission,
+            &mut status,
+            &mut next,
+        );
+
+        assert_eq!(pending(&next), None);
+        let state = runtime.0.state.as_ref().unwrap();
+        assert_eq!(state.next_mission, MissionId::One);
+        assert_eq!(state.credits, 120);
+        assert!(runtime.0.last_completion.is_none());
+        assert_eq!(active_mission.0.id, MissionId::One);
+        assert!(status.0.contains("save file error"));
+        assert!(battle.result().is_some_and(|result| result.victory));
+    }
 }
