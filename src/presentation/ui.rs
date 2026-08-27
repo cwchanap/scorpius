@@ -3,11 +3,12 @@ use bevy::{ecs::system::SystemParam, prelude::*};
 use crate::domain::{
     battle::BattleState,
     combat::AttackPreview,
-    model::{BattleEvent, BattlePhase, Faction, MissionResult, Reaction, UnitId},
+    model::{BattleEvent, BattlePhase, Faction, MissionResult, Reaction, UnitArchetype, UnitId},
 };
+use crate::mission::MissionDefinition;
 
 use super::{
-    BattleRuntime, EventPlayback,
+    ActiveMission, BattleRuntime, EventPlayback,
     assets::{AssetLoadStatus, MISSION_ONE_GLTF_DISPLAY_PATH},
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
@@ -36,14 +37,23 @@ pub struct HudSnapshot {
     pub weapon_names: [Option<&'static str>; 3],
     pub weapon_enabled: [bool; 3],
     pub can_move: bool,
+    pub can_pilot: bool,
     pub can_choose_reaction: bool,
     pub can_finish: bool,
     pub can_resolve: bool,
     pub is_terminal: bool,
+    pub pilot_label: &'static str,
+    pub pilot_aegis: &'static str,
+    pub pilot_focus: &'static str,
+    pub pilot_overdrive: &'static str,
 }
 
 impl HudSnapshot {
-    pub fn from_battle(battle: &BattleState, selected: Option<UnitId>) -> Self {
+    pub fn from_battle(
+        battle: &BattleState,
+        selected: Option<UnitId>,
+        definition: &MissionDefinition,
+    ) -> Self {
         let remaining = battle
             .units()
             .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
@@ -96,11 +106,23 @@ impl HudSnapshot {
             },
         );
 
+        let pilot = battle.pilot_skills();
+        let pilot_status = |used: bool, active_now: bool| {
+            if active_now {
+                "ACTIVE"
+            } else if used {
+                "USED"
+            } else {
+                "READY"
+            }
+        };
+
         Self {
             round_phase: format!("Round {} · {}", battle.round(), phase_label(battle.phase())),
-            primary: format!("Eliminate all enemies · {remaining} remaining"),
+            primary: format!("{} · {remaining} remaining", definition.primary_objective),
             optional: format!(
-                "Turnabout · {}",
+                "{} · {}",
+                definition.optional_objective,
                 if battle.objectives().turnabout_complete {
                     "Complete"
                 } else {
@@ -146,10 +168,29 @@ impl HudSnapshot {
                 })
                 .collect(),
             can_move: active.is_some_and(|unit| !unit.activation.moved),
+            can_pilot: active.is_some_and(|unit| match unit.archetype {
+                UnitArchetype::Vanguard => !pilot.aegis_used,
+                UnitArchetype::Gunner => !pilot.focus_used,
+                UnitArchetype::Interceptor => !pilot.overdrive_used && !unit.activation.moved,
+                UnitArchetype::Rifleman | UnitArchetype::Striker | UnitArchetype::Artillery => {
+                    false
+                }
+            }),
             can_choose_reaction: active.is_some_and(|unit| !unit.activation.finished),
             can_finish: active.is_some_and(|unit| unit.reaction.is_some()),
             can_resolve: battle.ready_to_resolve(),
             is_terminal: battle.result().is_some(),
+            pilot_label: active.map_or("[P] PILOT", |unit| match unit.archetype {
+                UnitArchetype::Vanguard => "[P] AEGIS",
+                UnitArchetype::Gunner => "[P] FOCUS",
+                UnitArchetype::Interceptor => "[P] OVERDRIVE",
+                UnitArchetype::Rifleman | UnitArchetype::Striker | UnitArchetype::Artillery => {
+                    "[P] PILOT"
+                }
+            }),
+            pilot_aegis: pilot_status(pilot.aegis_used, pilot.aegis_target.is_some()),
+            pilot_focus: pilot_status(pilot.focus_used, pilot.focus_pending),
+            pilot_overdrive: pilot_status(pilot.overdrive_used, pilot.overdrive_active),
             weapon_names,
             weapon_enabled,
         }
@@ -208,7 +249,10 @@ pub(crate) enum HudTextRole {
 }
 
 #[derive(Component)]
-pub(crate) struct WeaponButtonLabel(usize);
+pub(crate) enum CommandButtonLabel {
+    WeaponSlot(usize),
+    Pilot,
+}
 
 pub fn setup_mission_ui(mut commands: Commands) {
     let root = commands
@@ -401,6 +445,17 @@ pub fn setup_mission_ui(mut commands: Commands) {
             Some(slot),
         );
     }
+    let pilot_label = spawn_command_button(
+        &mut commands,
+        command_bar,
+        CommandAction::PilotSkill,
+        "[P] PILOT",
+        96.0,
+        None,
+    );
+    commands
+        .entity(pilot_label)
+        .insert(CommandButtonLabel::Pilot);
     spawn_command_button(
         &mut commands,
         command_bar,
@@ -473,7 +528,7 @@ pub(crate) struct HudQueries<'w, 's> {
         Without<ResultOverlay>,
     >,
     weapon_labels:
-        Query<'w, 's, (&'static WeaponButtonLabel, &'static mut Text), Without<HudTextRole>>,
+        Query<'w, 's, (&'static CommandButtonLabel, &'static mut Text), Without<HudTextRole>>,
     buttons: Query<
         'w,
         's,
@@ -492,9 +547,10 @@ pub(crate) fn update_hud(
     interaction: Res<InteractionState>,
     status: Res<StatusMessage>,
     playback: Res<EventPlayback>,
+    active_mission: Res<ActiveMission>,
     mut queries: HudQueries,
 ) {
-    let hud = HudSnapshot::from_battle(&battle.0, interaction.selected_unit);
+    let hud = HudSnapshot::from_battle(&battle.0, interaction.selected_unit, active_mission.0);
     let threat_text = format_threats(&hud);
     let preview_text = interaction.preview.as_ref().map_or_else(
         || "TARGET PREVIEW\nArm a weapon and hover a target.".to_owned(),
@@ -503,7 +559,7 @@ pub(crate) fn update_hud(
     let status_text = if playback.input_locked {
         "Resolving committed events...".to_owned()
     } else if status.0.is_empty() {
-        "[M] MOVE  [1-3] WEAPONS  [C/G/E] STANCE  [F] FINISH  [SPACE] RESOLVE".to_owned()
+        "[M] MOVE  [1-3] WEAPONS  [P] PILOT  [C/G/E] STANCE  [F] FINISH  [SPACE] RESOLVE".to_owned()
     } else {
         status.0.clone()
     };
@@ -511,13 +567,16 @@ pub(crate) fn update_hud(
     for (role, mut text, visibility) in &mut queries.texts {
         text.0 = match role {
             HudTextRole::Objective => format!(
-                "// OBJECTIVES\n{}\n[P] {}\n[B] {}",
+                "// OBJECTIVES\n{}\nPRIMARY  {}\nBONUS    {}",
                 ascii_separators(&hud.round_phase),
                 ascii_separators(&hud.primary),
                 ascii_separators(&hud.optional)
             ),
             HudTextRole::Threats => threat_text.clone(),
-            HudTextRole::Unit => format!("// UNIT\n{}", hud.selected_summary),
+            HudTextRole::Unit => format!(
+                "// UNIT\n{}\nPILOT  AEGIS {}  FOCUS {}  OVERDRIVE {}",
+                hud.selected_summary, hud.pilot_aegis, hud.pilot_focus, hud.pilot_overdrive
+            ),
             HudTextRole::Preview => preview_text.clone(),
             HudTextRole::Status => status_text.clone(),
             HudTextRole::Playback => playback
@@ -541,9 +600,16 @@ pub(crate) fn update_hud(
     }
 
     for (label, mut text) in &mut queries.weapon_labels {
-        text.0 = hud.weapon_names[label.0]
-            .map(|name| format!("[{}] {name}", label.0 + 1))
-            .unwrap_or_else(|| format!("[{}] --", label.0 + 1));
+        text.0 = match *label {
+            CommandButtonLabel::WeaponSlot(slot) => hud
+                .weapon_names
+                .get(slot)
+                .copied()
+                .flatten()
+                .map(|name| format!("[{}] {name}", slot + 1))
+                .unwrap_or_else(|| format!("[{}] --", slot + 1)),
+            CommandButtonLabel::Pilot => hud.pilot_label.to_owned(),
+        };
     }
     for mut visibility in &mut queries.result_overlays {
         *visibility = if hud.is_terminal {
@@ -556,6 +622,7 @@ pub(crate) fn update_hud(
         let enabled = !playback.input_locked && command_enabled(button.0, &hud);
         let armed = match (button.0, interaction.mode) {
             (CommandAction::Move, InteractionMode::Move) => true,
+            (CommandAction::PilotSkill, InteractionMode::AegisTarget) => true,
             (CommandAction::WeaponSlot(slot), InteractionMode::Attack(weapon)) => {
                 hud.weapon_names
                     .get(slot)
@@ -614,7 +681,7 @@ fn spawn_command_button(
     label: &str,
     width: f32,
     weapon_slot: Option<usize>,
-) {
+) -> Entity {
     let button = commands
         .spawn((
             Button,
@@ -640,14 +707,16 @@ fn spawn_command_button(
         ChildOf(button),
     ));
     if let Some(slot) = weapon_slot {
-        label_entity.insert(WeaponButtonLabel(slot));
+        label_entity.insert(CommandButtonLabel::WeaponSlot(slot));
     }
+    label_entity.id()
 }
 
 fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
     match action {
         CommandAction::Move => hud.can_move,
         CommandAction::WeaponSlot(slot) => hud.weapon_enabled.get(slot).copied().unwrap_or(false),
+        CommandAction::PilotSkill => hud.can_pilot,
         CommandAction::Reaction(_) => hud.can_choose_reaction,
         CommandAction::FinishUnit => hud.can_finish,
         CommandAction::ResolveAttacks => hud.can_resolve,
