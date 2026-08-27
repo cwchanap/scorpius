@@ -1,5 +1,6 @@
 //! JSON save-file persistence for [`crate::campaign::model::CampaignState`].
 
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -14,6 +15,15 @@ pub struct SaveFile {
 pub enum SaveError {
     Io(io::Error),
     Json(serde_json::Error),
+}
+
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaveError::Io(error) => write!(f, "save file error: {error}"),
+            SaveError::Json(error) => write!(f, "corrupted save file: {error}"),
+        }
+    }
 }
 
 impl From<io::Error> for SaveError {
@@ -65,7 +75,11 @@ fn platform_default_path() -> PathBuf {
 #[cfg(target_os = "windows")]
 fn platform_default_path() -> PathBuf {
     std::env::var_os("APPDATA")
-        .map(|appdata| PathBuf::from(appdata).join("Scorpius").join("campaign.json"))
+        .map(|appdata| {
+            PathBuf::from(appdata)
+                .join("Scorpius")
+                .join("campaign.json")
+        })
         .unwrap_or_else(|| PathBuf::from("campaign.json"))
 }
 

@@ -1,5 +1,7 @@
 //! Save-backed campaign session: new game, continue, mission completion, purchases.
 
+use std::fmt;
+
 use crate::campaign::model::{CampaignState, PlayerMech, UpgradeTrack};
 use crate::campaign::progression::{CampaignError, CompletionReceipt};
 use crate::campaign::save::{SaveError, SaveFile};
@@ -27,6 +29,16 @@ pub enum FlowError {
     NoActiveCampaign,
     Save(SaveError),
     Campaign(CampaignError),
+}
+
+impl fmt::Display for FlowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FlowError::NoActiveCampaign => write!(f, "no active campaign"),
+            FlowError::Save(error) => write!(f, "{error}"),
+            FlowError::Campaign(error) => write!(f, "{error}"),
+        }
+    }
 }
 
 impl From<SaveError> for FlowError {
