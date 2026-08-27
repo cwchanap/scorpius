@@ -188,13 +188,115 @@ fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
     let mut battle = mission_one(7);
     battle.begin_round().unwrap();
     battle.begin_activation(ids::VANGUARD).unwrap();
-    let hud = HudSnapshot::from_battle(&battle, Some(ids::VANGUARD));
+    let hud = HudSnapshot::from_battle(
+        &battle,
+        Some(ids::VANGUARD),
+        mission_definition(MissionId::One).unwrap(),
+    );
 
     assert_eq!(hud.round_phase, "Round 1 · Player Phase");
-    assert_eq!(hud.primary, "Eliminate all enemies · 4 remaining");
-    assert_eq!(hud.optional, "Turnabout · Not yet");
+    assert_eq!(hud.primary, "Eliminate all enemies. · 4 remaining");
+    assert_eq!(
+        hud.optional,
+        "Turnabout: damage an enemy with enemy fire, collision, hazard, or explosion. · Not yet"
+    );
     assert_eq!(hud.selected_name, Some("Vanguard"));
     assert_eq!(hud.threats.len(), 4);
+    assert_eq!(hud.pilot_label, "[P] AEGIS");
+    assert!(hud.can_pilot);
+    assert_eq!(hud.pilot_aegis, "READY");
+}
+
+#[test]
+fn hud_reports_pilot_skill_states_and_dynamic_pilot_label() {
+    let definition = mission_definition(MissionId::One).unwrap();
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+
+    battle.begin_activation(ids::GUNNER).unwrap();
+    battle.use_focus().unwrap();
+    battle
+        .choose_reaction(ids::GUNNER, Reaction::Guard)
+        .unwrap();
+    battle.finish_activation(ids::GUNNER).unwrap();
+
+    battle.begin_activation(ids::INTERCEPTOR).unwrap();
+    battle.use_overdrive().unwrap();
+    let hud = HudSnapshot::from_battle(&battle, Some(ids::INTERCEPTOR), definition);
+    assert_eq!(hud.pilot_label, "[P] OVERDRIVE");
+    assert_eq!(hud.pilot_aegis, "READY");
+    assert_eq!(hud.pilot_focus, "ACTIVE");
+    assert_eq!(hud.pilot_overdrive, "ACTIVE");
+
+    battle
+        .choose_reaction(ids::INTERCEPTOR, Reaction::Guard)
+        .unwrap();
+    battle.finish_activation(ids::INTERCEPTOR).unwrap();
+    let hud = HudSnapshot::from_battle(&battle, None, definition);
+    assert_eq!(hud.pilot_label, "[P] PILOT");
+    assert_eq!(hud.pilot_aegis, "READY");
+    assert_eq!(hud.pilot_focus, "ACTIVE");
+    assert_eq!(hud.pilot_overdrive, "USED");
+}
+
+#[test]
+fn vanguard_pilot_arms_aegis_and_shields_an_adjacent_ally() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut interaction = InteractionState::default();
+
+    // The authored deployment has no orthogonal adjacency, so step the
+    // Vanguard next to the Gunner before arming the pilot skill.
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 7)).unwrap();
+    assert_eq!(interaction.selected_unit, Some(ids::VANGUARD));
+    execute_command(&mut battle, &mut interaction, CommandAction::Move).unwrap();
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 8)).unwrap();
+
+    execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
+    assert_eq!(interaction.mode, InteractionMode::AegisTarget);
+
+    // Clicking the enemy Striker is rejected and returns to Inspect.
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 4)).unwrap_err();
+    assert_eq!(interaction.mode, InteractionMode::Inspect);
+    assert_eq!(battle.pilot_skills().aegis_target, None);
+
+    execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(3, 8)).unwrap();
+    assert_eq!(interaction.mode, InteractionMode::Inspect);
+    assert_eq!(battle.pilot_skills().aegis_target, Some(ids::GUNNER));
+    assert!(battle.pilot_skills().aegis_used);
+}
+
+#[test]
+fn gunner_pilot_sets_focus_pending() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut interaction = InteractionState::default();
+
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(3, 8)).unwrap();
+    assert_eq!(interaction.selected_unit, Some(ids::GUNNER));
+    execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
+
+    assert_eq!(interaction.mode, InteractionMode::Inspect);
+    let pilot = battle.pilot_skills();
+    assert!(pilot.focus_used);
+    assert!(pilot.focus_pending);
+}
+
+#[test]
+fn interceptor_pilot_overdrive_raises_movement_allowance() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut interaction = InteractionState::default();
+
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(5, 8)).unwrap();
+    assert_eq!(interaction.selected_unit, Some(ids::INTERCEPTOR));
+    assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 4);
+
+    execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
+
+    assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 6);
+    assert!(battle.pilot_skills().overdrive_used);
 }
 
 #[test]

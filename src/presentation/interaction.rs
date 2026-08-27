@@ -6,7 +6,9 @@ use crate::domain::{
     battle::BattleState,
     board::GridPos,
     combat::AttackPreview,
-    model::{BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitId, WeaponId},
+    model::{
+        BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype, UnitId, WeaponId,
+    },
 };
 
 use super::{
@@ -22,6 +24,7 @@ pub enum InteractionMode {
     Inspect,
     Move,
     Attack(WeaponId),
+    AegisTarget,
 }
 
 #[derive(Resource, Default)]
@@ -39,6 +42,7 @@ pub struct StatusMessage(pub String);
 pub enum CommandAction {
     Move,
     WeaponSlot(usize),
+    PilotSkill,
     Reaction(Reaction),
     FinishUnit,
     ResolveAttacks,
@@ -73,6 +77,16 @@ pub fn route_cell_click(
             interaction.hovered_cell = Some(clicked);
             interaction.preview = None;
             Ok(events)
+        }
+        InteractionMode::AegisTarget => {
+            interaction.mode = InteractionMode::Inspect;
+            interaction.hovered_cell = Some(clicked);
+            interaction.preview = None;
+            let ally = battle
+                .occupant_at(clicked)
+                .ok_or(BattleError::NoUnitSelected)?;
+            battle.use_aegis(ally)?;
+            Ok(Vec::new())
         }
         InteractionMode::Inspect => {
             if let Some(unit_id) = battle.occupant_at(clicked) {
@@ -142,6 +156,24 @@ pub fn execute_command(
             interaction.preview = interaction
                 .hovered_cell
                 .and_then(|cell| battle.preview_attack(unit_id, weapon_id, cell).ok());
+            Ok(Vec::new())
+        }
+        CommandAction::PilotSkill => {
+            let unit_id = require_selected_active_unit(battle, interaction)?;
+            let unit = battle
+                .unit(unit_id)
+                .ok_or(BattleError::UnknownUnit(unit_id))?;
+            match unit.archetype {
+                UnitArchetype::Vanguard => {
+                    interaction.mode = InteractionMode::AegisTarget;
+                    interaction.preview = None;
+                }
+                UnitArchetype::Gunner => battle.use_focus()?,
+                UnitArchetype::Interceptor => battle.use_overdrive()?,
+                UnitArchetype::Rifleman | UnitArchetype::Striker | UnitArchetype::Artillery => {
+                    return Err(BattleError::PilotSkillWrongUnit(unit_id));
+                }
+            }
             Ok(Vec::new())
         }
         CommandAction::Reaction(reaction) => {
@@ -397,6 +429,8 @@ pub(crate) fn handle_keyboard_shortcuts(
         Some(CommandAction::WeaponSlot(1))
     } else if keyboard.just_pressed(KeyCode::Digit3) {
         Some(CommandAction::WeaponSlot(2))
+    } else if keyboard.just_pressed(KeyCode::KeyP) {
+        Some(CommandAction::PilotSkill)
     } else if keyboard.just_pressed(KeyCode::KeyC) {
         Some(CommandAction::Reaction(Reaction::Counter))
     } else if keyboard.just_pressed(KeyCode::KeyG) {
@@ -446,7 +480,7 @@ fn run_command(action: CommandAction, context: CommandContext<'_>) {
         Ok(events) => {
             context.playback.input_locked |= !events.is_empty();
             context.event_queue.0.extend(events);
-            context.status.0 = command_success_message(action).to_owned();
+            context.status.0 = command_success_message(action, context.interaction.mode).to_owned();
             if action == CommandAction::Restart {
                 context.restart_request.0 = Some(fresh_seed());
             }
@@ -478,10 +512,17 @@ fn require_selected_active_unit(
     Ok(unit)
 }
 
-const fn command_success_message(action: CommandAction) -> &'static str {
+fn command_success_message(action: CommandAction, mode: InteractionMode) -> &'static str {
     match action {
         CommandAction::Move => "MOVE ARMED — choose a cyan destination.",
         CommandAction::WeaponSlot(_) => "WEAPON ARMED — choose an amber target.",
+        CommandAction::PilotSkill => {
+            if mode == InteractionMode::AegisTarget {
+                "AEGIS ARMED — click an adjacent ally to shield."
+            } else {
+                "Pilot skill engaged."
+            }
+        }
         CommandAction::Reaction(Reaction::Counter) => "COUNTER stance selected.",
         CommandAction::Reaction(Reaction::Guard) => "GUARD stance selected.",
         CommandAction::Reaction(Reaction::Evade) => "EVADE stance selected.",
