@@ -380,6 +380,7 @@ impl BattleState {
     pub(super) fn clear_active_unit_if(&mut self, id: UnitId) {
         if self.active_unit == Some(id) {
             self.active_unit = None;
+            self.pilot_skills.overdrive_active = false;
         }
     }
 
@@ -803,6 +804,25 @@ mod tests {
         assert!(!battle.pilot_skills().overdrive_active);
         assert!(battle.pilot_skills().overdrive_used);
         assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 4);
+    }
+
+    #[test]
+    fn knocking_out_the_active_interceptor_ends_overdrive() {
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+        battle.begin_activation(ids::INTERCEPTOR).unwrap();
+        battle.use_overdrive().unwrap();
+        assert!(battle.pilot_skills().overdrive_active);
+        assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 6);
+
+        // A hazard or explosion during resolution can KO the active unit
+        // before it ever reaches finish_activation.
+        battle.apply_direct_damage(ids::INTERCEPTOR, 99, DamageSource::Hazard);
+
+        assert!(battle.unit(ids::INTERCEPTOR).unwrap().is_knocked_out());
+        assert_eq!(battle.active_unit(), None);
+        assert!(!battle.pilot_skills().overdrive_active);
+        assert!(battle.pilot_skills().overdrive_used);
     }
 
     fn knock_out_all_enemies(battle: &mut BattleState) -> Vec<BattleEvent> {
