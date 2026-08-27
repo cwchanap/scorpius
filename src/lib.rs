@@ -1,4 +1,5 @@
 pub mod app;
+pub mod campaign;
 pub mod domain;
 pub mod mission;
 pub mod presentation;
