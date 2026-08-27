@@ -1,16 +1,20 @@
 use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use bevy::prelude::*;
 use scorpius::{
+    campaign::{model::CampaignState, save::SaveFile, session::CampaignSession},
     domain::{
         battle::BattleState,
         board::GridPos,
         model::{BattlePhase, MissionResult, Reaction, UnitId},
     },
     mission::mission_one::{ids, mission_one},
+    mission::{MissionId, mission_definition},
     presentation::{
-        AttackPreviewCells, BattleEventQueue, BattleRuntime, EventPlayback, PresentationRoot,
-        SelectedCell, TelegraphVisual, UnitVisual,
+        ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
+        EventPlayback, PresentationRoot, SelectedCell, TelegraphVisual, UnitVisual,
         battlefield::mission_grid_cells,
         grid_to_world,
         interaction::{
@@ -22,9 +26,25 @@ use scorpius::{
     },
 };
 
+static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+
+fn temp_save_path(label: &str) -> PathBuf {
+    let n = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "scorpius-presentation-{label}-{}-{n}.json",
+        std::process::id()
+    ))
+}
+
 fn presentation_fixture_app() -> App {
     let mut app = App::new();
     app.insert_resource(BattleRuntime(mission_one(7)))
+        .insert_resource(CampaignRuntime(CampaignSession {
+            state: Some(CampaignState::new_game()),
+            save: SaveFile::new(temp_save_path("presentation-restart")),
+            last_completion: None,
+        }))
+        .insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()))
         .init_resource::<InteractionState>()
         .init_resource::<StatusMessage>()
         .init_resource::<BattleEventQueue>()

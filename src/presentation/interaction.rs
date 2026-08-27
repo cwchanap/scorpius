@@ -8,11 +8,11 @@ use crate::domain::{
     combat::AttackPreview,
     model::{BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitId, WeaponId},
 };
-use crate::mission::mission_one::mission_one;
 
 use super::{
-    AttackPreviewCells, BattleEventQueue, BattleRuntime, CellVisual, EventPlayback,
-    PresentationNeedsRebuild, PresentationRoot, RestartRequest, RestartRoundPending, SelectedCell,
+    ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
+    CellVisual, EventPlayback, PresentationNeedsRebuild, PresentationRoot, RestartRequest,
+    RestartRoundPending, SelectedCell,
     assets::{AssetLoadStatus, mission_assets_ready},
 };
 
@@ -192,8 +192,16 @@ pub fn update_hover_preview(
 }
 
 pub fn restart_battle(world: &mut World, seed: u64) {
-    // ponytail: zero-upgrade rebuild; Task 4 swaps in the active mission/upgrades.
-    world.resource_mut::<BattleRuntime>().0 = mission_one(seed);
+    let definition = world.resource::<ActiveMission>().0;
+    let upgrades = world
+        .resource::<CampaignRuntime>()
+        .0
+        .state
+        .as_ref()
+        .expect("restart requires active campaign")
+        .upgrades
+        .clone();
+    world.resource_mut::<BattleRuntime>().0 = (definition.build)(seed, &upgrades);
 
     let roots: Vec<_> = world
         .query_filtered::<Entity, With<PresentationRoot>>()
@@ -203,12 +211,7 @@ pub fn restart_battle(world: &mut World, seed: u64) {
         world.entity_mut(root).despawn();
     }
 
-    *world.resource_mut::<InteractionState>() = InteractionState::default();
-    *world.resource_mut::<StatusMessage>() = StatusMessage::default();
-    world.resource_mut::<BattleEventQueue>().0.clear();
-    *world.resource_mut::<EventPlayback>() = EventPlayback::default();
-    world.resource_mut::<AttackPreviewCells>().0.clear();
-    world.resource_mut::<SelectedCell>().0 = None;
+    reset_transient_battle_state(world);
     if let Some(mut pending) = world.get_resource_mut::<RestartRoundPending>() {
         pending.0 = true;
     }
@@ -220,6 +223,16 @@ pub fn restart_battle(world: &mut World, seed: u64) {
         Transform::default(),
         Visibility::Visible,
     ));
+}
+
+/// Clear the interaction/playback/preview/selection state shared by restart and battle entry.
+pub(crate) fn reset_transient_battle_state(world: &mut World) {
+    *world.resource_mut::<InteractionState>() = InteractionState::default();
+    *world.resource_mut::<StatusMessage>() = StatusMessage::default();
+    world.resource_mut::<BattleEventQueue>().0.clear();
+    *world.resource_mut::<EventPlayback>() = EventPlayback::default();
+    world.resource_mut::<AttackPreviewCells>().0.clear();
+    world.resource_mut::<SelectedCell>().0 = None;
 }
 
 pub(crate) fn process_restart_request(world: &mut World) {

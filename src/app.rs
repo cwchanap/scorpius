@@ -4,14 +4,16 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::{
-    mission::mission_one::mission_one,
+    campaign::{model::CampaignState, save::SaveFile, session::CampaignSession},
+    mission::mission_definition,
     presentation::{
-        AttackPreviewCells, BattleEventQueue, BattleRuntime, EventPlayback, RestartRequest,
-        RestartRoundPending, SelectedCell,
+        ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
+        EventPlayback, RestartRequest, RestartRoundPending, SelectedCell,
         assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
         battlefield::{rebuild_mission_scene, setup_mission_scene},
         interaction::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
+            reset_transient_battle_state,
         },
         playback::{begin_restarted_round, play_battle_events},
         sync::{
@@ -26,12 +28,24 @@ use crate::{
 
 pub struct ScorpiusPlugin;
 
+#[derive(States, Default, Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum GameScreen {
+    Title,
+    PreMissionStory,
+    Briefing,
+    #[default]
+    Battle,
+    Aftermath,
+    Upgrade,
+    NextMission,
+}
+
 impl Plugin for ScorpiusPlugin {
     fn build(&self, app: &mut App) {
-        let mut battle = mission_one(fresh_seed());
-        battle
-            .begin_round()
-            .expect("authored Mission 1 opening must be valid");
+        // ponytail: Task-4 migration checkpoint — Battle is default and a fresh
+        // campaign is seeded in memory; Task 5 restores Title as the entry state.
+        let mut campaign = CampaignSession::new(SaveFile::platform_default());
+        campaign.state = Some(CampaignState::new_game());
 
         app.add_plugins((
             DefaultPlugins
@@ -55,7 +69,8 @@ impl Plugin for ScorpiusPlugin {
             require_markers: true,
             ..default()
         })
-        .insert_resource(BattleRuntime(battle))
+        .insert_resource(CampaignRuntime(campaign))
+        .init_state::<GameScreen>()
         .init_resource::<SelectedCell>()
         .init_resource::<BattleEventQueue>()
         .init_resource::<EventPlayback>()
@@ -66,9 +81,10 @@ impl Plugin for ScorpiusPlugin {
         .init_resource::<RestartRoundPending>()
         .init_resource::<MissionAssets>()
         .init_resource::<AssetLoadStatus>()
+        .add_systems(Startup, center_primary_window)
         .add_systems(
-            Startup,
-            (center_primary_window, setup_mission_scene, setup_mission_ui),
+            OnEnter(GameScreen::Battle),
+            (enter_battle, setup_mission_scene, setup_mission_ui).chain(),
         )
         .add_systems(Update, monitor_mission_assets)
         .add_systems(Update, stabilize_primary_window_position)
@@ -79,7 +95,8 @@ impl Plugin for ScorpiusPlugin {
                 rebuild_mission_scene,
                 begin_restarted_round,
             )
-                .chain(),
+                .chain()
+                .run_if(in_state(GameScreen::Battle)),
         )
         .add_systems(
             Update,
@@ -93,7 +110,8 @@ impl Plugin for ScorpiusPlugin {
                 attach_reaction_rendering,
             )
                 .chain()
-                .after(begin_restarted_round),
+                .after(begin_restarted_round)
+                .run_if(in_state(GameScreen::Battle)),
         )
         .add_systems(
             Update,
@@ -104,15 +122,53 @@ impl Plugin for ScorpiusPlugin {
                 sync_cell_highlights,
                 pulse_telegraphs,
             )
-                .after(reconcile_reaction_markers),
+                .after(reconcile_reaction_markers)
+                .run_if(in_state(GameScreen::Battle)),
         )
-        .add_systems(Update, play_battle_events.after(apply_unit_transforms))
-        .add_systems(Update, handle_keyboard_shortcuts.after(play_battle_events))
         .add_systems(
             Update,
-            (update_hud, update_asset_status_text).after(play_battle_events),
+            play_battle_events
+                .after(apply_unit_transforms)
+                .run_if(in_state(GameScreen::Battle)),
+        )
+        .add_systems(
+            Update,
+            handle_keyboard_shortcuts
+                .after(play_battle_events)
+                .run_if(in_state(GameScreen::Battle)),
+        )
+        .add_systems(
+            Update,
+            (update_hud, update_asset_status_text)
+                .after(play_battle_events)
+                .run_if(in_state(GameScreen::Battle)),
         );
     }
+}
+
+/// Resolve the campaign's next mission and construct the battle it defines.
+///
+/// Exclusive so `ActiveMission`/`BattleRuntime` exist before the chained scene
+/// and HUD setup systems run.
+pub fn enter_battle(world: &mut World) {
+    let (next_mission, upgrades) = {
+        let state = world
+            .resource::<CampaignRuntime>()
+            .0
+            .state
+            .as_ref()
+            .expect("Battle requires active campaign");
+        (state.next_mission, state.upgrades.clone())
+    };
+    let definition =
+        mission_definition(next_mission).expect("current mission must have authored definition");
+    let mut battle = (definition.build)(fresh_seed(), &upgrades);
+    battle
+        .begin_round()
+        .expect("authored mission opening must be valid");
+    world.insert_resource(ActiveMission(definition));
+    world.insert_resource(BattleRuntime(battle));
+    reset_transient_battle_state(world);
 }
 
 fn fresh_seed() -> u64 {
