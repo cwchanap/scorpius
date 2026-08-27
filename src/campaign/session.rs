@@ -57,6 +57,7 @@ pub fn start_new_game(session: &mut CampaignSession) -> Result<(), FlowError> {
     let state = CampaignState::new_game();
     session.save.store(&state)?;
     session.state = Some(state);
+    session.last_completion = None;
     Ok(())
 }
 
@@ -64,6 +65,7 @@ pub fn continue_game(session: &mut CampaignSession) -> Result<MissionId, FlowErr
     let state = session.save.load()?.ok_or(FlowError::NoActiveCampaign)?;
     let next_mission = state.next_mission;
     session.state = Some(state);
+    session.last_completion = None;
     Ok(next_mission)
 }
 

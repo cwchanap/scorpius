@@ -83,7 +83,7 @@ Pointer input selects mechs, destinations, and targets. These keys mirror the co
 | `E` | Evade |
 | `F` | Finish unit |
 | `Space` | Resolve committed attacks |
-| `R` | Restart from a terminal result (the visible button appears on defeat; victory shows **CONTINUE**) |
+| `R` | Restart from a defeat (rejected on victory; victory shows **CONTINUE**) |
 
 ## Verify
 
