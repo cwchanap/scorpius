@@ -42,6 +42,7 @@ pub struct HudSnapshot {
     pub can_finish: bool,
     pub can_resolve: bool,
     pub is_terminal: bool,
+    pub is_victory: bool,
     pub pilot_label: &'static str,
     pub pilot_aegis: &'static str,
     pub pilot_focus: &'static str,
@@ -180,6 +181,7 @@ impl HudSnapshot {
             can_finish: active.is_some_and(|unit| unit.reaction.is_some()),
             can_resolve: battle.ready_to_resolve(),
             is_terminal: battle.result().is_some(),
+            is_victory: battle.result().is_some_and(|result| result.victory),
             pilot_label: active.map_or("[P] PILOT", |unit| match unit.archetype {
                 UnitArchetype::Vanguard => "[P] AEGIS",
                 UnitArchetype::Gunner => "[P] FOCUS",
@@ -407,6 +409,14 @@ pub fn setup_mission_ui(mut commands: Commands) {
         190.0,
         None,
     );
+    spawn_command_button(
+        &mut commands,
+        result_overlay,
+        CommandAction::ContinueVictory,
+        "CONTINUE",
+        190.0,
+        None,
+    );
 
     let command_bar = commands
         .spawn((
@@ -516,6 +526,7 @@ pub fn setup_mission_ui(mut commands: Commands) {
 }
 
 #[derive(SystemParam)]
+#[allow(clippy::type_complexity)]
 pub(crate) struct HudQueries<'w, 's> {
     texts: Query<
         'w,
@@ -536,7 +547,9 @@ pub(crate) struct HudQueries<'w, 's> {
             &'static CommandButton,
             &'static mut BackgroundColor,
             &'static mut Pickable,
+            &'static mut Visibility,
         ),
+        (Without<HudTextRole>, Without<ResultOverlay>),
     >,
     result_overlays:
         Query<'w, 's, &'static mut Visibility, (With<ResultOverlay>, Without<HudTextRole>)>,
@@ -618,7 +631,7 @@ pub(crate) fn update_hud(
             Visibility::Hidden
         };
     }
-    for (button, mut background, mut pickable) in &mut queries.buttons {
+    for (button, mut background, mut pickable, mut visibility) in &mut queries.buttons {
         let enabled = !playback.input_locked && command_enabled(button.0, &hud);
         let armed = match (button.0, interaction.mode) {
             (CommandAction::Move, InteractionMode::Move) => true,
@@ -646,6 +659,22 @@ pub(crate) fn update_hud(
         } else {
             Pickable::IGNORE
         };
+        // Terminal actions are result-specific: defeat shows Restart only,
+        // victory shows Continue only. The overlay itself is hidden mid-battle.
+        if matches!(
+            button.0,
+            CommandAction::Restart | CommandAction::ContinueVictory
+        ) {
+            let shown = match button.0 {
+                CommandAction::Restart => hud.is_terminal && !hud.is_victory,
+                _ => hud.is_victory,
+            };
+            *visibility = if shown {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
     }
 }
 
@@ -720,7 +749,8 @@ fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
         CommandAction::Reaction(_) => hud.can_choose_reaction,
         CommandAction::FinishUnit => hud.can_finish,
         CommandAction::ResolveAttacks => hud.can_resolve,
-        CommandAction::Restart => hud.is_terminal,
+        CommandAction::Restart => hud.is_terminal && !hud.is_victory,
+        CommandAction::ContinueVictory => hud.is_victory,
     }
 }
 

@@ -4,15 +4,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use scorpius::app::{GameScreen, enter_battle, teardown_battle_screen};
-use scorpius::campaign::model::{CampaignState, SquadUpgrades, UpgradeLevels};
+use scorpius::campaign::model::{
+    CampaignState, PlayerMech, SquadUpgrades, UpgradeLevels, UpgradeTrack,
+};
+use scorpius::campaign::progression::CompletionReceipt;
 use scorpius::campaign::save::SaveFile;
 use scorpius::campaign::session::CampaignSession;
 use scorpius::mission::MissionId;
 use scorpius::mission::mission_definition;
 use scorpius::mission::mission_one::ids;
 use scorpius::presentation::campaign_ui::{
-    CampaignStatus, CampaignUiAction, DialogueCursor, apply_campaign_action, briefing_copy,
-    dialogue_snapshot,
+    CampaignStatus, CampaignUiAction, DialogueCursor, aftermath_reward_copy, apply_campaign_action,
+    briefing_copy, dialogue_snapshot, next_mission_copy, upgrade_row_copy,
 };
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
@@ -153,6 +156,7 @@ fn title_new_game_persists_and_enters_pre_mission_story() {
     apply_campaign_action(
         CampaignUiAction::NewGame,
         &mut runtime,
+        None,
         &mut cursor,
         &mut status,
         &mut next,
@@ -187,6 +191,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
     apply_campaign_action(
         CampaignUiAction::Continue,
         &mut runtime,
+        None,
         &mut DialogueCursor(0),
         &mut CampaignStatus::default(),
         &mut next,
@@ -211,6 +216,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
     apply_campaign_action(
         CampaignUiAction::Continue,
         &mut runtime,
+        None,
         &mut DialogueCursor(0),
         &mut CampaignStatus::default(),
         &mut next,
@@ -227,6 +233,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
     apply_campaign_action(
         CampaignUiAction::Continue,
         &mut runtime,
+        None,
         &mut DialogueCursor(0),
         &mut status,
         &mut next,
@@ -247,6 +254,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
     apply_campaign_action(
         CampaignUiAction::Continue,
         &mut runtime,
+        None,
         &mut DialogueCursor(0),
         &mut status,
         &mut next,
@@ -270,6 +278,7 @@ fn advancing_dialogue_walks_all_lines_then_opens_briefing() {
         apply_campaign_action(
             CampaignUiAction::AdvanceDialogue,
             &mut runtime,
+            None,
             &mut cursor,
             &mut status,
             &mut next,
@@ -281,6 +290,7 @@ fn advancing_dialogue_walks_all_lines_then_opens_briefing() {
     apply_campaign_action(
         CampaignUiAction::AdvanceDialogue,
         &mut runtime,
+        None,
         &mut cursor,
         &mut status,
         &mut next,
@@ -292,6 +302,7 @@ fn advancing_dialogue_walks_all_lines_then_opens_briefing() {
     apply_campaign_action(
         CampaignUiAction::StartMission,
         &mut runtime,
+        None,
         &mut cursor,
         &mut status,
         &mut next,
@@ -360,6 +371,262 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
     );
     assert!(app.world().get_entity(stale_child).is_err());
     assert_eq!(app.world().resource::<BattleRuntime>().0.round(), 1);
+}
+
+static AFTERMATH_FIXTURE_RECEIPTS: [CompletionReceipt; 2] = [
+    CompletionReceipt {
+        mission: MissionId::One,
+        base_reward: 300,
+        optional_reward: 0,
+        total_reward: 300,
+        credits_after: 300,
+    },
+    CompletionReceipt {
+        mission: MissionId::One,
+        base_reward: 300,
+        optional_reward: 100,
+        total_reward: 400,
+        credits_after: 400,
+    },
+];
+
+#[test]
+fn aftermath_reward_copy_reads_the_persisted_receipt_verbatim() {
+    assert_eq!(
+        aftermath_reward_copy(Some(AFTERMATH_FIXTURE_RECEIPTS[0])),
+        "MISSION REWARD\nBase 300\nTurnabout +0\nTotal 300\nCredits 300"
+    );
+    assert_eq!(
+        aftermath_reward_copy(Some(AFTERMATH_FIXTURE_RECEIPTS[1])),
+        "MISSION REWARD\nBase 300\nTurnabout +100\nTotal 400\nCredits 400"
+    );
+    assert_eq!(aftermath_reward_copy(None), "");
+}
+
+#[test]
+fn advancing_aftermath_walks_lines_then_opens_upgrade() {
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Two,
+            credits: 300,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("advance-aftermath")),
+        last_completion: Some(AFTERMATH_FIXTURE_RECEIPTS[0]),
+    });
+    // Aftermath must use `ActiveMission`, not `state.next_mission` (Two has
+    // no definition).
+    let active_mission = ActiveMission(mission_definition(MissionId::One).unwrap());
+    let mut cursor = DialogueCursor(0);
+    let mut status = CampaignStatus::default();
+    let mut next = NextState::Unchanged;
+
+    apply_campaign_action(
+        CampaignUiAction::AdvanceAftermath,
+        &mut runtime,
+        Some(&active_mission),
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), None);
+    assert_eq!(cursor, DialogueCursor(1));
+
+    apply_campaign_action(
+        CampaignUiAction::AdvanceAftermath,
+        &mut runtime,
+        Some(&active_mission),
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Upgrade));
+    assert_eq!(cursor, DialogueCursor(1));
+    assert!(status.0.is_empty());
+}
+
+#[test]
+fn purchase_upgrade_action_persists_and_reports_failures() {
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Two,
+            credits: 500,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("purchase")),
+        last_completion: None,
+    });
+    let mut cursor = DialogueCursor(0);
+    let mut status = CampaignStatus::default();
+    let mut next = NextState::Unchanged;
+
+    apply_campaign_action(
+        CampaignUiAction::PurchaseUpgrade(PlayerMech::Vanguard, UpgradeTrack::Hp),
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    let state = runtime.0.state.as_ref().unwrap();
+    assert_eq!(state.credits, 300);
+    assert_eq!(
+        state
+            .upgrades
+            .levels(PlayerMech::Vanguard)
+            .level(UpgradeTrack::Hp),
+        1
+    );
+    let disk = runtime.0.save.load().unwrap().unwrap();
+    assert_eq!(disk.credits, 300);
+    assert!(status.0.contains("300 credits remaining"));
+    assert_eq!(pending(&next), None);
+
+    // HP level 2 costs 400 but only 300 remain: no-op plus FlowError.
+    apply_campaign_action(
+        CampaignUiAction::PurchaseUpgrade(PlayerMech::Vanguard, UpgradeTrack::Hp),
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    let state = runtime.0.state.as_ref().unwrap();
+    assert_eq!(state.credits, 300);
+    assert_eq!(
+        state
+            .upgrades
+            .levels(PlayerMech::Vanguard)
+            .level(UpgradeTrack::Hp),
+        1
+    );
+    assert!(status.0.contains("insufficient credits"));
+    assert_eq!(pending(&next), None);
+}
+
+#[test]
+fn upgrade_row_copy_lists_level_effects_cost_and_max() {
+    let state = CampaignState {
+        next_mission: MissionId::Two,
+        credits: 300,
+        upgrades: SquadUpgrades {
+            vanguard: UpgradeLevels {
+                hp: 1,
+                ..Default::default()
+            },
+            gunner: UpgradeLevels::default(),
+            interceptor: UpgradeLevels {
+                hp: 3,
+                armor: 3,
+                mobility: 3,
+                weapon: 3,
+            },
+        },
+    };
+
+    let row = upgrade_row_copy(&state, PlayerMech::Vanguard, UpgradeTrack::Hp);
+    assert!(row.contains("LV 1"), "{row}");
+    assert!(row.contains("+3 MAX HP"), "{row}");
+    assert!(row.contains("+6 MAX HP"), "{row}");
+    assert!(row.contains("400 CR"), "{row}");
+
+    let row = upgrade_row_copy(&state, PlayerMech::Gunner, UpgradeTrack::Mobility);
+    assert!(row.contains("LV 0"), "{row}");
+    assert!(row.contains("+0 EVASION"), "{row}");
+    assert!(row.contains("+5 EVASION"), "{row}");
+    assert!(row.contains("200 CR"), "{row}");
+
+    let row = upgrade_row_copy(&state, PlayerMech::Interceptor, UpgradeTrack::Weapon);
+    assert!(row.contains("LV 3"), "{row}");
+    assert!(row.contains("+3 WEAPON DMG"), "{row}");
+    assert!(row.contains("MAX"), "{row}");
+    assert!(!row.contains("CR"), "{row}");
+}
+
+#[test]
+fn proceed_opens_next_mission_and_return_to_title_never_writes_save() {
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Two,
+            credits: 400,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("handoff")),
+        last_completion: None,
+    });
+    runtime
+        .0
+        .save
+        .store(&CampaignState {
+            next_mission: MissionId::Two,
+            credits: 400,
+            upgrades: SquadUpgrades::default(),
+        })
+        .unwrap();
+    let mut cursor = DialogueCursor(0);
+    let mut status = CampaignStatus::default();
+    let mut next = NextState::Unchanged;
+
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::NextMission));
+
+    apply_campaign_action(
+        CampaignUiAction::ReturnToTitle,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Title));
+    assert!(status.0.is_empty());
+
+    let disk = runtime.0.save.load().unwrap().unwrap();
+    assert_eq!(disk.next_mission, MissionId::Two);
+    assert_eq!(disk.credits, 400);
+    assert!(disk.upgrades == SquadUpgrades::default());
+}
+
+#[test]
+fn next_mission_copy_lists_credits_and_all_upgrade_levels() {
+    let state = CampaignState {
+        next_mission: MissionId::Two,
+        credits: 400,
+        upgrades: SquadUpgrades {
+            vanguard: UpgradeLevels {
+                hp: 1,
+                mobility: 2,
+                ..Default::default()
+            },
+            gunner: UpgradeLevels {
+                armor: 1,
+                ..Default::default()
+            },
+            interceptor: UpgradeLevels {
+                weapon: 3,
+                ..Default::default()
+            },
+        },
+    };
+
+    let copy = next_mission_copy(&state);
+    for expected in [
+        "MISSION 2 UNLOCKED",
+        "Campaign progress saved.",
+        "Credits: 400",
+        "Vanguard 1 0 2 0",
+        "Gunner 0 1 0 0",
+        "Interceptor 0 0 0 3",
+    ] {
+        assert!(copy.contains(expected), "handoff copy missing {expected}");
+    }
 }
 
 #[test]

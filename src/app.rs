@@ -12,9 +12,10 @@ use crate::{
         assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
         battlefield::{rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
-            CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_briefing_screen,
-            setup_pre_mission_story, setup_title_screen, update_campaign_status_text,
-            update_dialogue_screen,
+            CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_aftermath_screen,
+            setup_briefing_screen, setup_next_mission_screen, setup_pre_mission_story,
+            setup_title_screen, setup_upgrade_screen, update_campaign_status_text,
+            update_dialogue_screen, update_upgrade_screen,
         },
         interaction::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
@@ -98,19 +99,18 @@ impl Plugin for ScorpiusPlugin {
         .add_systems(
             Update,
             (
-                update_dialogue_screen.run_if(in_state(GameScreen::PreMissionStory)),
-                update_campaign_status_text.run_if(in_state(GameScreen::Title)),
+                update_dialogue_screen.run_if(
+                    in_state(GameScreen::PreMissionStory).or_else(in_state(GameScreen::Aftermath)),
+                ),
+                update_campaign_status_text
+                    .run_if(in_state(GameScreen::Title).or_else(in_state(GameScreen::Upgrade))),
             ),
         )
+        .add_systems(OnEnter(GameScreen::Battle), teardown_battle_screen)
+        .add_systems(OnExit(GameScreen::Battle), teardown_battle_screen)
         .add_systems(
             OnEnter(GameScreen::Battle),
-            (
-                teardown_battle_screen,
-                enter_battle,
-                setup_mission_scene,
-                setup_mission_ui,
-            )
-                .chain(),
+            (enter_battle, setup_mission_scene, setup_mission_ui).chain(),
         )
         .add_systems(Update, monitor_mission_assets)
         .add_systems(Update, stabilize_primary_window_position)
@@ -168,7 +168,17 @@ impl Plugin for ScorpiusPlugin {
             (update_hud, update_asset_status_text)
                 .after(play_battle_events)
                 .run_if(in_state(GameScreen::Battle)),
-        );
+        )
+        .add_systems(OnEnter(GameScreen::Aftermath), setup_aftermath_screen)
+        .add_systems(OnExit(GameScreen::Aftermath), despawn_campaign_screen)
+        .add_systems(OnEnter(GameScreen::Upgrade), setup_upgrade_screen)
+        .add_systems(OnExit(GameScreen::Upgrade), despawn_campaign_screen)
+        .add_systems(
+            Update,
+            update_upgrade_screen.run_if(in_state(GameScreen::Upgrade)),
+        )
+        .add_systems(OnEnter(GameScreen::NextMission), setup_next_mission_screen)
+        .add_systems(OnExit(GameScreen::NextMission), despawn_campaign_screen);
     }
 }
 
