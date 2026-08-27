@@ -104,6 +104,18 @@ pub struct ObjectiveProgress {
     pub turnabout_complete: bool,
 }
 
+/// Battle-local pilot skill usage: never serialized, reset by rebuilding the
+/// mission's `BattleState`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PilotSkillState {
+    pub aegis_used: bool,
+    pub aegis_target: Option<UnitId>,
+    pub focus_used: bool,
+    pub focus_pending: bool,
+    pub overdrive_used: bool,
+    pub overdrive_active: bool,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MissionResult {
     pub victory: bool,
@@ -236,6 +248,10 @@ pub enum BattleError {
         from: GridPos,
         to: GridPos,
     },
+    PilotSkillWrongUnit(UnitId),
+    PilotSkillAlreadyUsed,
+    InvalidAegisTarget(UnitId),
+    PilotSkillRequiresMoveAvailable(UnitId),
 }
 
 impl std::fmt::Display for BattleError {
@@ -341,6 +357,22 @@ impl std::fmt::Display for BattleError {
                 "Cells ({}, {}) and ({}, {}) are not orthogonally adjacent.",
                 from.x, from.y, to.x, to.y
             ),
+            Self::PilotSkillWrongUnit(unit) => {
+                write!(formatter, "Unit {} cannot use this pilot skill.", unit.0)
+            }
+            Self::PilotSkillAlreadyUsed => {
+                formatter.write_str("Pilot skill already used this mission.")
+            }
+            Self::InvalidAegisTarget(unit) => {
+                write!(formatter, "Aegis cannot shield unit {}.", unit.0)
+            }
+            Self::PilotSkillRequiresMoveAvailable(unit) => {
+                write!(
+                    formatter,
+                    "Unit {} must still have its move available.",
+                    unit.0
+                )
+            }
         }
     }
 }

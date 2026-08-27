@@ -91,6 +91,14 @@ impl BattleState {
     }
 
     pub fn resolve_enemy_phase(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
+        let result = self.resolve_enemy_phase_inner();
+        if result.is_ok() {
+            self.clear_aegis_target();
+        }
+        result
+    }
+
+    fn resolve_enemy_phase_inner(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
         if self.phase != BattlePhase::Player {
             return Err(BattleError::WrongPhase {
                 expected: BattlePhase::Player,
@@ -406,6 +414,7 @@ fn build_intent(
                 choice.center,
                 choice.footprint.clone(),
                 target,
+                battle.pilot_skills().aegis_target == Some(target_id),
             )
         })
     });
@@ -783,6 +792,39 @@ mod tests {
                 actual: BattlePhase::Defeat,
             })
         );
+    }
+
+    #[test]
+    fn successful_enemy_phase_clears_aegis_target_exactly_once() {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+        battle.use_aegis(ids::GUNNER).unwrap();
+        battle
+            .choose_reaction(ids::VANGUARD, crate::domain::model::Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::VANGUARD).unwrap();
+
+        // Errors keep the shielded target.
+        assert_eq!(
+            battle.resolve_enemy_phase(),
+            Err(crate::domain::model::BattleError::EnemyResolutionNotReady)
+        );
+        assert_eq!(battle.pilot_skills().aegis_target, Some(ids::GUNNER));
+
+        for player in [ids::GUNNER, ids::INTERCEPTOR] {
+            battle.begin_activation(player).unwrap();
+            battle
+                .choose_reaction(player, crate::domain::model::Reaction::Counter)
+                .unwrap();
+            battle.finish_activation(player).unwrap();
+        }
+        battle.resolve_enemy_phase().unwrap();
+
+        assert_eq!(battle.pilot_skills().aegis_target, None);
+        assert!(battle.pilot_skills().aegis_used);
     }
 
     fn isolated_striker_fixture() -> crate::domain::battle::BattleState {
