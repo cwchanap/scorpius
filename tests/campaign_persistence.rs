@@ -225,3 +225,29 @@ fn failed_purchase_leaves_disk_and_memory_unchanged() {
     assert_eq!(session.state.as_ref().unwrap(), &memory);
     assert_eq!(session.save.load().unwrap(), Some(disk));
 }
+
+#[test]
+fn failed_purchase_store_leaves_memory_unchanged() {
+    // A SaveFile whose parent path is an ordinary file makes store() fail
+    // (create_dir_all on a file path errors).
+    let blocker = temp_path();
+    std::fs::write(&blocker, b"not a directory").unwrap();
+    let mut session = CampaignSession::new(SaveFile::new(blocker.join("campaign.json")));
+    let mut state = CampaignState::new_game();
+    state
+        .complete_mission(
+            mission_definition(MissionId::One).unwrap(),
+            mission_result(true, true),
+        )
+        .unwrap();
+    session.state = Some(state); // 400 credits: the purchase itself is valid
+
+    let memory = session.state.clone().unwrap();
+    assert!(matches!(
+        persist_purchase(&mut session, PlayerMech::Vanguard, UpgradeTrack::Hp),
+        Err(FlowError::Save(_))
+    ));
+    assert_eq!(session.state.as_ref().unwrap(), &memory);
+    assert_eq!(session.state.as_ref().unwrap().credits, 400);
+    assert_eq!(session.state.as_ref().unwrap().upgrades.vanguard.hp, 0);
+}

@@ -40,7 +40,7 @@ After victory, the **Aftermath** screen shows the exact persisted receipt (base,
 | Mobility | 200 / 400 / 600 | +5 evasion |
 | Weapon | 200 / 400 / 600 | +1 base damage to the mech's three weapons |
 
-Purchases are validated before mutation and persisted atomically: unaffordable or already-maxed purchases are no-ops and never write the save. Upgrade effects apply the next time the mission is built.
+Purchases are validated before mutation: unaffordable or already-maxed purchases are no-ops and never write the save. A valid purchase is serialized to the save file before the in-memory session state is replaced, so a failed write never advances in-memory state ahead of disk; a crash mid-write surfaces as a save-file error on the next load. Upgrade effects apply the next time the mission is built.
 
 The final **MISSION 2 UNLOCKED** screen is a saved handoff state only; Mission 2 content belongs to HPA-637 and is not in this build.
 
