@@ -724,6 +724,7 @@ fn spawn_command_button(
                 ..default()
             },
             BackgroundColor(Color::srgb(0.055, 0.07, 0.09)),
+            Pickable::default(),
             ChildOf(parent),
         ))
         .observe(on_command_button_click)
@@ -917,4 +918,91 @@ fn panel_node(left: f32, top: f32, width: f32) -> Node {
 
 fn panel_background() -> BackgroundColor {
     BackgroundColor(Color::srgba(0.018, 0.035, 0.055, 0.88))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::combat::DamageSource;
+    use crate::mission::mission_one::{ids, mission_one};
+    use crate::mission::{MissionId, mission_definition};
+
+    fn terminal_battle(victory: bool) -> BattleState {
+        let mut battle = mission_one(7);
+        let (casualties, source) = if victory {
+            (
+                &[
+                    ids::RIFLEMAN_LEFT,
+                    ids::RIFLEMAN_RIGHT,
+                    ids::STRIKER,
+                    ids::ARTILLERY,
+                ][..],
+                DamageSource::PlayerWeapon(ids::PILE_LANCE),
+            )
+        } else {
+            (
+                &[ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR][..],
+                DamageSource::Hazard,
+            )
+        };
+        for unit in casualties {
+            battle.apply_direct_damage(*unit, 99, source);
+        }
+        battle
+    }
+
+    fn run_terminal_hud(victory: bool) -> App {
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(terminal_battle(victory)))
+            .insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()))
+            .init_resource::<InteractionState>()
+            .init_resource::<StatusMessage>()
+            .init_resource::<EventPlayback>()
+            .add_systems(Update, (setup_mission_ui, update_hud).chain());
+        app.update();
+        app
+    }
+
+    /// Returns `(visibility, is_hoverable)` for the two result-overlay buttons.
+    /// Panics if either button lacks `Pickable` — that is the regression:
+    /// without `Pickable` on the spawned buttons, `update_hud`'s button loop
+    /// matches nothing and terminal visibility/enablement never applies.
+    fn terminal_button_states(app: &mut App) -> [(Visibility, bool); 2] {
+        let mut buttons = app
+            .world_mut()
+            .query::<(&CommandButton, &Visibility, &Pickable)>();
+        let mut find = |app: &mut App, action: CommandAction| -> (Visibility, bool) {
+            buttons
+                .iter(app.world())
+                .find(|(button, _, _)| button.0 == action)
+                .map_or_else(
+                    || panic!("{action:?} button not found with Pickable"),
+                    |(_, visibility, pickable)| (*visibility, pickable.is_hoverable),
+                )
+        };
+        [
+            find(app, CommandAction::Restart),
+            find(app, CommandAction::ContinueVictory),
+        ]
+    }
+
+    #[test]
+    fn defeat_shows_restart_visible_enabled_and_hides_continue() {
+        let mut app = run_terminal_hud(false);
+        let [restart, cont] = terminal_button_states(&mut app);
+        assert_eq!(restart.0, Visibility::Visible);
+        assert!(restart.1, "Restart must stay clickable on defeat");
+        assert_eq!(cont.0, Visibility::Hidden);
+        assert!(!cont.1, "Continue must be unhoverable on defeat");
+    }
+
+    #[test]
+    fn victory_shows_continue_visible_enabled_and_hides_restart() {
+        let mut app = run_terminal_hud(true);
+        let [restart, cont] = terminal_button_states(&mut app);
+        assert_eq!(cont.0, Visibility::Visible);
+        assert!(cont.1, "Continue must be clickable on victory");
+        assert_eq!(restart.0, Visibility::Hidden);
+        assert!(!restart.1, "Restart must be unhoverable on victory");
+    }
 }

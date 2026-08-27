@@ -106,11 +106,16 @@ impl Plugin for ScorpiusPlugin {
                     .run_if(in_state(GameScreen::Title).or_else(in_state(GameScreen::Upgrade))),
             ),
         )
-        .add_systems(OnEnter(GameScreen::Battle), teardown_battle_screen)
         .add_systems(OnExit(GameScreen::Battle), teardown_battle_screen)
         .add_systems(
             OnEnter(GameScreen::Battle),
-            (enter_battle, setup_mission_scene, setup_mission_ui).chain(),
+            (
+                teardown_battle_screen,
+                enter_battle,
+                setup_mission_scene,
+                setup_mission_ui,
+            )
+                .chain(),
         )
         .add_systems(Update, monitor_mission_assets)
         .add_systems(Update, stabilize_primary_window_position)
