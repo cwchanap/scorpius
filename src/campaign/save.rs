@@ -2,7 +2,7 @@
 
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::campaign::model::CampaignState;
@@ -60,9 +60,28 @@ impl SaveFile {
         if let Some(parent) = self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&self.path, bytes)?;
-        Ok(())
+        // Atomic replace: write a sibling temp file, sync it, then rename over
+        // the live save. A failed write leaves the previous save intact.
+        let temp = sibling_temp_path(&self.path);
+        let stored = (|| -> Result<(), SaveError> {
+            let mut file = fs::File::create(&temp)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temp, &self.path)?;
+            Ok(())
+        })();
+        if stored.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        stored
     }
+}
+
+fn sibling_temp_path(path: &std::path::Path) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".tmp");
+    PathBuf::from(name)
 }
 
 #[cfg(target_os = "macos")]

@@ -453,6 +453,9 @@ impl BattleState {
             BattlePhase::Defeat
         };
         self.active_unit = None;
+        self.pilot_skills.overdrive_active = false;
+        self.pilot_skills.aegis_target = None;
+        self.pilot_skills.focus_pending = false;
         self.result = Some(result);
 
         vec![if victory {
@@ -823,6 +826,40 @@ mod tests {
         assert_eq!(battle.active_unit(), None);
         assert!(!battle.pilot_skills().overdrive_active);
         assert!(battle.pilot_skills().overdrive_used);
+    }
+
+    #[test]
+    fn terminal_victory_clears_transient_pilot_state_but_keeps_used_flags() {
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+        battle.use_aegis(ids::GUNNER).unwrap();
+        battle
+            .choose_reaction(ids::VANGUARD, Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::VANGUARD).unwrap();
+
+        battle.begin_activation(ids::GUNNER).unwrap();
+        battle.use_focus().unwrap();
+        battle
+            .choose_reaction(ids::GUNNER, Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::GUNNER).unwrap();
+
+        battle.begin_activation(ids::INTERCEPTOR).unwrap();
+        battle.use_overdrive().unwrap();
+
+        knock_out_all_enemies(&mut battle);
+
+        assert!(battle.result().is_some_and(|result| result.victory));
+        assert_eq!(battle.active_unit(), None);
+        let pilot = battle.pilot_skills();
+        assert_eq!(pilot.aegis_target, None);
+        assert!(!pilot.focus_pending);
+        assert!(!pilot.overdrive_active);
+        assert!(pilot.aegis_used && pilot.focus_used && pilot.overdrive_used);
     }
 
     fn knock_out_all_enemies(battle: &mut BattleState) -> Vec<BattleEvent> {

@@ -158,6 +158,50 @@ fn start_new_game_stores_and_continue_resumes() {
 }
 
 #[test]
+fn new_game_and_continue_clear_stale_last_completion() {
+    let mut session = CampaignSession::new(SaveFile::new(temp_path()));
+    start_new_game(&mut session).unwrap();
+    complete_current_mission(
+        &mut session,
+        mission_definition(MissionId::One).unwrap(),
+        mission_result(true, true),
+    )
+    .unwrap();
+    assert!(session.last_completion.is_some());
+
+    start_new_game(&mut session).unwrap();
+    assert!(session.last_completion.is_none());
+
+    complete_current_mission(
+        &mut session,
+        mission_definition(MissionId::One).unwrap(),
+        mission_result(true, true),
+    )
+    .unwrap();
+    assert!(session.last_completion.is_some());
+
+    continue_game(&mut session).unwrap();
+    assert!(session.last_completion.is_none());
+}
+
+#[test]
+fn failed_store_preserves_previous_save() {
+    let path = temp_path();
+    let save = SaveFile::new(path.clone());
+    let state = CampaignState::new_game();
+    save.store(&state).unwrap();
+
+    // Occupy the sibling temp path with a directory so the atomic store fails
+    // after a healthy save already exists.
+    let mut temp = path.clone().into_os_string();
+    temp.push(".tmp");
+    std::fs::create_dir_all(std::path::PathBuf::from(&temp)).unwrap();
+
+    assert!(save.store(&state).is_err());
+    assert_eq!(save.load().unwrap(), Some(state));
+}
+
+#[test]
 fn continue_without_save_reports_no_active_campaign() {
     let mut session = CampaignSession::new(SaveFile::new(temp_path()));
     assert!(matches!(

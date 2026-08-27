@@ -201,12 +201,15 @@ pub fn execute_command(
             Ok(events)
         }
         CommandAction::Restart => {
-            if battle.result().is_none() {
-                return Err(BattleError::WrongPhase {
-                    expected: BattlePhase::Victory,
+            // Restart is a defeat-only escape hatch; victory must continue
+            // the campaign (see README "Controls").
+            battle
+                .result()
+                .filter(|result| !result.victory)
+                .ok_or(BattleError::WrongPhase {
+                    expected: BattlePhase::Defeat,
                     actual: battle.phase(),
-                });
-            }
+                })?;
             Ok(Vec::new())
         }
         CommandAction::ContinueVictory => {
@@ -671,6 +674,17 @@ mod tests {
                 restart_request: &mut restart_request,
             },
         );
+    }
+
+    #[test]
+    fn restart_is_rejected_on_victory() {
+        let mut battle = terminal_victory_battle();
+        assert!(battle.result().is_some_and(|result| result.victory));
+        let mut interaction = InteractionState::default();
+        assert!(matches!(
+            execute_command(&mut battle, &mut interaction, CommandAction::Restart),
+            Err(BattleError::WrongPhase { .. })
+        ));
     }
 
     #[test]
