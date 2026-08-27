@@ -9,14 +9,24 @@ use std::collections::{BTreeSet, VecDeque};
 
 use bevy::prelude::*;
 
+use crate::campaign::session::CampaignSession;
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
     model::{BattleEvent, Reaction, UnitId, WeaponShape},
 };
+use crate::mission::MissionDefinition;
 
 #[derive(Resource)]
 pub struct BattleRuntime(pub BattleState);
+
+/// Save-backed campaign session the battle lifecycle reads from.
+#[derive(Resource)]
+pub struct CampaignRuntime(pub CampaignSession);
+
+/// Authored definition of the mission currently in play.
+#[derive(Resource, Clone, Copy)]
+pub struct ActiveMission(pub &'static MissionDefinition);
 
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnitVisual(pub UnitId);
