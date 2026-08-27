@@ -1,3 +1,4 @@
+use crate::campaign::model::SquadUpgrades;
 use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
@@ -6,6 +7,7 @@ use crate::domain::{
         WeaponShape, WeaponSpec,
     },
 };
+use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
 
 pub mod ids {
     use crate::domain::model::{UnitId, WeaponId};
@@ -285,6 +287,62 @@ impl BattleState {
         *self = mission_one(seed);
     }
 }
+
+/// Temporary zero-upgrade campaign builder; Task 3 replaces it with real
+/// upgrade-aware squad construction.
+pub fn mission_one_for_campaign(seed: u64, _upgrades: &SquadUpgrades) -> BattleState {
+    mission_one(seed)
+}
+
+static PRE_MISSION_LINES: [DialogueLine; 3] = [
+    DialogueLine {
+        speaker: "Control",
+        text: "Squad, Relay Nine is broadcasting an enemy garrison signal. Four hostiles hold the relay.",
+        portrait: "vn/control_neutral.png",
+    },
+    DialogueLine {
+        speaker: "Vanguard",
+        text: "Understood. We punch through, clear the board, and take the relay back.",
+        portrait: "vn/vanguard_neutral.png",
+    },
+    DialogueLine {
+        speaker: "Control",
+        text: "Warning: their artillery is already locking onto you. Make their own firepower work against you.",
+        portrait: "vn/control_alert.png",
+    },
+];
+
+static AFTERMATH_LINES: [DialogueLine; 2] = [
+    DialogueLine {
+        speaker: "Vanguard",
+        text: "Relay Nine is ours. The board is clear and the squad is intact.",
+        portrait: "vn/vanguard_neutral.png",
+    },
+    DialogueLine {
+        speaker: "Control",
+        text: "Confirmed. Salvage recovered — spend it before the next drop.",
+        portrait: "vn/control_neutral.png",
+    },
+];
+
+pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
+    id: MissionId::One,
+    unlocks: MissionId::Two,
+    build: mission_one_for_campaign,
+    title: "Mission 1 — Turnabout at Relay Nine",
+    primary_objective: "Eliminate all enemies.",
+    optional_objective: "Turnabout: damage an enemy with enemy fire, collision, hazard, or explosion.",
+    base_reward: 300,
+    optional_reward: 100,
+    pre_mission: DialogueScene {
+        background: "vn/relay_nine_bg.png",
+        lines: &PRE_MISSION_LINES,
+    },
+    aftermath: DialogueScene {
+        background: "vn/relay_nine_bg.png",
+        lines: &AFTERMATH_LINES,
+    },
+};
 
 const fn stats(
     max_hp: i16,
