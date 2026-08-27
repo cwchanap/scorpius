@@ -51,7 +51,10 @@ fn defeat_is_rejected_without_state_changes() {
     let mut state = CampaignState::new_game();
     let before = state.clone();
     assert!(matches!(
-        state.complete_mission(mission_definition(MissionId::One).unwrap(), mission_result(false, false)),
+        state.complete_mission(
+            mission_definition(MissionId::One).unwrap(),
+            mission_result(false, false)
+        ),
         Err(CampaignError::MissionNotWon)
     ));
     assert_eq!(state, before);
@@ -61,7 +64,10 @@ fn defeat_is_rejected_without_state_changes() {
 fn base_reward_only_when_turnabout_missed() {
     let mut state = CampaignState::new_game();
     let receipt = state
-        .complete_mission(mission_definition(MissionId::One).unwrap(), mission_result(true, false))
+        .complete_mission(
+            mission_definition(MissionId::One).unwrap(),
+            mission_result(true, false),
+        )
         .unwrap();
     assert_eq!(receipt.base_reward, 300);
     assert_eq!(receipt.optional_reward, 0);
@@ -80,9 +86,14 @@ fn valid_json_round_trips() {
     let save = SaveFile::new(temp_path());
     let mut state = CampaignState::new_game();
     state
-        .complete_mission(mission_definition(MissionId::One).unwrap(), mission_result(true, true))
+        .complete_mission(
+            mission_definition(MissionId::One).unwrap(),
+            mission_result(true, true),
+        )
         .unwrap();
-    state.purchase_upgrade(PlayerMech::Gunner, UpgradeTrack::Weapon).unwrap();
+    state
+        .purchase_upgrade(PlayerMech::Gunner, UpgradeTrack::Weapon)
+        .unwrap();
 
     save.store(&state).unwrap();
     assert_eq!(save.load().unwrap(), Some(state));
@@ -188,7 +199,10 @@ fn failed_completion_leaves_disk_and_memory_unchanged() {
     ));
     assert_eq!(session.state.as_ref().unwrap(), &memory);
     assert_eq!(session.save.load().unwrap(), Some(disk));
-    assert_eq!(session.last_completion.map(|r| r.mission), Some(MissionId::One));
+    assert_eq!(
+        session.last_completion.map(|r| r.mission),
+        Some(MissionId::One)
+    );
 }
 
 #[test]
