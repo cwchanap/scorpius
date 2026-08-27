@@ -6,8 +6,8 @@ use super::{
     enemy::AttackIntent,
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MissionResult,
-        ObjectiveProgress, Reaction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId,
-        WeaponSpec,
+        ObjectiveProgress, PilotSkillState, Reaction, UnitArchetype, UnitId, UnitState, UnitStats,
+        WeaponId, WeaponSpec,
     },
     rng::BattleRng,
 };
@@ -22,6 +22,7 @@ pub struct BattleState {
     pub(super) active_unit: Option<UnitId>,
     pub(super) intents: Vec<AttackIntent>,
     objectives: ObjectiveProgress,
+    pilot_skills: PilotSkillState,
     result: Option<MissionResult>,
     rng: BattleRng,
 }
@@ -45,6 +46,7 @@ impl BattleState {
             active_unit: None,
             intents: Vec::new(),
             objectives: ObjectiveProgress::default(),
+            pilot_skills: PilotSkillState::default(),
             result: None,
             rng: BattleRng::seeded(seed),
         }
@@ -126,6 +128,10 @@ impl BattleState {
         self.objectives
     }
 
+    pub const fn pilot_skills(&self) -> PilotSkillState {
+        self.pilot_skills
+    }
+
     pub const fn result(&self) -> Option<MissionResult> {
         self.result
     }
@@ -151,14 +157,24 @@ impl BattleState {
         Ok(())
     }
 
-    pub fn reachable_cells(&self, id: UnitId) -> Result<BTreeSet<GridPos>, BattleError> {
+    pub fn movement_allowance(&self, id: UnitId) -> Result<u8, BattleError> {
         let unit = self.units.get(&id).ok_or(BattleError::UnknownUnit(id))?;
         if unit.is_knocked_out() {
             return Err(BattleError::UnitKnockedOut(id));
         }
+        let overdrive = self.pilot_skills.overdrive_active
+            && unit.archetype == UnitArchetype::Interceptor
+            && self.active_unit == Some(id);
+        Ok(unit.stats.movement + u8::from(overdrive) * 2)
+    }
 
-        let origin = unit.position;
-        let movement = unit.stats.movement;
+    pub fn reachable_cells(&self, id: UnitId) -> Result<BTreeSet<GridPos>, BattleError> {
+        let origin = self
+            .units
+            .get(&id)
+            .ok_or(BattleError::UnknownUnit(id))?
+            .position;
+        let movement = self.movement_allowance(id)?;
         let mut reachable = BTreeSet::new();
         let mut visited = BTreeSet::from([origin]);
         let mut frontier = VecDeque::from([(origin, 0_u8)]);
@@ -226,6 +242,80 @@ impl BattleState {
         Ok(())
     }
 
+    /// Aegis (Vanguard): the next enemy resolution applies one non-stacking
+    /// Guard-equivalent reduction to this living orthogonally adjacent ally.
+    pub fn use_aegis(&mut self, ally: UnitId) -> Result<(), BattleError> {
+        self.require_player_phase()?;
+        let active = self.active_unit.ok_or(BattleError::NoUnitSelected)?;
+        let vanguard = self
+            .units
+            .get(&active)
+            .ok_or(BattleError::UnknownUnit(active))?;
+        if vanguard.archetype != UnitArchetype::Vanguard {
+            return Err(BattleError::PilotSkillWrongUnit(active));
+        }
+        if self.pilot_skills.aegis_used {
+            return Err(BattleError::PilotSkillAlreadyUsed);
+        }
+        let ally_unit = self
+            .units
+            .get(&ally)
+            .ok_or(BattleError::InvalidAegisTarget(ally))?;
+        let shieldable = ally_unit.faction == Faction::Player
+            && !ally_unit.is_knocked_out()
+            && vanguard.position.manhattan(ally_unit.position) == 1;
+        if !shieldable {
+            return Err(BattleError::InvalidAegisTarget(ally));
+        }
+
+        self.pilot_skills.aegis_used = true;
+        self.pilot_skills.aegis_target = Some(ally);
+        Ok(())
+    }
+
+    /// Focus (Gunner): the Gunner's next committed player Action attack hits.
+    pub fn use_focus(&mut self) -> Result<(), BattleError> {
+        self.require_player_phase()?;
+        let active = self.active_unit.ok_or(BattleError::NoUnitSelected)?;
+        let gunner = self
+            .units
+            .get(&active)
+            .ok_or(BattleError::UnknownUnit(active))?;
+        if gunner.archetype != UnitArchetype::Gunner {
+            return Err(BattleError::PilotSkillWrongUnit(active));
+        }
+        if self.pilot_skills.focus_used {
+            return Err(BattleError::PilotSkillAlreadyUsed);
+        }
+
+        self.pilot_skills.focus_used = true;
+        self.pilot_skills.focus_pending = true;
+        Ok(())
+    }
+
+    /// Overdrive (Interceptor): +2 movement for this activation only.
+    pub fn use_overdrive(&mut self) -> Result<(), BattleError> {
+        self.require_player_phase()?;
+        let active = self.active_unit.ok_or(BattleError::NoUnitSelected)?;
+        let interceptor = self
+            .units
+            .get(&active)
+            .ok_or(BattleError::UnknownUnit(active))?;
+        if interceptor.archetype != UnitArchetype::Interceptor {
+            return Err(BattleError::PilotSkillWrongUnit(active));
+        }
+        if self.pilot_skills.overdrive_used {
+            return Err(BattleError::PilotSkillAlreadyUsed);
+        }
+        if interceptor.activation.moved {
+            return Err(BattleError::PilotSkillRequiresMoveAvailable(active));
+        }
+
+        self.pilot_skills.overdrive_used = true;
+        self.pilot_skills.overdrive_active = true;
+        Ok(())
+    }
+
     pub fn finish_activation(&mut self, id: UnitId) -> Result<(), BattleError> {
         self.require_player_phase()?;
         self.require_active(id)?;
@@ -239,6 +329,7 @@ impl BattleState {
             finished: true,
         };
         self.active_unit = None;
+        self.pilot_skills.overdrive_active = false;
         Ok(())
     }
 
@@ -290,6 +381,14 @@ impl BattleState {
         if self.active_unit == Some(id) {
             self.active_unit = None;
         }
+    }
+
+    pub(super) fn clear_aegis_target(&mut self) {
+        self.pilot_skills.aegis_target = None;
+    }
+
+    pub(super) fn clear_focus_pending(&mut self) {
+        self.pilot_skills.focus_pending = false;
     }
 
     pub(super) fn observe_damage_for_objectives(
@@ -581,6 +680,129 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn aegis_requires_active_vanguard_and_living_adjacent_ally() {
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+
+        battle.begin_activation(ids::GUNNER).unwrap();
+        assert_eq!(
+            battle.use_aegis(ids::VANGUARD),
+            Err(BattleError::PilotSkillWrongUnit(ids::GUNNER))
+        );
+        battle
+            .choose_reaction(ids::GUNNER, Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::GUNNER).unwrap();
+
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        // Deployment keeps Gunner two cells away from the Vanguard.
+        assert_eq!(
+            battle.use_aegis(ids::GUNNER),
+            Err(BattleError::InvalidAegisTarget(ids::GUNNER))
+        );
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+        battle.apply_direct_damage(ids::INTERCEPTOR, 99, DamageSource::Hazard);
+        assert_eq!(
+            battle.use_aegis(ids::INTERCEPTOR),
+            Err(BattleError::InvalidAegisTarget(ids::INTERCEPTOR))
+        );
+
+        battle.use_aegis(ids::GUNNER).unwrap();
+        assert_eq!(battle.pilot_skills().aegis_target, Some(ids::GUNNER));
+        assert!(battle.pilot_skills().aegis_used);
+        assert_eq!(
+            battle.use_aegis(ids::GUNNER),
+            Err(BattleError::PilotSkillAlreadyUsed)
+        );
+    }
+
+    #[test]
+    fn focus_requires_active_gunner_and_sets_pending_with_used() {
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+        assert_eq!(battle.use_focus(), Err(BattleError::NoUnitSelected));
+
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        assert_eq!(
+            battle.use_focus(),
+            Err(BattleError::PilotSkillWrongUnit(ids::VANGUARD))
+        );
+        battle
+            .choose_reaction(ids::VANGUARD, Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::VANGUARD).unwrap();
+
+        battle.begin_activation(ids::GUNNER).unwrap();
+        battle.use_focus().unwrap();
+        assert!(battle.pilot_skills().focus_used);
+        assert!(battle.pilot_skills().focus_pending);
+        assert_eq!(battle.use_focus(), Err(BattleError::PilotSkillAlreadyUsed));
+    }
+
+    #[test]
+    fn overdrive_extends_interceptor_movement_once_per_mission() {
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        assert_eq!(
+            battle.use_overdrive(),
+            Err(BattleError::PilotSkillWrongUnit(ids::VANGUARD))
+        );
+        battle
+            .choose_reaction(ids::VANGUARD, Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::VANGUARD).unwrap();
+
+        battle.begin_activation(ids::INTERCEPTOR).unwrap();
+        assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 4);
+        assert!(
+            !battle
+                .reachable_cells(ids::INTERCEPTOR)
+                .unwrap()
+                .contains(&GridPos::new(8, 6))
+        );
+        battle
+            .move_unit(ids::INTERCEPTOR, GridPos::new(5, 7))
+            .unwrap();
+        assert_eq!(
+            battle.use_overdrive(),
+            Err(BattleError::PilotSkillRequiresMoveAvailable(
+                ids::INTERCEPTOR
+            ))
+        );
+
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+        battle.begin_activation(ids::INTERCEPTOR).unwrap();
+        battle.use_overdrive().unwrap();
+        assert!(battle.pilot_skills().overdrive_used);
+        assert!(battle.pilot_skills().overdrive_active);
+        assert_eq!(
+            battle.use_overdrive(),
+            Err(BattleError::PilotSkillAlreadyUsed)
+        );
+        assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 6);
+        assert_eq!(battle.movement_allowance(ids::GUNNER).unwrap(), 2);
+        assert!(
+            battle
+                .reachable_cells(ids::INTERCEPTOR)
+                .unwrap()
+                .contains(&GridPos::new(8, 6))
+        );
+        battle
+            .move_unit(ids::INTERCEPTOR, GridPos::new(8, 6))
+            .unwrap();
+        battle
+            .choose_reaction(ids::INTERCEPTOR, Reaction::Evade)
+            .unwrap();
+        battle.finish_activation(ids::INTERCEPTOR).unwrap();
+        assert!(!battle.pilot_skills().overdrive_active);
+        assert!(battle.pilot_skills().overdrive_used);
+        assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 4);
     }
 
     fn knock_out_all_enemies(battle: &mut BattleState) -> Vec<BattleEvent> {

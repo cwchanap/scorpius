@@ -9,8 +9,8 @@ use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{
-        ANCHOR_CANNON, ARC_BLADE, BURST_MISSILE, GUNNER, INTERCEPTOR, OVERCHARGE_SHOT,
-        PILE_LANCE, PULSE_CARBINE, RAIL_RIFLE, REPULSOR_RAM, VANGUARD, VECTOR_PULSE,
+        ANCHOR_CANNON, ARC_BLADE, BURST_MISSILE, GUNNER, INTERCEPTOR, OVERCHARGE_SHOT, PILE_LANCE,
+        PULSE_CARBINE, RAIL_RIFLE, REPULSOR_RAM, VANGUARD, VECTOR_PULSE,
     };
 
     use crate::domain::model::{UnitId, WeaponId};
@@ -202,6 +202,16 @@ pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
 mod tests {
     use super::*;
     use crate::campaign::model::UpgradeLevels;
+    use crate::domain::model::PilotSkillState;
+
+    #[test]
+    fn mission_one_constructors_start_with_default_pilot_skills() {
+        assert_eq!(mission_one(7).pilot_skills(), PilotSkillState::default());
+        assert_eq!(
+            mission_one_for_campaign(7, &SquadUpgrades::default()).pilot_skills(),
+            PilotSkillState::default()
+        );
+    }
 
     #[test]
     fn mission_one_has_the_locked_roster_and_nine_player_weapons() {

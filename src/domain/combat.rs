@@ -3,8 +3,8 @@ use crate::domain::{
     board::GridPos,
     enemy::AttackProfile,
     model::{
-        BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitId, UnitState, WeaponId,
-        WeaponShape, WeaponSpec,
+        BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype, UnitId, UnitState,
+        WeaponId, WeaponShape, WeaponSpec,
     },
 };
 
@@ -54,10 +54,11 @@ impl BattleState {
         target: GridPos,
     ) -> Result<AttackPreview, BattleError> {
         let context = self.attack_context(attacker, weapon, target)?;
+        let force_hit = self.focus_forces_hit(&context.attacker);
         let values = context
             .target_unit
             .as_ref()
-            .map(|target| attack_values(&context.attacker, &context.weapon, target))
+            .map(|target| attack_values(&context.attacker, &context.weapon, target, force_hit))
             .unwrap_or_else(|| prop_attack_values(&context.weapon));
 
         Ok(AttackPreview {
@@ -80,6 +81,7 @@ impl BattleState {
         target: GridPos,
     ) -> Result<Vec<BattleEvent>, BattleError> {
         let context = self.attack_context(attacker, weapon, target)?;
+        let force_hit = self.focus_forces_hit(&context.attacker);
         let targets: Vec<_> = context
             .footprint
             .iter()
@@ -95,6 +97,9 @@ impl BattleState {
             .expect("validated attacking unit must exist");
         acting_unit.en -= context.weapon.en_cost;
         acting_unit.activation.acted = true;
+        if force_hit {
+            self.clear_focus_pending();
+        }
 
         let mut events = Vec::new();
         for target_id in targets {
@@ -102,7 +107,7 @@ impl BattleState {
                 .unit(target_id)
                 .expect("target collected from living units")
                 .clone();
-            let values = attack_values(&context.attacker, &context.weapon, &defender);
+            let values = attack_values(&context.attacker, &context.weapon, &defender, force_hit);
             let roll = self.roll_percent();
             let hit = roll <= values.hit_chance;
             let critical_roll = hit.then(|| self.roll_percent());
@@ -169,7 +174,11 @@ impl BattleState {
             .unit(target)
             .ok_or(BattleError::UnknownUnit(target))?
             .clone();
-        let values = incoming_attack_values(profile, &defender);
+        let values = incoming_attack_values(
+            profile,
+            &defender,
+            self.pilot_skills().aegis_target == Some(target),
+        );
         let roll = self.roll_percent();
         let hit = roll <= values.hit_chance;
         let critical_roll = hit.then(|| self.roll_percent());
@@ -249,7 +258,7 @@ impl BattleState {
         self.unit_mut(defender)
             .expect("validated countering unit must exist")
             .en -= weapon.en_cost;
-        let values = attack_values(&countering_unit, &weapon, &target);
+        let values = attack_values(&countering_unit, &weapon, &target, false);
         let roll = self.roll_percent();
         let hit = roll <= values.hit_chance;
         let critical_roll = hit.then(|| self.roll_percent());
@@ -349,6 +358,10 @@ impl BattleState {
         events
     }
 
+    fn focus_forces_hit(&self, attacker: &UnitState) -> bool {
+        self.pilot_skills().focus_pending && attacker.archetype == UnitArchetype::Gunner
+    }
+
     fn attack_context(
         &self,
         attacker: UnitId,
@@ -440,9 +453,17 @@ impl BattleState {
     }
 }
 
-fn attack_values(attacker: &UnitState, weapon: &WeaponSpec, defender: &UnitState) -> AttackValues {
-    let hit_chance =
-        (attacker.stats.accuracy + weapon.hit_modifier - defender.stats.evasion).clamp(5, 95) as u8;
+fn attack_values(
+    attacker: &UnitState,
+    weapon: &WeaponSpec,
+    defender: &UnitState,
+    force_hit: bool,
+) -> AttackValues {
+    let hit_chance = if force_hit {
+        100
+    } else {
+        (attacker.stats.accuracy + weapon.hit_modifier - defender.stats.evasion).clamp(5, 95) as u8
+    };
     let normal_damage = (weapon.base_damage - defender.stats.armor).max(1);
     let critical_raw = weapon.base_damage + weapon.base_damage / 2;
     let critical_damage = (critical_raw - defender.stats.armor).max(1);
@@ -453,7 +474,11 @@ fn attack_values(attacker: &UnitState, weapon: &WeaponSpec, defender: &UnitState
     }
 }
 
-fn incoming_attack_values(profile: &AttackProfile, defender: &UnitState) -> AttackValues {
+fn incoming_attack_values(
+    profile: &AttackProfile,
+    defender: &UnitState,
+    aegis_guarded: bool,
+) -> AttackValues {
     let evasion_bonus = if defender.reaction == Some(Reaction::Evade) {
         25
     } else {
@@ -462,11 +487,8 @@ fn incoming_attack_values(profile: &AttackProfile, defender: &UnitState) -> Atta
     let hit_chance =
         (profile.accuracy + profile.hit_modifier - defender.stats.evasion - evasion_bonus)
             .clamp(5, 95) as u8;
-    let guard_reduction = if defender.reaction == Some(Reaction::Guard) {
-        3
-    } else {
-        0
-    };
+    let guarded = defender.reaction == Some(Reaction::Guard) || aegis_guarded;
+    let guard_reduction = if guarded { 3 } else { 0 };
     let normal_damage =
         ((profile.base_damage - defender.stats.armor).max(1) - guard_reduction).max(0);
     let critical_raw = profile.base_damage + profile.base_damage / 2;
@@ -492,8 +514,9 @@ pub(super) fn preview_for_profile(
     target: GridPos,
     footprint: Vec<GridPos>,
     defender: &UnitState,
+    aegis_guarded: bool,
 ) -> AttackPreview {
-    let values = incoming_attack_values(profile, defender);
+    let values = incoming_attack_values(profile, defender, aegis_guarded);
     AttackPreview {
         attacker,
         weapon: profile.weapon,
@@ -538,11 +561,11 @@ fn weapon_reaches(weapon: &WeaponSpec, attacker: GridPos, target: GridPos) -> bo
 
 #[cfg(test)]
 mod tests {
-    use super::{AttackPreview, preview_for_profile};
+    use super::{AttackPreview, incoming_attack_values, preview_for_profile};
     use crate::{
         domain::{
             board::GridPos,
-            model::{BattleError, BattleEvent, Reaction},
+            model::{BattleError, BattleEvent, Reaction, UnitId},
         },
         mission::mission_one::{ids, mission_one},
     };
@@ -711,6 +734,174 @@ mod tests {
         );
     }
 
+    #[test]
+    fn aegis_shields_the_gunner_once_on_the_public_path() {
+        // Deterministic sweep first; only fall back to a zero-evasion fixture
+        // with the next fixed seed if no seed in 0..64 lands the control hit.
+        let (seed, zero_evasion) = match aegis_control_hit_seed() {
+            Some(seed) => (seed, false),
+            None => (64, true),
+        };
+
+        let control = resolve_rifleman_left_against_gunner(seed, zero_evasion, false);
+        let aegis = resolve_rifleman_left_against_gunner(seed, zero_evasion, true);
+
+        assert_eq!(
+            damage_applied_to(&control, ids::GUNNER),
+            Some(4),
+            "control hit must be Service Rifle 5 - Gunner armor 1 (seed {seed}, zero_evasion {zero_evasion})"
+        );
+        assert_eq!(
+            damage_applied_to(&aegis, ids::GUNNER),
+            Some(1),
+            "Aegis applies one 3-point reduction (seed {seed}, zero_evasion {zero_evasion})"
+        );
+    }
+
+    #[test]
+    fn guard_and_aegis_share_one_reduction() {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        let intent = battle.intent_for(ids::RIFLEMAN_LEFT).unwrap().clone();
+        let mut gunner = battle.unit(ids::GUNNER).unwrap().clone();
+        gunner.reaction = Some(Reaction::Guard);
+
+        let guard_only = incoming_attack_values(&intent.profile, &gunner, false);
+        let guard_and_aegis = incoming_attack_values(&intent.profile, &gunner, true);
+
+        assert_eq!(guard_only.normal_damage, guard_and_aegis.normal_damage);
+        assert_eq!(guard_only.critical_damage, guard_and_aegis.critical_damage);
+    }
+
+    #[test]
+    fn focused_gunner_action_hits_and_consumes_pending_only_on_commit() {
+        let mut battle = mission_one(7);
+        battle.enter_player_phase_for_test();
+        battle.begin_activation(ids::GUNNER).unwrap();
+        battle.use_focus().unwrap();
+
+        let preview = battle
+            .preview_attack(ids::GUNNER, ids::RAIL_RIFLE, GridPos::new(2, 3))
+            .unwrap();
+        assert_eq!(preview.hit_chance, 100);
+
+        assert_eq!(
+            battle.attack(ids::GUNNER, ids::RAIL_RIFLE, GridPos::new(3, 6)),
+            Err(BattleError::TargetOutOfRange {
+                attacker: ids::GUNNER,
+                weapon: ids::RAIL_RIFLE,
+                target: GridPos::new(3, 6),
+            })
+        );
+        assert!(
+            battle.pilot_skills().focus_pending,
+            "a rejected attack must not consume Focus"
+        );
+
+        let events = battle
+            .attack(ids::GUNNER, ids::RAIL_RIFLE, GridPos::new(2, 3))
+            .unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::AttackRolled {
+                attacker: ids::GUNNER,
+                hit: true,
+                ..
+            }
+        )));
+        assert!(!battle.pilot_skills().focus_pending);
+        assert!(battle.pilot_skills().focus_used);
+    }
+
+    #[test]
+    fn counter_neither_receives_nor_consumes_focus() {
+        let (seed, zero_evasion) = match aegis_control_hit_seed() {
+            Some(seed) => (seed, false),
+            None => (64, true),
+        };
+
+        let (_, plain_events) = gunner_counters_rifleman_left(seed, zero_evasion, false);
+        let (focused, focused_events) = gunner_counters_rifleman_left(seed, zero_evasion, true);
+
+        let plain_roll = gunner_counter_roll(&plain_events).expect("counter must fire");
+        let focused_roll = gunner_counter_roll(&focused_events).expect("counter must fire");
+        assert_eq!(plain_roll, focused_roll);
+        assert!(focused.pilot_skills().focus_pending);
+    }
+
+    fn damage_applied_to(events: &[BattleEvent], target: UnitId) -> Option<i16> {
+        events.iter().find_map(|event| match event {
+            BattleEvent::DamageApplied {
+                target: damaged,
+                amount,
+                ..
+            } if *damaged == target => Some(*amount),
+            _ => None,
+        })
+    }
+
+    fn gunner_counter_roll(events: &[BattleEvent]) -> Option<(u8, bool, Option<u8>, bool)> {
+        events.iter().find_map(|event| match event {
+            BattleEvent::AttackRolled {
+                attacker,
+                roll,
+                hit,
+                critical_roll,
+                critical,
+                ..
+            } if *attacker == ids::GUNNER => Some((*roll, *hit, *critical_roll, *critical)),
+            _ => None,
+        })
+    }
+
+    fn aegis_control_hit_seed() -> Option<u64> {
+        (0..64).find(|&seed| {
+            let mut battle = mission_one(seed);
+            battle.begin_round().unwrap();
+            let events = battle.resolve_intent_for_test(ids::RIFLEMAN_LEFT).unwrap();
+            damage_applied_to(&events, ids::GUNNER) == Some(4)
+        })
+    }
+
+    fn resolve_rifleman_left_against_gunner(
+        seed: u64,
+        zero_evasion: bool,
+        aegis: bool,
+    ) -> Vec<BattleEvent> {
+        let mut battle = mission_one(seed);
+        if zero_evasion {
+            battle.unit_mut_for_test(ids::GUNNER).unwrap().stats.evasion = 0;
+        }
+        battle.begin_round().unwrap();
+        if aegis {
+            battle.begin_activation(ids::VANGUARD).unwrap();
+            battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+            battle.use_aegis(ids::GUNNER).unwrap();
+        }
+        battle.resolve_intent_for_test(ids::RIFLEMAN_LEFT).unwrap()
+    }
+
+    fn gunner_counters_rifleman_left(
+        seed: u64,
+        zero_evasion: bool,
+        focus: bool,
+    ) -> (crate::domain::battle::BattleState, Vec<BattleEvent>) {
+        let mut battle = mission_one(seed);
+        if zero_evasion {
+            battle.unit_mut_for_test(ids::GUNNER).unwrap().stats.evasion = 0;
+        }
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::GUNNER).unwrap();
+        if focus {
+            battle.use_focus().unwrap();
+        }
+        battle
+            .choose_reaction(ids::GUNNER, Reaction::Counter)
+            .unwrap();
+        let events = battle.resolve_intent_for_test(ids::RIFLEMAN_LEFT).unwrap();
+        (battle, events)
+    }
+
     fn adjacent_vanguard_and_striker(seed: u64) -> crate::domain::battle::BattleState {
         let mut battle = mission_one(seed);
         battle.enter_player_phase_for_test();
@@ -737,6 +928,7 @@ mod tests {
             defender.position,
             intent.footprint.clone(),
             defender,
+            false,
         )
     }
 
