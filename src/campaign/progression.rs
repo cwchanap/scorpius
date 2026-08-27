@@ -1,5 +1,7 @@
 //! Mission completion and upgrade purchase progression rules.
 
+use std::fmt;
+
 use crate::campaign::model::{CampaignState, PlayerMech, UpgradeTrack};
 use crate::domain::model::MissionResult;
 use crate::mission::{MissionDefinition, MissionId};
@@ -27,6 +29,26 @@ pub enum CampaignError {
         required: u32,
         available: u32,
     },
+}
+
+impl fmt::Display for CampaignError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CampaignError::MissionNotWon => write!(f, "mission was not won"),
+            CampaignError::AlreadyAdvanced { expected, actual } => write!(
+                f,
+                "campaign already advanced past {expected:?} (now at {actual:?})"
+            ),
+            CampaignError::MaxLevel => write!(f, "upgrade track already at max level"),
+            CampaignError::InsufficientCredits {
+                required,
+                available,
+            } => write!(
+                f,
+                "insufficient credits: {required} required, {available} available"
+            ),
+        }
+    }
 }
 
 impl CampaignState {

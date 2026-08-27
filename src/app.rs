@@ -4,13 +4,18 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 use crate::{
-    campaign::{model::CampaignState, save::SaveFile, session::CampaignSession},
+    campaign::{save::SaveFile, session::CampaignSession},
     mission::mission_definition,
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        EventPlayback, RestartRequest, RestartRoundPending, SelectedCell,
+        EventPlayback, PresentationRoot, RestartRequest, RestartRoundPending, SelectedCell,
         assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
         battlefield::{rebuild_mission_scene, setup_mission_scene},
+        campaign_ui::{
+            CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_briefing_screen,
+            setup_pre_mission_story, setup_title_screen, update_campaign_status_text,
+            update_dialogue_screen,
+        },
         interaction::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
             reset_transient_battle_state,
@@ -22,7 +27,7 @@ use crate::{
             pulse_telegraphs, reconcile_intent_guides, reconcile_reaction_markers,
             reconcile_telegraph_markers, sync_auxiliary_transforms, sync_cell_highlights,
         },
-        ui::{setup_mission_ui, update_asset_status_text, update_hud},
+        ui::{HudRoot, setup_mission_ui, update_asset_status_text, update_hud},
     },
 };
 
@@ -30,10 +35,10 @@ pub struct ScorpiusPlugin;
 
 #[derive(States, Default, Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum GameScreen {
+    #[default]
     Title,
     PreMissionStory,
     Briefing,
-    #[default]
     Battle,
     Aftermath,
     Upgrade,
@@ -42,11 +47,6 @@ pub enum GameScreen {
 
 impl Plugin for ScorpiusPlugin {
     fn build(&self, app: &mut App) {
-        // ponytail: Task-4 migration checkpoint — Battle is default and a fresh
-        // campaign is seeded in memory; Task 5 restores Title as the entry state.
-        let mut campaign = CampaignSession::new(SaveFile::platform_default());
-        campaign.state = Some(CampaignState::new_game());
-
         app.add_plugins((
             DefaultPlugins
                 .set(AssetPlugin {
@@ -55,7 +55,7 @@ impl Plugin for ScorpiusPlugin {
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
-                        title: "Scorpius — Mission 1".into(),
+                        title: "Scorpius".into(),
                         resolution: (1280, 720).into(),
                         position: WindowPosition::Centered(MonitorSelection::Primary),
                         ..default()
@@ -69,7 +69,9 @@ impl Plugin for ScorpiusPlugin {
             require_markers: true,
             ..default()
         })
-        .insert_resource(CampaignRuntime(campaign))
+        .insert_resource(CampaignRuntime(CampaignSession::new(
+            SaveFile::platform_default(),
+        )))
         .init_state::<GameScreen>()
         .init_resource::<SelectedCell>()
         .init_resource::<BattleEventQueue>()
@@ -77,14 +79,38 @@ impl Plugin for ScorpiusPlugin {
         .init_resource::<AttackPreviewCells>()
         .init_resource::<InteractionState>()
         .init_resource::<StatusMessage>()
+        .init_resource::<CampaignStatus>()
+        .init_resource::<DialogueCursor>()
         .init_resource::<RestartRequest>()
         .init_resource::<RestartRoundPending>()
         .init_resource::<MissionAssets>()
         .init_resource::<AssetLoadStatus>()
         .add_systems(Startup, center_primary_window)
+        .add_systems(OnEnter(GameScreen::Title), setup_title_screen)
+        .add_systems(OnExit(GameScreen::Title), despawn_campaign_screen)
+        .add_systems(
+            OnEnter(GameScreen::PreMissionStory),
+            setup_pre_mission_story,
+        )
+        .add_systems(OnExit(GameScreen::PreMissionStory), despawn_campaign_screen)
+        .add_systems(OnEnter(GameScreen::Briefing), setup_briefing_screen)
+        .add_systems(OnExit(GameScreen::Briefing), despawn_campaign_screen)
+        .add_systems(
+            Update,
+            (
+                update_dialogue_screen.run_if(in_state(GameScreen::PreMissionStory)),
+                update_campaign_status_text.run_if(in_state(GameScreen::Title)),
+            ),
+        )
         .add_systems(
             OnEnter(GameScreen::Battle),
-            (enter_battle, setup_mission_scene, setup_mission_ui).chain(),
+            (
+                teardown_battle_screen,
+                enter_battle,
+                setup_mission_scene,
+                setup_mission_ui,
+            )
+                .chain(),
         )
         .add_systems(Update, monitor_mission_assets)
         .add_systems(Update, stabilize_primary_window_position)
@@ -143,6 +169,26 @@ impl Plugin for ScorpiusPlugin {
                 .after(play_battle_events)
                 .run_if(in_state(GameScreen::Battle)),
         );
+    }
+}
+
+/// Despawn battlefield/HUD roots left over from a previous Battle visit so
+/// re-entering Battle cannot double-spawn the presentation.
+#[allow(clippy::type_complexity)]
+pub fn teardown_battle_screen(
+    mut commands: Commands,
+    stale: Query<
+        Entity,
+        Or<(
+            With<PresentationRoot>,
+            With<Camera>,
+            With<DirectionalLight>,
+            With<HudRoot>,
+        )>,
+    >,
+) {
+    for entity in &stale {
+        commands.entity(entity).try_despawn();
     }
 }
 

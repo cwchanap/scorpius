@@ -194,7 +194,7 @@ pub struct ResultOverlay;
 pub struct AssetStatusText;
 
 #[derive(Component)]
-struct HudRoot;
+pub struct HudRoot;
 
 #[derive(Component, Clone, Copy)]
 pub(crate) enum HudTextRole {

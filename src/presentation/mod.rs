@@ -1,5 +1,6 @@
 pub mod assets;
 pub mod battlefield;
+pub mod campaign_ui;
 pub mod interaction;
 pub mod playback;
 pub mod sync;
