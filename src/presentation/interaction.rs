@@ -8,6 +8,7 @@ use crate::domain::{
     combat::AttackPreview,
     model::{BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitId, WeaponId},
 };
+use crate::mission::mission_one::mission_one;
 
 use super::{
     AttackPreviewCells, BattleEventQueue, BattleRuntime, CellVisual, EventPlayback,
@@ -191,10 +192,8 @@ pub fn update_hover_preview(
 }
 
 pub fn restart_battle(world: &mut World, seed: u64) {
-    world
-        .resource_mut::<BattleRuntime>()
-        .0
-        .restart_mission(seed);
+    // ponytail: zero-upgrade rebuild; Task 4 swaps in the active mission/upgrades.
+    world.resource_mut::<BattleRuntime>().0 = mission_one(seed);
 
     let roots: Vec<_> = world
         .query_filtered::<Entity, With<PresentationRoot>>()

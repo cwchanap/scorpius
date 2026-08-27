@@ -553,7 +553,7 @@ mod tests {
             1
         );
 
-        battle.restart_mission(11);
+        battle = mission_one(11);
         assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
         assert_eq!(battle.round(), 0);
         assert!(
