@@ -839,9 +839,7 @@ mod tests {
         battle.begin_round().unwrap();
 
         battle.begin_activation(ids::VANGUARD).unwrap();
-        battle
-            .move_unit(ids::VANGUARD, GridPos::new(3, 7))
-            .unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(3, 7)).unwrap();
         battle.use_aegis(ids::GUNNER).unwrap();
         battle
             .choose_reaction(ids::VANGUARD, Reaction::Guard)
@@ -856,9 +854,7 @@ mod tests {
 
         for player in [ids::GUNNER, ids::INTERCEPTOR] {
             battle.begin_activation(player).unwrap();
-            battle
-                .choose_reaction(player, Reaction::Counter)
-                .unwrap();
+            battle.choose_reaction(player, Reaction::Counter).unwrap();
             battle.finish_activation(player).unwrap();
         }
         battle.resolve_enemy_phase().unwrap();
