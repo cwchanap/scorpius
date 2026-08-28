@@ -2,74 +2,54 @@
 
 ## Context
 
-HPA-635 is complete on `main`; the baseline for this work is `ca4a281cbb72261429fe6a5247816fa25aacff62`. The campaign now has a working Title → VN → Briefing → Battle → Aftermath → Upgrade loop, persistent credits/upgrades, once-per-mission pilot skills, and an authored Mission 1 definition. `MissionId::Two` is currently only a saved handoff state and `mission_definition(MissionId::Two)` returns `None`.
+HPA-635 is complete on `main`; the baseline for this work is `ca4a281cbb72261429fe6a5247816fa25aacff62`. Scorpius already has the complete Title → VN → Briefing → Battle → Aftermath → Upgrade loop, save/continue, credits/upgrades, pilot skills, and one authored Mission 1 definition. `MissionId::Two` is currently only a saved handoff.
 
-HPA-637 is the next unblocked Scorpius issue. It expands that validated loop to three complete missions and introduces the fourth regular enemy, Flanker. This is a bounded architectural/content slice: two new authored missions need a small objective seam and one new deterministic enemy behavior, but they do not justify a generic mission framework, behavior tree, scripting layer, or new combat subsystem.
+HPA-637 is the next unblocked Scorpius issue. It expands that validated loop to three complete missions and introduces the fourth regular enemy, Flanker. This is a bounded architectural/content slice: two missions need a small objective seam and one enemy needs deterministic objective-aware movement, but there is still no need for a generic objective framework, behavior tree, scripting layer, or new combat subsystem.
 
-The delivery remains **one ticket = one PR**. The same draft PR that carries this design/plan is intended to receive the implementation.
+The delivery remains **one ticket = one PR**. This draft planning PR is the implementation PR for HPA-637.
 
 ## Goals
 
 1. Make Missions 2 and 3 fully playable through the existing campaign/save/upgrade loop.
 2. Make Mission 2 win/fail from a protect/survive condition rather than destroy-all.
-3. Make Mission 3 win/fail from interception, extraction, and a clear deadline rather than destroy-all.
-4. Add Flanker as a visibly and mechanically distinct fourth regular enemy with high movement/evasion, low durability, objective pressure, and one simple attack.
-5. Keep objectives visible in briefing, battle HUD, and terminal results.
-6. Keep optional objectives credit-only and never required for campaign advancement.
-7. Preserve Mission 1's validated combat behavior, especially committed intents and its exact authored opening threats.
-8. Keep the implementation small, typed, deterministic, Bevy-free in `domain`, and compatible with the current single-crate architecture.
+3. Make Mission 3 win/fail from interception/extraction/deadline rather than destroy-all.
+4. Add Flanker as a visibly/mechanically distinct fourth regular enemy: fast, evasive, fragile, objective-seeking, one attack.
+5. Show primary + bonus objective in briefing, live HUD, and result overlay.
+6. Keep bonuses credit-only and never required for progression.
+7. Preserve Mission 1's exact validated opening threats and committed-intent semantics.
+8. Keep everything typed, deterministic, single-crate, and Bevy-free in `domain`.
 
 ## Non-goals
 
-Do not add:
+Do not add a neutral faction/objective unit, objective callback/trait registry, behavior tree/utility-AI framework, pathfinding package, stealth, teleport, a new initiative system, new playable units, deployment selection, new hazard types, status effects, bosses, mission select, branching, difficulty, RON/JSON mission authoring, another crate, new VN art, a new glTF pipeline, or save migration/backward-compatibility code.
 
-- a generic objective framework or callback/plugin registry;
-- neutral factions, objective-unit roles, escorts, or deployment selection;
-- behavior trees, utility AI, pathfinding packages, stealth, teleportation, or initiative systems;
-- new playable mechs, Bulwark, Controller, bosses, mission select, branching, or difficulty modes;
-- new hazard types, status effects, healing, equipment, items, or progression tracks;
-- RON/JSON mission authoring, scripting, a content pipeline, or a second crate;
-- new VN art generation or a new glTF pipeline;
-- save migrations or backward-compatibility branches.
-
-Existing save files containing `MissionId::One` or `MissionId::Two` continue to deserialize naturally after enum expansion; no special migration code is required.
+Existing saves containing Mission 1/2 enum values can deserialize naturally after adding later variants; no migration branch is needed.
 
 ## Approaches considered
 
-### A. Generic objective/AI framework
+### Generic objective/AI framework
 
-Model objectives as trait objects/callbacks and introduce reusable enemy behavior policies.
+Rejected. HPA-637 has exactly three primary objective shapes and one new archetype. A framework would add indirection before another consumer exists and contradict the ticket's “only seams these missions consume” rule.
 
-**Rejected.** HPA-637 has exactly three primary objective shapes and one new enemy archetype. A framework would add indirection before a fourth consumer exists, make deterministic tests harder to read, and violate the ticket's explicit “only seams these missions consume” rule.
+### New neutral protected objective
 
-### B. Add a neutral protected objective unit
+Rejected. Mission 2 can protect the existing fragile Gunner, immediately reusing movement, HP, targeting, locked telegraphs, Guard/Evade/Counter, and Aegis. A neutral role/faction would force changes through activation, selection, combat targeting, HUD, and victory rules for no current benefit.
 
-Create a new faction or unit role for a relay/core that enemies can attack in Mission 2.
+### Closed mission rules + existing squad target + one Flanker planner branch
 
-**Rejected.** Current targeting, activation readiness, selection, combat faction checks, and HUD all assume the two existing factions. Mission 2 can teach defense more directly by protecting the already-fragile Gunner. That reuses reactions, Aegis, movement, targeting, HP, and locked telegraphs without another domain concept.
-
-### C. Closed mission rules + existing squad target + Flanker special case
-
-Store one closed mission rule row inside `BattleState`, generalize the optional-result bit, move the existing Mission 1 opening plan into authored data, and teach `enemy.rs` only the Flanker decisions HPA-637 needs.
-
-**Chosen.** It is the smallest change that makes both missions honest about their objectives while removing the existing Mission-1-only opening hardcoding from the domain.
+Chosen. `BattleState` receives one closed rules row, Mission 1 opening data moves out of hard-coded enemy logic, and Flanker gets only the two positioning policies Missions 2/3 consume.
 
 ---
 
-## Architecture
+## 1. Closed mission rules in the plain-Rust domain
 
-### 1. Keep objective shapes closed and explicit
-
-Add the following plain-Rust value types in `src/domain/model.rs`:
+Add in `src/domain/model.rs`:
 
 ```rust
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PrimaryObjective {
     EliminateAllEnemies,
-    ProtectThroughRound {
-        target: UnitId,
-        round: u16,
-    },
+    ProtectThroughRound { target: UnitId, round: u16 },
     InterceptBeforeEscape {
         target: UnitId,
         escape: GridPos,
@@ -80,12 +60,8 @@ pub enum PrimaryObjective {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OptionalObjective {
     Turnabout,
-    ProtectTargetAtHalfHp {
-        target: UnitId,
-    },
-    VictoryByRound {
-        round: u16,
-    },
+    ProtectTargetAtHalfHp { target: UnitId },
+    VictoryByRound { round: u16 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,13 +79,13 @@ pub struct MissionRules {
 }
 ```
 
-These are not an extensibility framework. They are a closed description of the three primary and three optional conditions that Missions 1–3 actually use, plus the authored opening data already present as hard-coded Mission 1 logic.
+`BattleState::new` receives/stores `MissionRules`; `BattleState::rules()` exposes a copy for presentation/tests. Do not put `MissionId` into domain state.
 
-`BattleState::new` receives `MissionRules` directly and stores it. Expose a read-only `rules()` accessor for presentation/tests. Do not add a mission identifier to `BattleState`; the battle only needs rules, while `ActiveMission`/`MissionDefinition` remain the presentation/campaign identity boundary.
+These enums are the three authored shapes we have, not an extensibility framework.
 
-### 2. Make optional progress/result generic
+## 2. Make bonus progress/result generic
 
-Replace the Mission-1-specific field names:
+Replace the Mission-1-specific field names with:
 
 ```rust
 pub struct ObjectiveProgress {
@@ -123,70 +99,59 @@ pub struct MissionResult {
 }
 ```
 
-`CampaignState::complete_mission` awards `definition.optional_reward` only when `result.optional_complete` is true. No objective-specific reward logic belongs in campaign progression.
+Campaign reward code checks only `result.optional_complete`. `BattleEvent::OptionalObjectiveCompleted` remains unchanged; presentation calls it `BONUS OBJECTIVE COMPLETE` rather than Turnabout.
 
-`BattleEvent::OptionalObjectiveCompleted` stays generic and unchanged. Presentation changes its playback copy from `TURNABOUT ACHIEVED` to `BONUS OBJECTIVE COMPLETE`.
+## 3. Terminal semantics stay in `BattleState`
 
-### 3. Terminal evaluation remains one `BattleState` responsibility
+`check_terminal_state` remains the only place that seals result/phase and clears terminal transient state. It evaluates `MissionRules::primary`.
 
-`check_terminal_state` continues to be the single place that seals `MissionResult`, terminal phase, active-unit cleanup, and terminal events. It evaluates the current `MissionRules::primary` instead of always checking destroy-all.
+Global rule: if no player unit is alive, defeat.
 
-A global squad wipe is defeat for every mission and is checked first.
+### Mission 1: eliminate all
 
-#### Mission 1 — `EliminateAllEnemies`
+`EliminateAllEnemies` preserves current behavior: victory when no enemy remains and at least one player is alive.
 
-- victory when at least one player unit is alive and no enemy unit is alive;
-- defeat when no player unit is alive;
-- otherwise continue.
+### Mission 2: protect Gunner through Round 3
 
-This preserves current Mission 1 behavior exactly.
+`ProtectThroughRound { target: GUNNER, round: 3 }` means:
 
-#### Mission 2 — `ProtectThroughRound { target: GUNNER, round: 3 }`
+- Gunner KO → immediate defeat.
+- Victory only when `phase == EnemyPlanning && round >= 3` with Gunner alive.
+- Killing every enemy early does not win.
+- Other player losses are allowed unless they cause global squad wipe.
 
-- defeat immediately if the protected Gunner is knocked out;
-- victory only when `phase == BattlePhase::EnemyPlanning && battle.round() >= 3` while Gunner is alive;
-- killing every enemy early does **not** end the mission;
-- other player casualties do not independently fail the mission unless they produce the global squad wipe.
+Using the phase boundary avoids a new “enemy phases completed” counter: Round-3 victory happens only after all Round-3 committed enemy intents resolve and the state returns to EnemyPlanning.
 
-The phase check matters because `round` already names the active player/enemy round. It prevents a Round-3 player attack or an early intent inside Round-3 resolution from declaring victory before the full third enemy resolution has completed. `resolve_enemy_phase` returns to `EnemyPlanning` only after every committed intent has resolved, then `begin_round()` performs the terminal check before planning Round 4.
+### Mission 3: intercept Courier
 
-No new “enemy phases completed” counter is needed.
+`InterceptBeforeEscape { target: COURIER, escape: (8,2), deadline_round: 4 }` means:
 
-#### Mission 3 — `InterceptBeforeEscape { target: COURIER, escape: (8, 2), deadline_round: 4 }`
+- Courier KO → immediate victory even with escorts alive.
+- Courier at `(8,2)` → defeat.
+- Courier alive at `EnemyPlanning` with `round >= 4` → defeat.
+- Killing escorts without Courier does not win.
 
-- victory immediately when Courier is knocked out, regardless of surviving escorts;
-- defeat when Courier reaches `(8, 2)`;
-- defeat when `phase == BattlePhase::EnemyPlanning && battle.round() >= 4` while Courier is still alive;
-- killing every escort without stopping Courier does not end the mission;
-- global squad wipe is still defeat.
+The Round-4 fallback prevents indefinite body-block/stall if the exact extraction cell is occupied.
 
-The extraction check is position-based and deterministic. The Round-4 fallback prevents indefinitely body-blocking the exit or stalling the runner behind other units.
+## 4. Bonus completion stays one bit
 
-### 4. Optional completion is evaluated only where its condition exists
-
-Add one private `optional_condition_met()`/`mark_optional_complete()` path in `BattleState`; do not introduce callbacks.
-
-- `Turnabout` is event-driven exactly as today: qualifying enemy/environment damage to an enemy marks the bonus once and emits `OptionalObjectiveCompleted`.
-- `ProtectTargetAtHalfHp { target }` is checked when Mission 2 reaches victory. It succeeds when `target.hp * 2 >= target.stats.max_hp`.
-- `VictoryByRound { round }` is checked when Mission 3 reaches victory. It succeeds when `battle.round() <= round`.
+- `Turnabout`: mark once on the existing qualifying enemy/environment damage event.
+- `ProtectTargetAtHalfHp`: on Mission 2 victory, succeed if `target.hp * 2 >= target.stats.max_hp`.
+- `VictoryByRound { round: 2 }`: on Mission 3 victory, succeed if `battle.round() <= 2`.
 
 When a terminal victory satisfies a not-yet-complete terminal bonus, emit `OptionalObjectiveCompleted` immediately before `MissionCompleted`. Defeat does not newly award a terminal-only bonus.
 
-This keeps `ObjectiveProgress` to one bit and avoids per-objective state that has no consumer.
+## 5. Mission-authored opening data replaces Mission-1 hardcoding
 
-### 5. Move Mission 1 opening behavior out of domain hardcoding
+`enemy.rs` currently knows Mission 1 positions/targets. Replace that with `MissionRules::opening_plan`:
 
-`enemy.rs` currently hard-codes Mission 1 opening destinations and forced targets by archetype/position. That cannot coexist cleanly with two more authored missions.
+- on round 0, lookup enemy row by `UnitId`, move directly to its authored destination, or stay if absent;
+- when committing round-0 intent, use the row's living target unit position as forced center when present;
+- later rounds still use `choose_enemy_destination`.
 
-Replace it with `MissionRules::opening_plan`:
+Authored opening placement remains direct scripted movement, matching current Mission 1 semantics; it does not become pathfinding or an activation.
 
-- round 0: for each living enemy, look up its `EnemyOpening` row by `UnitId`; if present, move directly to `destination`; if absent, remain in place;
-- opening intent: if that row has `target: Some(id)` and the target is alive, use the target's current cell as the forced footprint center; otherwise use normal targeting;
-- later rounds continue to use deterministic `choose_enemy_destination`.
-
-The authored opening move remains a direct scripted placement, matching existing Mission 1 semantics. It does not become a path planner and does not spend or validate an activation.
-
-Mission 1's opening rows are:
+Mission 1 opening remains exactly:
 
 ```text
 Rifleman L  -> (2,5), target Gunner
@@ -195,15 +160,11 @@ Striker     -> (4,6), target Vanguard
 Artillery   -> (4,0), target Vanguard
 ```
 
-Existing Mission 1 tests must continue to pin these exact positions, intent order, and mortar footprint.
+Existing tests continue to pin positions, attacker order, intended occupants, and mortar footprint.
 
-### 6. Add a small shared regular-enemy catalog
+## 6. Shared regular-enemy catalog
 
-Create `src/mission/enemies.rs` because Missions 1–3 now share the same regular archetypes and weapon values.
-
-It owns factory functions for Rifleman, Striker, Artillery, and Flanker plus their four weapon specs. Mission modules continue to own unit IDs, names, positions, board layout, opening plan, and roster composition.
-
-Keep the existing values unchanged:
+Create `src/mission/enemies.rs`, mirroring the already-justified shared player `squad.rs` boundary. It owns fixed constructors/weapon specs; each mission still owns IDs, names, board, deployment, roster, opening, rules, dialogue, and rewards.
 
 | Enemy | HP | Armor | Move | Accuracy | Evasion | Weapon |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
@@ -212,11 +173,12 @@ Keep the existing values unchanged:
 | Artillery | 10 | 1 | 1 | 90 | 0 | Siege Mortar |
 | **Flanker** | **8** | **0** | **4** | **82** | **30** | **Skirmish Carbine** |
 
-Flanker's `Skirmish Carbine` is deliberately simple:
+Existing three enemy weapon values stay unchanged. Flanker has exactly one new weapon:
 
 ```text
+Skirmish Carbine
 range 1–2
-shape Single
+Single
 base damage 4
 hit modifier +5
 crit 10%
@@ -225,49 +187,45 @@ no push
 not a counter weapon
 ```
 
-Do not add stealth, teleportation, initiative changes, special damage, status effects, or a second weapon.
+## 7. Flanker behavior stays an explicit branch in `enemy.rs`
 
-### 7. Flanker behavior is one deterministic branch in the current planner
+Add `UnitArchetype::Flanker`.
 
-Add `UnitArchetype::Flanker`; keep archetype-driven behavior in `enemy.rs`.
+### Protect mission
 
-#### Mission 2 protection pressure
+For `ProtectThroughRound`, Flanker uses the protected unit's current position as goal. Score reachable cells by:
 
-When the primary rule is `ProtectThroughRound { target, .. }`, a Flanker:
+1. distance to its weapon's legal range band around the goal;
+2. Manhattan distance to the goal;
+3. more open orthogonal neighbors first;
+4. `y`, then `x`.
 
-1. treats the protected unit's **current position** as its goal;
-2. scores reachable cells by:
-   - distance to its weapon's legal range band around that goal;
-   - Manhattan distance to the goal;
-   - more open orthogonal neighbors first;
-   - then `y`, then `x` for deterministic tie-breaking;
-3. when choosing an attack footprint, prefers a legal footprint containing the protected target before the existing threatened-count/player-priority ordering.
+When choosing a legal attack footprint, a Flanker prefers one containing the protected target before the existing threatened-count/player-priority ordering.
 
-This makes the Flanker chase a moved Gunner rather than a stale authored cell.
+### Interception mission
 
-#### Mission 3 courier pressure
+If the Flanker is the designated `InterceptBeforeEscape` target, score reachable cells by:
 
-When the primary rule is `InterceptBeforeEscape` and the Flanker is the designated target, it:
+1. Manhattan distance to extraction;
+2. more open orthogonal neighbors first;
+3. `y`, then `x`.
 
-1. scores reachable cells by Manhattan distance to the authored extraction cell;
-2. prefers more open orthogonal neighbors on equal distance;
-3. then uses `y`, then `x` as the deterministic tie-break;
-4. still commits one normal Skirmish Carbine intent after movement. It does not retarget a committed intent during the player phase.
+It still commits a normal Skirmish Carbine intent after moving. No RNG is added to movement/target selection, and committed intent never retargets during the player phase.
 
-Other archetypes keep their current later-round movement and targeting. No reusable behavior-policy abstraction is added.
+Other archetypes retain current later-round behavior. No behavior-policy abstraction is introduced.
 
-### 8. Mission 2 is a short three-round defense
+## 8. Mission 2 — Hold Relay Nine
 
 Create `src/mission/mission_two.rs`.
 
-#### Identity and rewards
+### Definition
 
 ```text
 Title: Mission 2 — Hold Relay Nine
 Primary: Protect Gunner through the end of Round 3.
 Bonus: Hold Fast: finish with Gunner at or above 50% HP.
-Base reward: 400 credits
-Bonus reward: 100 credits
+Base reward: 400
+Bonus reward: 100
 Unlocks: Mission 3
 ```
 
@@ -286,68 +244,59 @@ MissionRules {
 }
 ```
 
-#### Board and deployment
-
-Use another compact 9×9 board so the existing camera/HUD framing stays unchanged.
+### 9×9 board
 
 ```text
 Player deployment
 Vanguard    (3,7)
-Gunner      (4,6)   <- protected target
+Gunner      (4,6)  protected
 Interceptor (5,7)
 
-Blocking cells
-(3,3), (5,3), (2,6), (6,6)
-
-Hazards
-(1,5), (7,5)
-
-Explosive
-(6,4), HP 4
+Blocking: (3,3), (5,3), (2,6), (6,6)
+Hazards:  (1,5), (7,5)
+Explosive: (6,4), HP 4
 ```
 
-#### Enemy roster and opening
-
-Use one of each regular enemy so the player reads competing threat shapes without a larger wave system:
+### Enemy roster/opening
 
 ```text
-Rifleman  id 21, starts (2,2), opening -> (2,4), target Gunner
+Rifleman  id 21, starts (2,2), opening -> (2,4), target Vanguard
 Striker   id 22, starts (4,3), opening -> (4,5), target Gunner
 Artillery id 23, starts (4,0), opening -> (4,0), target Gunner
-Flanker   id 24, starts (8,4), opening -> (5,5), target Gunner
+Flanker   id 24, starts (8,4), opening -> (5,5), target Interceptor
 ```
 
-The opening positions keep each forced target legal for its weapon. Four locked threats converge on Gunner, immediately making movement plus Guard/Evade/Aegis meaningful; the player can then reduce pressure by moving the protected Gunner, knocking out threats, and using the existing environment.
+All forced targets are legal from their opening destinations. This is deliberately **not** four attacks on Gunner: the opening creates readable competing threats across the squad while two dangerous locks pressure the protected unit. Reactions matter on all three mechs; the player must decide how much movement/Aegis/action economy to spend protecting Gunner. From later rounds onward, Flanker begins its objective-aware chase toward Gunner.
 
-There are no reinforcements or waves. If the player clears the board before Round 3, the mission still ends only after Gunner survives the required third enemy resolution.
+There are no reinforcements/waves. If every enemy dies early, the player still must complete the protection duration.
 
-#### VN copy
+### VN copy
 
-Reuse the existing checked-in `relay_nine_bg.png`, Control portraits, and Vanguard portrait. Add no new image assets.
+Reuse only existing `relay_nine_bg.png`, Control portraits, and Vanguard portrait.
 
-Pre-mission, three concise lines:
+Pre-mission:
 
-1. **Control:** `Counterattack incoming. Gunner is finishing the Relay Nine uplink; the upload needs three full rounds.`
-2. **Vanguard:** `Then Gunner stays standing. We move around the locks, cover the weak angles, and hold.`
-3. **Control:** `New contact: a fast Flanker is cutting around the line. Expect it to chase the uplink carrier.`
+1. Control: `Counterattack incoming. Gunner is finishing the Relay Nine uplink; the upload needs three full rounds.`
+2. Vanguard: `Then Gunner stays standing. We move around the locks, cover the weak angles, and hold.`
+3. Control: `New contact: a fast Flanker is cutting around the line. Expect it to chase the uplink carrier.`
 
-Aftermath, two lines:
+Aftermath:
 
-1. **Vanguard:** `Uplink complete. Relay Nine can finally hand us the enemy route data.`
-2. **Control:** `It found a courier breaking for extraction. Resupply now — we only get one chance to cut it off.`
+1. Vanguard: `Uplink complete. Relay Nine can finally hand us the enemy route data.`
+2. Control: `It found a courier breaking for extraction. Resupply now — we only get one chance to cut it off.`
 
-### 9. Mission 3 is a focused interception race
+## 9. Mission 3 — Cut the Courier
 
 Create `src/mission/mission_three.rs`.
 
-#### Identity and rewards
+### Definition
 
 ```text
 Title: Mission 3 — Cut the Courier
 Primary: Intercept Courier before extraction or the end of Round 4.
 Bonus: Swift Intercept: defeat Courier by the end of Round 2.
-Base reward: 500 credits
-Bonus reward: 150 credits
+Base reward: 500
+Bonus reward: 150
 Unlocks: Mission 4
 ```
 
@@ -365,9 +314,7 @@ MissionRules {
 }
 ```
 
-#### Board and deployment
-
-Keep 9×9 and reuse only existing terrain mechanics:
+### 9×9 board
 
 ```text
 Player deployment
@@ -375,269 +322,201 @@ Vanguard    (4,7)
 Gunner      (3,8)
 Interceptor (5,8)
 
-Blocking cells
-(4,3), (4,4), (4,5)
-
-Hazard
-(2,5)
-
-Explosive
-(6,3), HP 4
-
-Extraction
-(8,2)   <- logical objective cell only; no new prop type
+Blocking: (4,3), (4,4), (4,5)
+Hazard:   (2,5)
+Explosive: (6,3), HP 4
+Extraction: (8,2)
 ```
 
-The three-cell wall makes the courier choose an open lane around the center while preserving room for the squad to cut across, push enemies into terrain, or use the explosive.
+The extraction cell is a logical domain objective, not a new prop type. Presentation renders a persistent white objective ring on `(8,2)` using the existing `ring_mesh` + `intended_target` material so the deadline/route is visible on the board.
 
-#### Enemy roster and opening
+### Enemy roster/opening
 
 ```text
-Courier   id 31, Flanker, starts (0,6), opening stays (0,6), no forced target
+Courier   id 31, Flanker, starts/stays (0,6), no forced target
 Rifleman  id 32, starts (3,2), opening -> (3,4), target Vanguard
 Striker   id 33, starts (6,6), opening -> (5,7), target Interceptor
 ```
 
-Courier's movement-4 escape preference makes it the strategic target. The two escorts create readable locked threats but do not gate victory; defeating Courier immediately wins even if they survive.
+Courier is the strategic target; the escorts create readable locked threats but never gate victory. The start `(0,6)` to extraction `(8,2)` is twelve Manhattan steps before occupancy/wall effects, giving a movement-4 Courier roughly three later-round movement passes to threaten extraction. Round 4 remains the hard fallback deadline.
 
-The direct path from `(0,6)` to `(8,2)` is twelve Manhattan steps before accounting for occupancy. With movement 4 and the central wall/open-lane tie-break, an unopposed Courier threatens extraction after roughly three later-round movement passes. The Round-4 deadline guarantees failure even if body-blocking delays the exact extraction cell.
+### VN copy
 
-#### VN copy
+Pre-mission:
 
-Reuse the same existing VN art.
+1. Control: `Courier identified. That Flanker has Relay Nine's route keys and is heading for extraction.`
+2. Vanguard: `We cut across and stop it. Escorts are secondary — the Courier is the mission.`
+3. Control: `Extraction is at the east marker. If it gets out, or Round 4 closes, the data is gone.`
 
-Pre-mission, three lines:
+Aftermath:
 
-1. **Control:** `Courier identified. That Flanker has Relay Nine's route keys and is heading for extraction.`
-2. **Vanguard:** `We cut across and stop it. Escorts are secondary — the Courier is the mission.`
-3. **Control:** `Extraction is at the east marker. If it gets out, or Round 4 closes, the data is gone.`
+1. Vanguard: `Courier down. The route keys are intact.`
+2. Control: `Confirmed. They point to a larger force ahead. Spend the salvage and prepare for the next operation.`
 
-Aftermath, two lines:
+## 10. Mission dispatch grows only through the next handoff
 
-1. **Vanguard:** `Courier down. The route keys are intact.`
-2. **Control:** `Confirmed. They point to a larger force ahead. Spend the salvage and prepare for the next operation.`
+`MissionId` becomes `One, Two, Three, Four`, with a small `number()` helper for handoff copy.
 
-### 10. Mission definition dispatch expands only to the next handoff
+`mission_definition` returns authored rows for One/Two/Three and `None` for Four. Do not replace the match with a registry, collection, or plugin.
 
-`MissionId` becomes:
+## 11. Continuous campaign routing
 
-```rust
-pub enum MissionId {
-    One,
-    Two,
-    Three,
-    Four,
-}
-```
-
-Add a small `number()` helper only because campaign handoff copy needs to print the saved next mission.
-
-`mission_definition` returns definitions for One, Two, and Three; Four remains `None` as the HPA-523 handoff.
-
-Do not introduce a `Vec`, registry, hashmap, plugin, or dynamic registration.
-
-### 11. Campaign flow continues through authored missions
-
-Keep the existing screens and state machine. Do not add a “mission select” or another screen.
-
-Routing becomes:
+Keep the existing `GameScreen` set.
 
 ```text
 NEW GAME
-  Mission 1 pre-story
+  -> Mission 1 PreMissionStory
 
 CONTINUE
-  next=One        -> PreMissionStory
-  next=Two/Three  -> Upgrade
-  next=Four       -> NextMission handoff
+  One       -> PreMissionStory
+  Two/Three -> Upgrade
+  Four      -> NextMission handoff
 
 Victory
-  Battle -> Aftermath -> Upgrade
+  -> Aftermath -> Upgrade
 
 Upgrade PROCEED
-  if mission_definition(next_mission).is_some()
-      -> PreMissionStory
-  else
-      -> NextMission
+  mission_definition(next_mission).is_some() -> PreMissionStory
+  otherwise                                  -> NextMission
 ```
 
-Therefore a normal live playthrough is:
+Normal live flow:
 
 ```text
-M1 battle -> aftermath -> upgrade -> M2 story/briefing/battle
-          -> aftermath -> upgrade -> M3 story/briefing/battle
-          -> aftermath -> upgrade -> M4 unlocked handoff
+M1 -> aftermath -> upgrade -> M2 story/briefing/battle
+   -> aftermath -> upgrade -> M3 story/briefing/battle
+   -> aftermath -> upgrade -> M4 unlocked handoff
 ```
 
-The saved state still stores only `next_mission`, credits, and upgrades. No new campaign-state field is required.
+Save state remains exactly next mission + credits + squad upgrades.
 
-`next_mission_copy` becomes generic (`MISSION {n} UNLOCKED`) so the final HPA-637 handoff says Mission 4, not Mission 2.
+`next_mission_copy` becomes generic `MISSION {n} UNLOCKED` instead of hard-coded Mission 2.
 
-### 12. Briefing, HUD, events, and results become objective-generic
+## 12. Objective-generic HUD/results/rewards
 
-`MissionDefinition` already owns human-readable primary/bonus copy; keep those fields.
-
-`HudSnapshot::from_battle` appends rule-specific progress without putting presentation strings into `domain`:
+Keep `MissionDefinition.primary_objective` / `optional_objective` as authored human copy. Presentation appends progress from `BattleState::rules()`:
 
 - Eliminate: enemy count remaining.
-- Protect: current round/required round plus protected unit HP.
-- Intercept: current round/deadline plus Courier Manhattan distance to extraction.
-- Turnabout bonus: `Complete` / `Not yet`.
-- Half-HP bonus: `On track` / `Missed` based on current HP threshold.
-- Victory-by-round bonus: `Available` / `Missed` based on current round; terminal state uses `optional_complete`.
+- Protect: current/required round + protected unit HP.
+- Intercept: current/deadline round + Courier Manhattan distance to extraction.
+- Turnabout: Complete/Not yet.
+- Half-HP: On track/Missed.
+- Victory-by-round: Available/Missed; terminal state uses `optional_complete`.
 
-Result overlay takes both `MissionResult` and `MissionDefinition` and renders:
+Result overlay accepts `MissionResult + MissionDefinition`:
 
 ```text
 MISSION COMPLETE | MISSION FAILED
 <mission title>
-PRIMARY  <primary objective> · Complete/Failed
-BONUS    <optional objective> · Achieved/Missed
+PRIMARY  <primary text> · Complete/Failed
+BONUS    <bonus text> · Achieved/Missed
 ```
 
-Aftermath reward copy changes `Turnabout +...` to `Bonus +...`; the objective text itself was already shown in the result overlay and aftermath is only the persisted credit receipt.
+Aftermath reward copy uses `Bonus +...`, not `Turnabout +...`.
 
-`OptionalObjectiveCompleted` playback copy becomes `BONUS OBJECTIVE COMPLETE`.
+## 13. Flanker/extraction visuals reuse existing rendering assets
 
-### 13. Flanker visual distinction reuses the checked-in glTF
+Do not modify the checked-in glTF.
 
-Do not modify the glTF or add an art generator for one enemy.
+- `scene_index(Flanker) = 2` (existing Interceptor fast silhouette).
+- Flanker model scale `0.62`; all other units remain `0.72`.
+- Spawn a persistent Flanker under-ring as a **child of the unit visual entity**, using existing `ring_mesh` and `telegraph_edge` material. Childing makes it follow movement automatically; no new sync framework/component is needed.
+- `apply_unit_transforms` must use the same `unit_scale(archetype)` helper so per-frame sync does not reset Flanker to `0.72`.
+- For `InterceptBeforeEscape`, spawn one static extraction ring under `PresentationRoot` at the authored escape cell using existing `ring_mesh` + `intended_target` material.
+- Rename touched debug root text `Mission 1 Presentation` → `Mission Presentation`.
 
-In `battlefield.rs`:
+Enemy rotation + fast silhouette + under-ring distinguish Flanker from the player's Interceptor; movement 4/evasion 30/low durability/objective-seeking distinguish it mechanically.
 
-- map `UnitArchetype::Flanker` to the existing Interceptor scene (`scene 2`) to give it a light/fast silhouette distinct from Rifleman/Striker/Artillery;
-- render Flanker at scale `0.62` instead of the normal `0.72`;
-- add a persistent red/orange under-ring using the already-created `ring_mesh` and `telegraph_edge` material.
+## 14. Rewards/progression tuning
 
-Enemy rotation already differentiates allegiance; the ring differentiates Flanker from the player Interceptor. Movement 4, evasion 30, low HP/armor, and its objective-seeking planner provide the mechanical distinction.
+Base rewards alone are 300 + 400 + 500 = **1200 credits** through Mission 3. Optional rewards are 100 + 100 + 150. Normal progression can therefore buy useful 200/400-level upgrades without requiring bonuses or grinding.
 
-Rename debug entity labels such as `Mission 1 Presentation` to `Mission Presentation` where touched. Do not rename the existing `mission_one.gltf` asset or broaden asset loading in this ticket.
-
-### 14. Shared enemy data is the only content extraction
-
-`mission_one.rs` should consume the new `mission::enemies` factories so Rifleman/Striker/Artillery values are defined once. Do not otherwise reorganize Mission 1.
-
-Mission-specific files own:
-
-- `SquadDeployment`;
-- board cells/props;
-- stable enemy IDs/names;
-- opening rows;
-- mission rules;
-- dialogue;
-- rewards/definition.
-
-This mirrors the existing `mission::squad` boundary and is enough for Missions 4–5 to reuse later without pre-building their architecture.
+No new progression system is needed.
 
 ---
 
 ## Testing strategy
 
-All automated tests remain headless.
+### Domain/objective
 
-### Domain/objective tests
+- Mission 1 eliminate-all and Turnabout remain unchanged.
+- Mission 2 enemy-clear alone does not win.
+- Mission 2 Gunner KO fails.
+- Mission 2 wins only at EnemyPlanning after Round 3 with Gunner alive.
+- Mission 2 half-HP boundary (`hp * 2 >= max_hp`) is achieved; below it is missed.
+- Mission 3 Courier KO wins while escorts live.
+- Mission 3 escort clear alone does not win.
+- Mission 3 extraction and Round-4 deadline each fail.
+- Mission 3 Round-2 KO earns bonus; Round-3 KO does not.
+- Terminal-only bonus event precedes `MissionCompleted` once.
 
-Pin these behaviors directly:
+### Enemy planner
 
-- Mission 1 still wins only when all enemies are knocked out and its Turnabout bonus is event-driven.
-- Mission 2 does not win when all enemies are knocked out before Round 3.
-- Mission 2 immediately loses when Gunner is knocked out.
-- Mission 2 wins from `EnemyPlanning` at Round 3 with Gunner alive.
-- Mission 2 half-HP bonus is achieved at `hp * 2 >= max_hp` and missed below it.
-- Mission 3 wins immediately when Courier is knocked out while escorts remain.
-- Mission 3 does not win from escort clear alone.
-- Mission 3 loses when Courier is on `(8,2)`.
-- Mission 3 loses at the Round-4 `EnemyPlanning` deadline while Courier remains alive.
-- Mission 3 early bonus is achieved at Round 2 and missed at Round 3.
-- terminal-only bonuses emit `OptionalObjectiveCompleted` before `MissionCompleted` exactly once.
+- Mission 1 exact authored opening regression remains.
+- Mission 2 opening intended occupants are Vanguard/Gunner/Gunner/Interceptor.
+- Later Mission 2 Flanker movement/intent prioritizes protected Gunner and uses open-neighbor tie-break.
+- Mission 3 Courier destination reduces extraction distance rather than chasing a normal player target.
+- No RNG is introduced to destination/target ordering.
 
-### Enemy planner tests
+### Mission authoring
 
-- Mission 1 exact authored opening positions/targets/intents remain unchanged.
-- Mission 2 opening creates four Gunner-directed readable threats.
-- a Mission 2 Flanker destination prioritizes the protected Gunner and open-neighbor tie-break.
-- a Mission 2 Flanker intent prefers Gunner when Gunner is legally targetable.
-- the Mission 3 Courier destination reduces distance to extraction and does not switch to ordinary player-chasing behavior.
-- Flanker behavior remains deterministic for a fixed state; no RNG is added to movement/target selection.
+Pin exact board, deployment, roster, rules, rewards/copy/unlock for Missions 2/3 and prove current upgrades still project through `build_player_squad` once.
 
-### Mission authoring tests
+### Campaign/presentation
 
-Each new mission pins:
+- M1 → M2 → M3 normal completion advances to Four with 1200 base credits.
+- bonus changes credits only.
+- save/load round-trips MissionId Four + upgrades.
+- Continue routes One/story, Two/Three/Upgrade, Four/handoff.
+- Upgrade Proceed routes authored Two/Three to story and Four to handoff.
+- battle entry/restart uses current definition builder for M2/M3.
+- briefing/HUD/result show both objective texts and dynamic progress.
+- Flanker scene/scale + extraction marker helper paths are covered by pure tests where practical; manual play confirms rendered rings.
 
-- 9×9 board and the listed blocking/hazard/explosive cells;
-- exact player deployment;
-- exact enemy roster/archetypes/positions;
-- `MissionRules` target/round/escape/deadline;
-- title/objective copy/rewards/unlock;
-- upgrades still project through `build_player_squad` once.
+## Manual validation gate
 
-### Campaign/presentation tests
+Record `docs/validation/hpa-637.md` with:
 
-- completing M1 → M2 → M3 advances `next_mission` to Four and normal completion rewards do not depend on bonuses;
-- bonus only changes credits;
-- `MissionId::Three/Four` save/load round-trip;
-- Continue routes One → story, Two/Three → Upgrade, Four → handoff;
-- Upgrade `PROCEED` routes Two/Three to story and Four to handoff;
-- briefing/HUD/result copy is correct for all three objective shapes;
-- battle entry/restart builds Mission 2 or Mission 3 from the active definition and current upgrades;
-- Flanker is mapped to the fast silhouette and marker path without adding an asset dependency.
+1. continuous M1 → Upgrade → M2 → Upgrade → M3 → M4 handoff;
+2. M2 opening competing threats visible;
+3. M2 enemy-clear does not win, Round-3 survive does, Gunner KO fails;
+4. M2 bonus achieved/missed;
+5. M3 Courier/under-ring and extraction ring visible;
+6. M3 Courier routes toward extraction while committed telegraphs remain locked;
+7. M3 wins with escorts alive;
+8. M3 extraction + deadline failures;
+9. M3 early bonus achieved/missed;
+10. save/quit/Continue and upgrades retained before M2 and M3;
+11. full CI-equivalent commands pass.
 
-### Manual validation
+If either mission needs slow empty-round stalling or gives no meaningful response window, tune authored positions/terrain/stats/rewards inside this PR. Do not add reinforcements, wave systems, or another combat subsystem to solve content tuning.
 
-Record `docs/validation/hpa-637.md` with at least:
+## Expected file boundaries
 
-1. New Game through Mission 1 completion, upgrade, Mission 2 story/briefing.
-2. Mission 2 success by surviving Round 3 with enemies still alive.
-3. Mission 2 failure from Gunner KO.
-4. Mission 2 bonus achieved and missed examples.
-5. Mission 3 Courier visibly routes toward extraction while escorts retain locked telegraphs.
-6. Mission 3 victory with escorts still alive.
-7. Mission 3 extraction failure and Round-4 deadline failure.
-8. Mission 3 early bonus achieved/missed.
-9. Save/quit/Continue before Missions 2 and 3, with upgrades retained.
-10. Final Mission 4 unlocked handoff after Mission 3.
-11. Full CI-equivalent command output.
+New:
+- `src/mission/enemies.rs`
+- `src/mission/mission_two.rs`
+- `src/mission/mission_three.rs`
+- `docs/validation/hpa-637.md`
 
-The playtest gate is qualitative but specific: Missions 2–3 should remain short-session encounters and should not require repeatedly passing empty/low-pressure rounds. If authored tuning is off, change mission positions/stats/rewards within this PR; do not add a new system to compensate.
+Modified:
+- `src/domain/model.rs`
+- `src/domain/battle.rs`
+- `src/domain/enemy.rs`
+- `src/mission/mod.rs`
+- `src/mission/mission_one.rs`
+- `src/campaign/progression.rs`
+- `src/presentation/battlefield.rs`
+- `src/presentation/sync.rs`
+- `src/presentation/interaction.rs`
+- `src/presentation/ui.rs`
+- `src/presentation/campaign_ui.rs`
+- `tests/presentation_app.rs`
+- `README.md`
+- `CLAUDE.md`
 
-## File boundaries
-
-Expected new files:
-
-- `src/mission/enemies.rs` — shared regular enemy constructors/weapon specs.
-- `src/mission/mission_two.rs` — all Mission 2 authored data.
-- `src/mission/mission_three.rs` — all Mission 3 authored data.
-- `docs/validation/hpa-637.md` — implementation/playtest evidence.
-
-Expected modified files:
-
-- `src/domain/model.rs` — Flanker + closed mission rule/result types.
-- `src/domain/battle.rs` — objective evaluation and generic bonus state.
-- `src/domain/enemy.rs` — authored opening plan + Flanker movement/targeting.
-- `src/mission/mod.rs` — modules, MissionId 1–4, definition dispatch.
-- `src/mission/mission_one.rs` — consume shared enemy catalog + authored opening/rules.
-- `src/campaign/progression.rs` — generic optional reward bit.
-- `src/presentation/battlefield.rs` — Flanker visual mapping/marker and generic debug name.
-- `src/presentation/interaction.rs` — exhaustive Flanker pilot-skill rejection and generic presentation name if touched.
-- `src/presentation/ui.rs` — dynamic objective progress + generic results/events.
-- `src/presentation/campaign_ui.rs` — continuous M1→M2→M3 routing and generic handoff/reward copy.
-- `tests/presentation_app.rs` — campaign/battle presentation integration coverage.
-- `README.md` — three-mission campaign/player-facing behavior.
-- `CLAUDE.md` — current architecture/content state and HPA-637 rule-of-record references.
-
-`src/app.rs`, save/session code, and the glTF should only change if an implementation test demonstrates a concrete need; the current dispatch/session seams are already mission-generic.
-
-## Acceptance mapping
-
-- Continuous M1–M3 campaign: MissionId/definition dispatch + Upgrade/Continue routing.
-- Mission 2 protect/survive: `ProtectThroughRound` with Gunner target; no enemy-clear victory.
-- Mission 3 time pressure/interception: Courier KO success, extraction/deadline failure; no escort-clear victory.
-- Flanker distinction: movement 4/evasion 30/HP 8/armor 0, protected-target or extraction movement preference, fast silhouette + under-ring.
-- Objectives in briefing/battle/results: existing `MissionDefinition` copy + rule-aware HUD + definition-aware result overlay.
-- Optional credits only: generic `optional_complete` consumed solely by reward calculation.
-- Focused tests: objective, AI, campaign, presentation suites above.
-- Short-session manual gate: explicit HPA-637 validation checklist, with tuning-only response if needed.
+`src/app.rs`, save/session implementation, glTF/PNG assets, Cargo files should remain unchanged unless a concrete failing integration test proves otherwise.
 
 ## Decision summary
 
-HPA-637 should **extend the current code, not replace it**: three closed objective shapes, one generic optional-result bit, one authored opening slice, one shared regular-enemy catalog, and one Flanker branch in the deterministic planner. Mission 2 protects the existing Gunner instead of inventing an objective unit; Mission 3 treats one Flanker as Courier and wins on that target alone. Existing UI/campaign screens remain the composition surface, and existing combat mechanics remain the tactical vocabulary.
+Extend what already works: three closed primary objective shapes, three closed bonus shapes backed by one bit, one authored opening slice, one small regular-enemy catalog, and one Flanker branch in the deterministic planner. Mission 2 protects Gunner instead of inventing an objective unit. Mission 3 wins on Courier alone and visibly marks extraction. Existing screens/save/combat remain the vocabulary for the entire slice.
