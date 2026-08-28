@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extend Scorpius from the completed Mission 1 campaign loop to three continuously playable missions, adding protect/intercept objectives and the Flanker enemy without a generic objective or AI framework.
+**Goal:** Extend Scorpius from the completed Mission 1 campaign loop to three continuously playable missions, adding a three-round Gunner defense, a Courier interception mission, and the Flanker enemy without introducing a generic objective or AI framework.
 
-**Architecture:** `BattleState` gains one closed `MissionRules` row describing only the objective/opening shapes Missions 1–3 consume; `mission` remains the typed authoring layer, with a small shared regular-enemy catalog and separate Mission 2/3 modules. Flanker remains one explicit branch in the deterministic enemy planner, while the existing campaign screens, save model, combat mechanics, and single Bevy application crate continue unchanged in shape.
+**Architecture:** `BattleState` gains one closed `MissionRules` row covering only the objective/opening shapes Missions 1–3 use. `mission` remains the typed authoring layer with a small shared regular-enemy catalog and separate Mission 2/3 modules; Flanker stays one explicit deterministic planner branch, while the existing campaign screens, save model, combat mechanics, and single Bevy application crate remain the composition surface.
 
-**Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, existing headless Rust test suites, checked-in `assets/models/mission_one.gltf` and existing VN PNGs only.
+**Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, existing headless Rust tests, existing checked-in `assets/models/mission_one.gltf` and VN PNGs only.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-hpa-637-missions-2-3-flanker-design.md`
 
@@ -14,18 +14,17 @@
 
 - One Linear ticket (`HPA-637`) = one implementation PR; continue implementation on this draft PR.
 - Keep dependency direction `presentation -> mission -> domain`; `src/domain/` must not import Bevy or campaign/presentation types.
-- Keep one application crate; add no workspace/crate/plugin suite.
-- Keep `bevy = "0.19"`; add no dependency.
+- Keep one application crate and `bevy = "0.19"`; add no dependency.
 - Preserve committed-intent semantics: player movement never retargets an already committed enemy intent.
 - Keep mission content typed in Rust; add no RON/JSON/scripting/content framework.
-- Add no behavior tree, utility-AI framework, stealth, teleportation, new initiative system, status framework, new playable unit, deployment selection, mission select, branching, difficulty, boss, or new hazard type.
+- Add no objective callback/trait/registry, behavior tree, utility-AI framework, pathfinding dependency, stealth, teleportation, new initiative system, status framework, new playable unit, deployment selection, mission select, branching, difficulty, boss, or new hazard type.
 - Mission 2 protects the existing Gunner; do not add a neutral faction/objective-unit role.
 - Mission 3 uses one Flanker as Courier; escort clear is never a hidden victory condition.
 - Optional objectives affect credits only and never gate progression.
-- Reuse the existing VN art and existing glTF; add no art-generation pipeline.
+- Reuse the existing VN art and glTF; add no asset-generation pipeline.
 - Keep save state to `next_mission`, credits, and upgrades; add no migration/version compatibility code.
 - All automated tests stay headless.
-- Final local gates remain `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets`, and `cargo build --release`.
+- Final gates: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets`, `cargo build --release`.
 
 ---
 
@@ -33,31 +32,32 @@
 
 ### New files
 
-- `src/mission/enemies.rs` — fixed regular-enemy constructors and their four weapon specs.
-- `src/mission/mission_two.rs` — Mission 2 board, IDs, opening plan, rules, dialogue, rewards, tests.
-- `src/mission/mission_three.rs` — Mission 3 board, IDs, opening plan, rules, dialogue, rewards, tests.
+- `src/mission/enemies.rs` — fixed regular-enemy constructors and four weapon specs.
+- `src/mission/mission_two.rs` — Mission 2 board, IDs, opening, rules, dialogue, rewards, tests.
+- `src/mission/mission_three.rs` — Mission 3 board, IDs, opening, rules, dialogue, rewards, tests.
 - `docs/validation/hpa-637.md` — final automated/manual validation evidence.
 
 ### Modified files
 
-- `src/domain/model.rs` — closed primary/optional objective types, authored enemy opening row, `MissionRules`, generic optional result/progress bit, Flanker archetype.
-- `src/domain/battle.rs` — store rules, objective-aware terminal evaluation, terminal optional completion.
-- `src/domain/enemy.rs` — consume authored opening rows and add deterministic Flanker movement/target preference.
-- `src/mission/mod.rs` — export new mission/enemy modules; grow `MissionId`/dispatch through Mission 4 handoff.
-- `src/mission/mission_one.rs` — define Mission 1 rules/opening data and consume shared regular-enemy factories.
-- `src/campaign/progression.rs` — consume generic `MissionResult::optional_complete`.
-- `src/presentation/interaction.rs` — Flanker is never pilot-controllable; use generic presentation debug name where touched.
-- `src/presentation/battlefield.rs` — Flanker fast silhouette/scale/under-ring and generic presentation root name.
-- `src/presentation/ui.rs` — rule-aware objective progress, generic bonus event copy, definition-aware result overlay.
-- `src/presentation/campaign_ui.rs` — generic reward/handoff copy and continuous authored-mission routing.
-- `tests/presentation_app.rs` — campaign/battle entry/restart/routing integration through Mission 3.
-- `README.md` — current three-mission player-facing campaign behavior.
+- `src/domain/model.rs` — closed mission-rule types, generic bonus state/result, Flanker archetype.
+- `src/domain/battle.rs` — store rules and evaluate protect/intercept terminal conditions.
+- `src/domain/enemy.rs` — consume authored opening rows and add Flanker movement/target preference.
+- `src/mission/mod.rs` — modules, MissionId 1–4, definition dispatch.
+- `src/mission/mission_one.rs` — consume shared enemy catalog and authored Mission 1 rules/opening.
+- `src/campaign/progression.rs` — generic bonus reward bit.
+- `src/presentation/battlefield.rs` — Flanker scene/scale/rings, extraction ring, generic debug name.
+- `src/presentation/sync.rs` — preserve archetype-specific scale during unit sync.
+- `src/presentation/interaction.rs` — Flanker is never pilot-controllable; generic debug name if touched.
+- `src/presentation/ui.rs` — rule-aware objective progress and generic result/event copy.
+- `src/presentation/campaign_ui.rs` — continuous mission routing and generic reward/handoff copy.
+- `tests/presentation_app.rs` — renderer-free campaign/battle integration through Mission 3.
+- `README.md` — current three-mission player-facing behavior.
 - `CLAUDE.md` — current architecture/rules of record.
 
-### Expected untouched unless a failing test proves otherwise
+### Expected untouched unless a failing integration test proves otherwise
 
 - `src/campaign/model.rs`
-- `src/campaign/save.rs` implementation (tests may expand elsewhere/in-file)
+- `src/campaign/save.rs` implementation
 - `src/campaign/session.rs`
 - `src/app.rs`
 - `assets/models/mission_one.gltf`
@@ -67,27 +67,27 @@
 
 ---
 
-### Task 1: Add closed mission rules and generic optional-result semantics
+### Task 1: Add closed mission rules and generic bonus semantics
 
 **Files:**
 - Modify: `src/domain/model.rs`
 - Modify: `src/domain/battle.rs`
 - Modify: `src/campaign/progression.rs`
-- Modify: current call sites/tests that construct `BattleState` or read `turnabout_complete`
+- Modify: active call sites/tests that construct `BattleState` or read `turnabout_complete`
 
 **Interfaces:**
-- Produces: `PrimaryObjective`, `OptionalObjective`, `EnemyOpening`, `MissionRules` in `domain::model`.
+- Produces: `PrimaryObjective`, `OptionalObjective`, `EnemyOpening`, `MissionRules`.
 - Produces: `BattleState::rules(&self) -> MissionRules`.
 - Changes: `BattleState::new(board, units, weapons, rules, seed)`.
 - Changes: `ObjectiveProgress { optional_complete: bool }`.
 - Changes: `MissionResult { victory, optional_complete, rounds }`.
 - Preserves: `BattleEvent::OptionalObjectiveCompleted`.
 
-- [ ] **Step 1: Write focused terminal-rule tests before changing the model**
+- [ ] **Step 1: Write terminal-rule tests before changing the model**
 
-Add tests in `src/domain/battle.rs` that construct a minimal battle fixture with one/two players and one enemy, then call the private `check_terminal_state()` directly from the child test module. The fixture must accept `MissionRules` so each rule can be tested without Bevy or mission authoring.
+Add a plain-Rust fixture inside `src/domain/battle.rs` tests that accepts `MissionRules`, with player `UnitId(1)`, protected player `UnitId(2)`, escort enemy `UnitId(8)`, and objective enemy `UnitId(9)`. Use private child-module access to call `check_terminal_state` directly.
 
-Use this exact rule coverage:
+Pin these behaviors:
 
 ```rust
 #[test]
@@ -102,12 +102,11 @@ fn protect_rule_ignores_enemy_clear_and_wins_only_after_required_round() {
     });
 
     battle.apply_direct_damage(UnitId(9), 99, DamageSource::PlayerWeapon(WeaponId(1)));
-    assert_eq!(battle.result(), None, "enemy clear is not the primary objective");
+    assert_eq!(battle.result(), None);
 
     battle.phase = BattlePhase::EnemyPlanning;
     battle.round = 2;
     assert!(battle.check_terminal_state().is_empty());
-    assert_eq!(battle.result(), None);
 
     battle.round = 3;
     let events = battle.check_terminal_state();
@@ -118,7 +117,11 @@ fn protect_rule_ignores_enemy_clear_and_wins_only_after_required_round() {
 #[test]
 fn protect_rule_fails_immediately_when_target_is_knocked_out() {
     let mut battle = objective_fixture(PROTECT_RULE);
-    let events = battle.apply_direct_damage(UnitId(2), 99, DamageSource::EnemyWeapon(UnitId(9), WeaponId(9)));
+    let events = battle.apply_direct_damage(
+        UnitId(2),
+        99,
+        DamageSource::EnemyWeapon(UnitId(9), WeaponId(9)),
+    );
     assert!(matches!(battle.result(), Some(MissionResult { victory: false, .. })));
     assert!(events.iter().any(|event| matches!(event, BattleEvent::MissionFailed { .. })));
 }
@@ -127,7 +130,7 @@ fn protect_rule_fails_immediately_when_target_is_knocked_out() {
 fn intercept_rule_wins_on_target_ko_not_escort_clear() {
     let mut battle = intercept_fixture();
     battle.apply_direct_damage(UnitId(8), 99, DamageSource::PlayerWeapon(WeaponId(1)));
-    assert_eq!(battle.result(), None, "escort clear cannot win interception");
+    assert_eq!(battle.result(), None);
 
     battle.apply_direct_damage(UnitId(9), 99, DamageSource::PlayerWeapon(WeaponId(1)));
     assert!(matches!(battle.result(), Some(MissionResult { victory: true, .. })));
@@ -146,21 +149,17 @@ fn intercept_rule_fails_on_escape_or_deadline() {
 }
 ```
 
-The fixture's protected `UnitId(2)` is a normal `Faction::Player` unit. Do not add a role/faction abstraction to make these tests pass.
-
-- [ ] **Step 2: Run the focused test module and confirm it fails for missing rule types/behavior**
-
-Run:
+- [ ] **Step 2: Run the focused module and confirm the new tests fail/compile-break for missing rule types**
 
 ```bash
 cargo test --lib domain::battle:: -- --nocapture
 ```
 
-Expected: compilation/test failures because `MissionRules`, protect/intercept semantics, and generic result fields do not exist yet.
+Expected: red until the new rule/result types and terminal semantics exist.
 
-- [ ] **Step 3: Add the closed rule/value types and generic result field names**
+- [ ] **Step 3: Add the exact closed domain types**
 
-In `src/domain/model.rs`, add exactly:
+In `src/domain/model.rs`:
 
 ```rust
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -208,11 +207,9 @@ pub struct MissionResult {
 }
 ```
 
-`GridPos` is already imported by `model.rs`; keep these plain Rust/serde-independent battle values.
+- [ ] **Step 4: Store rules in `BattleState` and change construction**
 
-- [ ] **Step 4: Store `MissionRules` in `BattleState` and change construction**
-
-Add a private `rules: MissionRules` field. Change the constructor signature to:
+Change the constructor to:
 
 ```rust
 pub(crate) fn new(
@@ -224,7 +221,7 @@ pub(crate) fn new(
 ) -> Self
 ```
 
-Add:
+Add private `rules: MissionRules` plus:
 
 ```rust
 pub const fn rules(&self) -> MissionRules {
@@ -232,7 +229,7 @@ pub const fn rules(&self) -> MissionRules {
 }
 ```
 
-For `viability_fixture()` and every existing non-mission fixture, pass:
+For existing generic fixtures, use:
 
 ```rust
 MissionRules {
@@ -242,11 +239,11 @@ MissionRules {
 }
 ```
 
-Update `mission_one_for_campaign` to pass the same temporary rule literal in this task; Task 2 replaces the empty opening plan with authored Mission 1 rows.
+Use the same temporary rules in `mission_one_for_campaign`; Task 2 replaces the empty opening with exact authored rows.
 
-- [ ] **Step 5: Implement objective-aware terminal evaluation without another counter**
+- [ ] **Step 5: Implement objective-aware terminal evaluation without a new round counter**
 
-Split the decision from terminal sealing with private helpers:
+Add a private `primary_outcome(&self) -> Option<bool>`:
 
 ```rust
 fn primary_outcome(&self) -> Option<bool> {
@@ -267,10 +264,7 @@ fn primary_outcome(&self) -> Option<bool> {
             (!any_living_enemy).then_some(true)
         }
         PrimaryObjective::ProtectThroughRound { target, round } => {
-            let target = self
-                .units
-                .get(&target)
-                .expect("authored protected target must exist");
+            let target = self.units.get(&target).expect("authored protected target must exist");
             if target.is_knocked_out() {
                 Some(false)
             } else if self.phase == BattlePhase::EnemyPlanning && self.round >= round {
@@ -284,10 +278,7 @@ fn primary_outcome(&self) -> Option<bool> {
             escape,
             deadline_round,
         } => {
-            let target = self
-                .units
-                .get(&target)
-                .expect("authored interception target must exist");
+            let target = self.units.get(&target).expect("authored interception target must exist");
             if target.is_knocked_out() {
                 Some(true)
             } else if target.position == escape {
@@ -302,23 +293,18 @@ fn primary_outcome(&self) -> Option<bool> {
 }
 ```
 
-`check_terminal_state()` calls `primary_outcome()` and keeps the existing one-time `self.result.is_some()` guard plus terminal cleanup.
+`check_terminal_state()` keeps its current `self.result.is_some()` guard/cleanup and seals only the outcome returned above. Do not add eliminate-all as a fallback for protect/intercept missions.
 
-Do not make eliminate-all an alternate win condition for protect/intercept missions.
+- [ ] **Step 6: Implement one generic bonus bit**
 
-- [ ] **Step 6: Generalize optional completion**
-
-Keep the existing damage observation call sites, but make the current Turnabout observer conditional on `OptionalObjective::Turnabout` and rename only internals as useful. Add:
+Keep Turnabout's existing damage predicates, but only run them for `OptionalObjective::Turnabout`. Add private helpers:
 
 ```rust
 fn optional_condition_met(&self) -> bool {
     match self.rules.optional {
         OptionalObjective::Turnabout => self.objectives.optional_complete,
         OptionalObjective::ProtectTargetAtHalfHp { target } => {
-            let target = self
-                .units
-                .get(&target)
-                .expect("authored bonus target must exist");
+            let target = self.units.get(&target).expect("authored bonus target must exist");
             !target.is_knocked_out() && target.hp * 2 >= target.stats.max_hp
         }
         OptionalObjective::VictoryByRound { round } => self.round <= round,
@@ -335,23 +321,13 @@ fn mark_optional_complete(&mut self) -> Vec<BattleEvent> {
 }
 ```
 
-On terminal victory, before building `MissionResult`, evaluate `optional_condition_met()` and append `mark_optional_complete()` when true. Then store `optional_complete` in `MissionResult`. Do not newly mark terminal-only bonuses on defeat.
+On terminal victory, if the terminal bonus condition is true and not already complete, append `OptionalObjectiveCompleted` before `MissionCompleted`. Defeat never newly marks terminal-only bonuses.
 
-Turnabout's existing `observe_damage_for_objectives` calls `mark_optional_complete()` only when `self.rules.optional == OptionalObjective::Turnabout` and its existing damage/source predicates pass.
+- [ ] **Step 7: Rename active code from `turnabout_complete` to `optional_complete`**
 
-- [ ] **Step 7: Rename every active-code/test use of `turnabout_complete` to `optional_complete`**
+Update campaign reward calculation, current presentation reads, and all active Rust tests/fixtures. Do not rewrite historical HPA-632/HPA-635 spec/validation documents.
 
-At minimum update:
-
-- `src/campaign/progression.rs` reward calculation;
-- `src/presentation/ui.rs` current HUD/result reads (keep old Turnabout display wording temporarily; Task 5 generalizes copy);
-- all Rust tests/fixtures constructing `MissionResult` or reading `ObjectiveProgress`.
-
-Do not rewrite historical HPA-632/HPA-635 spec/validation docs; those document the state at those tickets.
-
-- [ ] **Step 8: Run focused and full tests**
-
-Run:
+- [ ] **Step 8: Run focused + full regression tests**
 
 ```bash
 cargo fmt --check
@@ -360,21 +336,21 @@ cargo test --lib campaign::progression::
 cargo test --all-targets
 ```
 
-Expected: all pass; Mission 1 remains behaviorally unchanged under `EliminateAllEnemies`/`Turnabout`.
+Expected: all pass and Mission 1 still behaves as eliminate-all + Turnabout.
 
-- [ ] **Step 9: Commit the objective foundation**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/domain/model.rs src/domain/battle.rs src/campaign/progression.rs src/mission/mission_one.rs src/presentation/ui.rs tests
+git add src/domain/model.rs src/domain/battle.rs src/campaign/progression.rs src/mission/mission_one.rs src/presentation/ui.rs
 
 git commit -m "feat: add authored mission objective rules"
 ```
 
-Only stage paths actually changed; do not manufacture a `tests` path if all test edits were inline.
+Stage any additional active test file changed by the rename.
 
 ---
 
-### Task 2: Move opening plans into mission data and add the regular-enemy/Flanker seam
+### Task 2: Move openings into mission data and add the regular-enemy/Flanker seam
 
 **Files:**
 - Create: `src/mission/enemies.rs`
@@ -390,12 +366,12 @@ Only stage paths actually changed; do not manufacture a `tests` path if all test
 - Produces: `mission::enemies::{rifleman, striker, artillery, flanker}`.
 - Produces: `mission::enemies::{service_rifle, shock_claw, siege_mortar, skirmish_carbine}`.
 - Adds: `UnitArchetype::Flanker`.
-- Consumes: `BattleState::rules().opening_plan` during round-0 movement/intent commitment.
-- Preserves: exact Mission 1 round-0 destinations/targets/intent order.
+- Consumes: `BattleState::rules().opening_plan` for round-0 movement/intents.
+- Preserves: exact Mission 1 round-0 positions/targets/intent order.
 
-- [ ] **Step 1: Add regression tests that describe the data seam before deleting hardcoding**
+- [ ] **Step 1: Strengthen the Mission 1 opening characterization test**
 
-In `src/domain/enemy.rs`, retain/extend `authored_opening_places_four_locked_threats` to assert all four Mission 1 positions and intended occupants:
+Keep the existing exact positions, intent order `[STRIKER, RIFLEMAN_LEFT, RIFLEMAN_RIGHT, ARTILLERY]`, and mortar footprint, and add:
 
 ```rust
 assert_eq!(battle.intent_for(ids::RIFLEMAN_LEFT).unwrap().intended_occupant, Some(ids::GUNNER));
@@ -404,26 +380,19 @@ assert_eq!(battle.intent_for(ids::STRIKER).unwrap().intended_occupant, Some(ids:
 assert_eq!(battle.intent_for(ids::ARTILLERY).unwrap().intended_occupant, Some(ids::VANGUARD));
 ```
 
-Also keep the existing ordered attackers `[STRIKER, RIFLEMAN_LEFT, RIFLEMAN_RIGHT, ARTILLERY]` and exact mortar footprint assertion.
-
-- [ ] **Step 2: Run the Mission 1 enemy tests as a green characterization baseline**
+- [ ] **Step 2: Run the characterization test green before refactoring**
 
 ```bash
-cargo test --lib domain::enemy::authored_opening_places_four_locked_threats -- --exact
+cargo test --lib domain::enemy::tests::authored_opening_places_four_locked_threats -- --exact
 ```
 
-Expected: PASS before refactoring.
+Expected: PASS.
 
-- [ ] **Step 3: Create the regular-enemy catalog**
+- [ ] **Step 3: Create `mission::enemies` with exact existing values + Flanker**
 
-Add `src/mission/enemies.rs` with these constants/factories, reusing `mission::squad::{stats, unit, weapon}`:
+Use shared weapon IDs 201–204 and `mission::squad::{stats, unit, weapon}`. Factories:
 
 ```rust
-pub const SERVICE_RIFLE: WeaponId = WeaponId(201);
-pub const SHOCK_CLAW: WeaponId = WeaponId(202);
-pub const SIEGE_MORTAR: WeaponId = WeaponId(203);
-pub const SKIRMISH_CARBINE: WeaponId = WeaponId(204);
-
 pub fn rifleman(id: UnitId, name: &'static str, position: GridPos) -> UnitState {
     unit(id, name, UnitArchetype::Rifleman, Faction::Enemy,
          stats(9, 1, 2, 72, 5, 0), position, vec![SERVICE_RIFLE])
@@ -445,39 +414,20 @@ pub fn flanker(id: UnitId, name: &'static str, position: GridPos) -> UnitState {
 }
 ```
 
-Weapon factory values are exactly:
+Weapon specs:
 
 ```rust
-pub fn service_rifle() -> WeaponSpec {
-    weapon(SERVICE_RIFLE, "Service Rifle", 2, 4, WeaponShape::Single, 5, 0, 5, 0, false, false)
-}
-
-pub fn shock_claw() -> WeaponSpec {
-    weapon(SHOCK_CLAW, "Shock Claw", 1, 1, WeaponShape::Single, 7, 10, 10, 0, false, false)
-}
-
-pub fn siege_mortar() -> WeaponSpec {
-    weapon(SIEGE_MORTAR, "Siege Mortar", 3, 8, WeaponShape::Cross1, 6, 5, 5, 0, false, false)
-}
-
-pub fn skirmish_carbine() -> WeaponSpec {
-    weapon(SKIRMISH_CARBINE, "Skirmish Carbine", 1, 2, WeaponShape::Single, 4, 5, 10, 0, false, false)
-}
+weapon(SERVICE_RIFLE, "Service Rifle", 2, 4, WeaponShape::Single, 5, 0, 5, 0, false, false)
+weapon(SHOCK_CLAW, "Shock Claw", 1, 1, WeaponShape::Single, 7, 10, 10, 0, false, false)
+weapon(SIEGE_MORTAR, "Siege Mortar", 3, 8, WeaponShape::Cross1, 6, 5, 5, 0, false, false)
+weapon(SKIRMISH_CARBINE, "Skirmish Carbine", 1, 2, WeaponShape::Single, 4, 5, 10, 0, false, false)
 ```
 
-Export `pub mod enemies;` from `mission/mod.rs`.
+Export `pub mod enemies;`.
 
-- [ ] **Step 4: Refactor Mission 1 to consume the shared catalog and authored opening rows**
+- [ ] **Step 4: Refactor Mission 1 to shared enemies + exact authored opening**
 
-Keep Mission 1 unit IDs exactly 11–14. Re-export the shared weapon IDs from `mission_one::ids` so existing tests/callers remain readable:
-
-```rust
-pub use crate::mission::enemies::{SERVICE_RIFLE, SHOCK_CLAW, SIEGE_MORTAR};
-```
-
-Replace duplicated enemy stats/weapons with the catalog factories.
-
-Add:
+Keep Mission 1 enemy IDs 11–14. Re-export shared weapon IDs from `mission_one::ids` for current callers/tests. Add:
 
 ```rust
 static MISSION_ONE_OPENING: [EnemyOpening; 4] = [
@@ -494,198 +444,83 @@ const MISSION_ONE_RULES: MissionRules = MissionRules {
 };
 ```
 
-Pass `MISSION_ONE_RULES` to `BattleState::new`.
+- [ ] **Step 5: Delete Mission-1-specific opening logic from `enemy.rs`**
 
-- [ ] **Step 5: Replace Mission-1-specific opening logic in `enemy.rs`**
+Round-0 movement looks up `EnemyOpening` by enemy ID and uses `destination`; opening forced intent resolves `target` to the current living target position. Delete the old archetype/position opening match and `opening_target()` helper.
 
-`apply_authored_opening_movement` becomes data lookup by enemy ID:
+Do not change later movement or intent locking here.
 
-```rust
-let opening = self
-    .rules()
-    .opening_plan
-    .iter()
-    .copied()
-    .find(|opening| opening.unit == id);
-let destination = opening.map_or(origin, |opening| opening.destination);
-```
+- [ ] **Step 6: Add `UnitArchetype::Flanker` and make exhaustive matches explicit**
 
-`commit_enemy_intents(true)` resolves a forced target from the matching row:
+Flanker must be rejected by pilot-skill paths just like other enemies. Temporarily map `scene_index(Flanker) => 2`; Task 5 adds the full visual profile. Do not add a Flanker initiative value or another combat capability.
 
-```rust
-let forced_target = authored_opening
-    .then(|| {
-        self.rules()
-            .opening_plan
-            .iter()
-            .find(|opening| opening.unit == attacker)
-            .and_then(|opening| opening.target)
-            .and_then(|target| self.unit(target))
-            .filter(|target| !target.is_knocked_out())
-            .map(|target| target.position)
-    })
-    .flatten();
-```
+- [ ] **Step 7: Write red Flanker planner tests**
 
-Delete the old archetype/position opening destination match and `opening_target()` helper.
-
-- [ ] **Step 6: Add `UnitArchetype::Flanker` and make all exhaustive matches compile without giving it pilot behavior**
-
-In `model.rs`, add `Flanker` after `Artillery` or with the regular enemy variants.
-
-Update presentation matches:
-
-```rust
-UnitArchetype::Rifleman
-| UnitArchetype::Striker
-| UnitArchetype::Artillery
-| UnitArchetype::Flanker => false
-```
-
-for `can_pilot`, and return `BattleError::PilotSkillWrongUnit` for Flanker in `interaction.rs`.
-
-Temporarily map `scene_index(UnitArchetype::Flanker) => 2`; Task 5 adds scale/marker styling. Do not touch the glTF.
-
-Leave the existing `initiative()` wildcard behavior for Flanker; do not add a new initiative concept/value as a Flanker feature.
-
-- [ ] **Step 7: Write Flanker movement/target-selection tests in `enemy.rs`**
-
-Use plain test fixtures with the rule values from Task 1. Pin both required contexts:
+Use plain fixtures that deliberately make normal player-priority scoring disagree with the desired objective target.
 
 ```rust
 #[test]
-fn flanker_in_protect_mission_prefers_protected_target_and_open_lane() {
+fn protect_flanker_moves_into_band_of_the_protected_target() {
     let battle = protect_flanker_fixture();
     let destination = choose_enemy_destination(&battle, UnitId(24)).unwrap();
     let gunner = battle.unit(UnitId(2)).unwrap();
     let weapon = battle.weapon(SKIRMISH_CARBINE).unwrap();
-
     assert_eq!(
         distance_to_band(destination.manhattan(gunner.position), weapon.min_range, weapon.max_range),
         0
     );
-    assert!(open_neighbor_count(&battle, UnitId(24), destination) >= 3);
 }
 
 #[test]
-fn courier_flanker_moves_toward_escape_instead_of_chasing_player() {
-    let battle = intercept_flanker_fixture();
-    let origin = battle.unit(UnitId(31)).unwrap().position;
-    let destination = choose_enemy_destination(&battle, UnitId(31)).unwrap();
-    let escape = GridPos::new(8, 2);
-
-    assert!(destination.manhattan(escape) < origin.manhattan(escape));
-}
-
-#[test]
-fn protect_flanker_prefers_gunner_when_gunner_is_a_legal_target() {
+fn protect_flanker_prefers_gunner_when_gunner_is_legally_targetable() {
     let battle = protect_flanker_attack_fixture();
     let intent = build_intent(&battle, UnitId(24), None).unwrap();
     assert_eq!(intent.intended_occupant, Some(UnitId(2)));
 }
-```
 
-The fixtures should deliberately place another player in an equally/closer generic-priority position so the assertions prove objective preference rather than ordinary `player_priority`.
-
-- [ ] **Step 8: Run tests and confirm they fail before adding Flanker planner logic**
-
-```bash
-cargo test --lib domain::enemy::flanker -- --nocapture
-cargo test --lib domain::enemy::courier -- --nocapture
-```
-
-Expected: new assertions fail because Flanker has no objective-aware destination/target preference yet.
-
-- [ ] **Step 9: Implement only the two Flanker destination policies**
-
-Add an `open_neighbor_count` helper using existing board bounds/blocking/live-explosive/unit occupancy rules. Do not create a pathfinding type.
-
-For `UnitArchetype::Flanker` in `choose_enemy_destination`:
-
-```rust
-match battle.rules().primary {
-    PrimaryObjective::ProtectThroughRound { target, .. } => {
-        let target = battle.unit(target).ok_or(BattleError::UnknownUnit(target))?;
-        let weapon = unit
-            .weapons
-            .first()
-            .and_then(|weapon| battle.weapon(*weapon))
-            .ok_or(BattleError::InvalidTarget(unit.position))?;
-        Ok(*candidates
-            .iter()
-            .min_by_key(|position| {
-                (
-                    distance_to_band(
-                        position.manhattan(target.position),
-                        weapon.min_range,
-                        weapon.max_range,
-                    ),
-                    position.manhattan(target.position),
-                    Reverse(open_neighbor_count(battle, id, **position)),
-                    position.y,
-                    position.x,
-                )
-            })
-            .unwrap())
-    }
-    PrimaryObjective::InterceptBeforeEscape { target, escape, .. } if target == id => {
-        Ok(*candidates
-            .iter()
-            .min_by_key(|position| {
-                (
-                    position.manhattan(escape),
-                    Reverse(open_neighbor_count(battle, id, **position)),
-                    position.y,
-                    position.x,
-                )
-            })
-            .unwrap())
-    }
-    _ => choose_attack_band_destination(battle, id, &candidates, &players)?,
+#[test]
+fn courier_flanker_reduces_distance_to_escape_instead_of_chasing_player() {
+    let battle = intercept_flanker_fixture();
+    let origin = battle.unit(UnitId(31)).unwrap().position;
+    let destination = choose_enemy_destination(&battle, UnitId(31)).unwrap();
+    assert!(destination.manhattan(GridPos::new(8, 2)) < origin.manhattan(GridPos::new(8, 2)));
 }
 ```
 
-Extract the existing Rifleman/Striker attack-band scoring into `choose_attack_band_destination` only to avoid duplicating it for Flanker's fallback. Do not refactor Artillery.
+Also pin equal-distance tie-breaking toward the candidate with more open orthogonal neighbors.
 
-- [ ] **Step 10: Prefer the protected unit in Flanker attack footprint ordering**
+- [ ] **Step 8: Run the new Flanker tests red**
 
-In `choose_target`, calculate:
-
-```rust
-let preferred = (attacker.archetype == UnitArchetype::Flanker)
-    .then_some(battle.rules().primary)
-    .and_then(|primary| match primary {
-        PrimaryObjective::ProtectThroughRound { target, .. } => battle.unit(target).map(|unit| unit.position),
-        _ => None,
-    });
+```bash
+cargo test --lib domain::enemy:: -- --nocapture
 ```
 
-When choices contain player occupants, put a `misses_preferred` boolean before the existing `Reverse(threatened)` key. `false` sorts first:
+Expected: new objective-aware assertions fail before planner changes.
 
-```rust
-let misses_preferred = preferred.is_some_and(|position| !choice.footprint.contains(&position));
-(
-    misses_preferred,
-    Reverse(threatened),
-    priority,
-    choice.center.y,
-    choice.center.x,
-)
-```
+- [ ] **Step 9: Implement only the two Flanker destination policies**
 
-Do not change footprint locking after intent commitment.
+Add a local `open_neighbor_count(battle, mover, position)` helper using board bounds/blocking/live-explosive/living-unit occupancy.
 
-- [ ] **Step 11: Re-run Mission 1 and Flanker planner tests**
+For protect rules, score by `(distance_to_band, Manhattan, Reverse(open_neighbors), y, x)`. For the designated interception target, score by `(Manhattan_to_escape, Reverse(open_neighbors), y, x)`.
+
+Extract the current Rifleman/Striker attack-band calculation into a small local helper only if needed for Flanker's non-objective fallback. Do not refactor Artillery or add policy objects.
+
+- [ ] **Step 10: Prefer the protected target only for Flanker targeting**
+
+In `choose_target`, when `attacker.archetype == Flanker` and rules are protect, place `misses_protected_target: bool` before the existing threatened-count/player-priority sort key. Keep all existing footprint/intent locking.
+
+- [ ] **Step 11: Run regressions**
 
 ```bash
 cargo fmt --check
 cargo test --lib domain::enemy::
 cargo test --lib mission::mission_one::
+cargo test --all-targets
 ```
 
-Expected: all pass; Mission 1 opening remains byte-for-byte equivalent at the behavioral level and Flanker tests prove objective pressure/determinism.
+Expected: exact Mission 1 opening remains green; Flanker tests are deterministic.
 
-- [ ] **Step 12: Commit the enemy data/AI seam**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add src/domain/model.rs src/domain/enemy.rs src/mission/mod.rs src/mission/enemies.rs src/mission/mission_one.rs src/presentation/interaction.rs src/presentation/ui.rs src/presentation/battlefield.rs
@@ -695,99 +530,76 @@ git commit -m "feat: add authored enemy openings and flanker"
 
 ---
 
-### Task 3: Author Mission 2 as the protect/survive vertical slice
+### Task 3: Author Mission 2 as a three-round Gunner defense
 
 **Files:**
 - Create: `src/mission/mission_two.rs`
 - Modify: `src/mission/mod.rs`
-- Modify: `src/presentation/campaign_ui.rs` only for the new `MissionId` exhaustiveness/generic handoff routing needed to keep the tree buildable
+- Modify: `src/presentation/campaign_ui.rs`
 
 **Interfaces:**
-- Produces: `mission_two(seed)` and `mission_two_for_campaign(seed, upgrades)`.
-- Produces: `MISSION_TWO_DEFINITION`.
+- Produces: `mission_two(seed)`, `mission_two_for_campaign(seed, upgrades)`, `MISSION_TWO_DEFINITION`.
 - Adds: `MissionId::Three` and `MissionId::number()` for One/Two/Three.
-- Changes: `mission_definition(MissionId::Two) -> Some(&MISSION_TWO_DEFINITION)`; Three remains `None` until Task 4.
+- Changes: `mission_definition(Two)` becomes authored; Three remains handoff until Task 4.
 
 - [ ] **Step 1: Write Mission 2 authoring tests first**
 
-In the new module, write tests that pin the design rather than broad snapshots:
+Pin:
 
 ```rust
-#[test]
-fn mission_two_authors_the_three_round_gunner_defense() {
-    let battle = mission_two(7);
-    assert_eq!(battle.board().width(), 9);
-    assert_eq!(battle.board().height(), 9);
-    assert_eq!(battle.unit(ids::VANGUARD).unwrap().position, GridPos::new(3, 7));
-    assert_eq!(battle.unit(ids::GUNNER).unwrap().position, GridPos::new(4, 6));
-    assert_eq!(battle.unit(ids::INTERCEPTOR).unwrap().position, GridPos::new(5, 7));
-    assert_eq!(
-        battle.rules().primary,
-        PrimaryObjective::ProtectThroughRound { target: ids::GUNNER, round: 3 }
-    );
-    assert_eq!(
-        battle.rules().optional,
-        OptionalObjective::ProtectTargetAtHalfHp { target: ids::GUNNER }
-    );
-}
-
-#[test]
-fn mission_two_has_one_of_each_regular_enemy() {
-    let battle = mission_two(7);
-    let enemies: Vec<_> = battle.units().filter(|unit| unit.faction == Faction::Enemy).collect();
-    assert_eq!(enemies.len(), 4);
-    assert_eq!(enemies.iter().filter(|u| u.archetype == UnitArchetype::Rifleman).count(), 1);
-    assert_eq!(enemies.iter().filter(|u| u.archetype == UnitArchetype::Striker).count(), 1);
-    assert_eq!(enemies.iter().filter(|u| u.archetype == UnitArchetype::Artillery).count(), 1);
-    assert_eq!(enemies.iter().filter(|u| u.archetype == UnitArchetype::Flanker).count(), 1);
-}
-
-#[test]
-fn mission_two_definition_has_locked_copy_rewards_and_unlock() {
-    assert_eq!(MISSION_TWO_DEFINITION.id, MissionId::Two);
-    assert_eq!(MISSION_TWO_DEFINITION.unlocks, MissionId::Three);
-    assert_eq!(MISSION_TWO_DEFINITION.title, "Mission 2 — Hold Relay Nine");
-    assert_eq!(MISSION_TWO_DEFINITION.primary_objective, "Protect Gunner through the end of Round 3.");
-    assert_eq!(MISSION_TWO_DEFINITION.optional_objective, "Hold Fast: finish with Gunner at or above 50% HP.");
-    assert_eq!(MISSION_TWO_DEFINITION.base_reward, 400);
-    assert_eq!(MISSION_TWO_DEFINITION.optional_reward, 100);
-}
+assert_eq!(battle.board().width(), 9);
+assert_eq!(battle.board().height(), 9);
+assert_eq!(battle.unit(ids::VANGUARD).unwrap().position, GridPos::new(3, 7));
+assert_eq!(battle.unit(ids::GUNNER).unwrap().position, GridPos::new(4, 6));
+assert_eq!(battle.unit(ids::INTERCEPTOR).unwrap().position, GridPos::new(5, 7));
+assert_eq!(
+    battle.rules().primary,
+    PrimaryObjective::ProtectThroughRound { target: ids::GUNNER, round: 3 }
+);
+assert_eq!(
+    battle.rules().optional,
+    OptionalObjective::ProtectTargetAtHalfHp { target: ids::GUNNER }
+);
 ```
 
-Also test all exact terrain cells from the spec and confirm `build_player_squad` upgrade projection by passing at least one nonzero Gunner upgrade and checking max HP/evasion/weapon damage.
+Also assert exact blocking `(3,3),(5,3),(2,6),(6,6)`, hazards `(1,5),(7,5)`, explosive `(6,4)` HP 4, one each Rifleman/Striker/Artillery/Flanker, and nonzero Gunner upgrade projection through `build_player_squad`.
 
-- [ ] **Step 2: Run the new module test target and confirm it does not compile**
+Pin definition:
+
+```text
+Mission 2 — Hold Relay Nine
+Protect Gunner through the end of Round 3.
+Hold Fast: finish with Gunner at or above 50% HP.
+400 base / 100 bonus / unlock Three
+```
+
+- [ ] **Step 2: Run the new module test target red**
 
 ```bash
 cargo test --lib mission::mission_two:: -- --nocapture
 ```
 
-Expected: missing module/types/definition.
+Expected: missing module/definition until implemented.
 
-- [ ] **Step 3: Implement exact Mission 2 data**
+- [ ] **Step 3: Implement exact Mission 2 board/roster/opening**
 
-Use these IDs inside `mission_two::ids`:
+IDs:
 
 ```rust
-pub use crate::mission::squad::ids::{
-    ANCHOR_CANNON, ARC_BLADE, BURST_MISSILE, GUNNER, INTERCEPTOR, OVERCHARGE_SHOT,
-    PILE_LANCE, PULSE_CARBINE, RAIL_RIFLE, REPULSOR_RAM, VANGUARD, VECTOR_PULSE,
-};
-
 pub const RIFLEMAN: UnitId = UnitId(21);
 pub const STRIKER: UnitId = UnitId(22);
 pub const ARTILLERY: UnitId = UnitId(23);
 pub const FLANKER: UnitId = UnitId(24);
 ```
 
-Deployment:
+Player deployment:
 
 ```rust
-const MISSION_TWO_DEPLOYMENT: SquadDeployment = SquadDeployment {
+SquadDeployment {
     vanguard: GridPos::new(3, 7),
     gunner: GridPos::new(4, 6),
     interceptor: GridPos::new(5, 7),
-};
+}
 ```
 
 Board:
@@ -802,48 +614,35 @@ BoardState::new(
 )
 ```
 
-Enemy starting positions/factories:
-
-```text
-Rifleman  (2,2)
-Striker   (4,3)
-Artillery (4,0)
-Flanker   (8,4)
-```
-
-Opening rows:
+Enemy starts/openings/forced targets:
 
 ```rust
 static MISSION_TWO_OPENING: [EnemyOpening; 4] = [
-    EnemyOpening { unit: ids::RIFLEMAN, destination: GridPos::new(2,4), target: Some(ids::GUNNER) },
+    EnemyOpening { unit: ids::RIFLEMAN, destination: GridPos::new(2,4), target: Some(ids::VANGUARD) },
     EnemyOpening { unit: ids::STRIKER, destination: GridPos::new(4,5), target: Some(ids::GUNNER) },
     EnemyOpening { unit: ids::ARTILLERY, destination: GridPos::new(4,0), target: Some(ids::GUNNER) },
-    EnemyOpening { unit: ids::FLANKER, destination: GridPos::new(5,5), target: Some(ids::GUNNER) },
+    EnemyOpening { unit: ids::FLANKER, destination: GridPos::new(5,5), target: Some(ids::INTERCEPTOR) },
 ];
 ```
 
-Weapons are exactly `service_rifle`, `shock_claw`, `siege_mortar`, `skirmish_carbine` from `mission::enemies`.
+Enemy starting positions are Rifleman `(2,2)`, Striker `(4,3)`, Artillery `(4,0)`, Flanker `(8,4)`.
 
-- [ ] **Step 4: Add the exact Mission 2 VN/definition constants**
+- [ ] **Step 4: Pin the competing opening threats in `enemy.rs`**
 
-Use the strings/assets from the spec without new PNGs. The definition is:
+After `begin_round()` on Mission 2, assert intended occupants are exactly:
 
-```rust
-pub const MISSION_TWO_DEFINITION: MissionDefinition = MissionDefinition {
-    id: MissionId::Two,
-    unlocks: MissionId::Three,
-    build: mission_two_for_campaign,
-    title: "Mission 2 — Hold Relay Nine",
-    primary_objective: "Protect Gunner through the end of Round 3.",
-    optional_objective: "Hold Fast: finish with Gunner at or above 50% HP.",
-    base_reward: 400,
-    optional_reward: 100,
-    pre_mission: DialogueScene { background: "vn/relay_nine_bg.png", lines: &PRE_MISSION_LINES },
-    aftermath: DialogueScene { background: "vn/relay_nine_bg.png", lines: &AFTERMATH_LINES },
-};
+```text
+Rifleman  -> Vanguard
+Striker   -> Gunner
+Artillery -> Gunner
+Flanker   -> Interceptor
 ```
 
-Pre-mission lines:
+This test protects the intended defense lesson: Gunner is pressured, but reactions across the whole squad matter.
+
+- [ ] **Step 5: Add exact Mission 2 VN/definition copy using existing assets**
+
+Pre-mission:
 
 ```text
 Control: Counterattack incoming. Gunner is finishing the Relay Nine uplink; the upload needs three full rounds.
@@ -858,107 +657,51 @@ Vanguard: Uplink complete. Relay Nine can finally hand us the enemy route data.
 Control: It found a courier breaking for extraction. Resupply now — we only get one chance to cut it off.
 ```
 
-Use `control_neutral.png`, `vanguard_neutral.png`, and `control_alert.png` in the same speaker pattern as Mission 1.
+Use `vn/relay_nine_bg.png`, `control_neutral.png`, `control_alert.png`, `vanguard_neutral.png` only.
 
-- [ ] **Step 5: Extend mission dispatch to Mission 2 and a Mission 3 handoff ID**
+- [ ] **Step 6: Add MissionId Three + generic authored-mission Proceed routing**
 
-In `mission/mod.rs`:
-
-```rust
-pub mod mission_two;
-
-pub enum MissionId {
-    One,
-    Two,
-    Three,
-}
-
-impl MissionId {
-    pub const fn number(self) -> u8 {
-        match self {
-            Self::One => 1,
-            Self::Two => 2,
-            Self::Three => 3,
-        }
-    }
-}
-
-pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
-    match id {
-        MissionId::One => Some(&mission_one::MISSION_ONE_DEFINITION),
-        MissionId::Two => Some(&mission_two::MISSION_TWO_DEFINITION),
-        MissionId::Three => None,
-    }
-}
-```
-
-- [ ] **Step 6: Make campaign UI routing compile and become authored-definition-driven**
-
-Update `CampaignUiAction::Continue` now:
+During this task:
 
 ```rust
-match continue_game(&mut runtime.0) {
-    Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-    Ok(MissionId::Two | MissionId::Three) => next_state.set(GameScreen::Upgrade),
-    Err(error) => status.0 = error.to_string(),
-}
+pub enum MissionId { One, Two, Three }
 ```
 
-Change `Proceed` from unconditional `NextMission` to:
+`mission_definition`: One/Two are `Some`, Three is `None`. Add `number()`.
+
+Continue routing:
+
+```text
+One -> PreMissionStory
+Two/Three -> Upgrade
+```
+
+Change Upgrade `Proceed` to:
 
 ```rust
-CampaignUiAction::Proceed => {
-    let authored = runtime
-        .0
-        .state
-        .as_ref()
-        .and_then(|state| mission_definition(state.next_mission))
-        .is_some();
-    next_state.set(if authored {
-        GameScreen::PreMissionStory
-    } else {
-        GameScreen::NextMission
-    });
-}
+let authored = runtime
+    .0
+    .state
+    .as_ref()
+    .and_then(|state| mission_definition(state.next_mission))
+    .is_some();
+next_state.set(if authored { GameScreen::PreMissionStory } else { GameScreen::NextMission });
 ```
 
-Make `next_mission_copy` use `state.next_mission.number()` rather than hard-coded Mission 2. With Mission 3 still unauthored in this task, completing Mission 2 still lands on a correct `MISSION 3 UNLOCKED` handoff.
+Make handoff copy derive `MISSION {state.next_mission.number()} UNLOCKED` instead of hard-coded Mission 2.
 
-- [ ] **Step 7: Add Mission 2 objective integration tests**
+- [ ] **Step 7: Add Mission 2 terminal integration tests**
 
-Use `mission_two(7)` and existing test-only state helpers/private child-module access:
+Using `mission_two(7)`:
 
-```rust
-#[test]
-fn enemy_clear_does_not_complete_mission_two() {
-    let mut battle = mission_two(7);
-    for enemy in [ids::RIFLEMAN, ids::STRIKER, ids::ARTILLERY, ids::FLANKER] {
-        battle.apply_direct_damage(enemy, 99, DamageSource::PlayerWeapon(ids::RAIL_RIFLE));
-    }
-    assert_eq!(battle.result(), None);
-}
+- KO all four enemies before Round 3 → `result() == None`.
+- KO Gunner → defeat.
+- set round 3 + enter `EnemyPlanning`/call the normal round boundary → victory.
+- Gunner exactly half HP → bonus true.
+- Gunner below half but alive → victory, bonus false.
+- For terminal-bonus success, events order is `OptionalObjectiveCompleted` before `MissionCompleted`.
 
-#[test]
-fn gunner_ko_fails_mission_two() {
-    let mut battle = mission_two(7);
-    battle.apply_direct_damage(ids::GUNNER, 99, DamageSource::EnemyWeapon(ids::ARTILLERY, SIEGE_MORTAR));
-    assert!(matches!(battle.result(), Some(MissionResult { victory: false, .. })));
-}
-
-#[test]
-fn round_three_enemy_planning_completes_mission_two_and_scores_hp_bonus() {
-    let mut battle = mission_two(7);
-    battle.set_round_for_test(3);
-    let events = battle.begin_round().unwrap();
-    assert_eq!(battle.result().unwrap().victory, true);
-    assert_eq!(battle.result().unwrap().optional_complete, true);
-    assert!(matches!(events.as_slice(), [BattleEvent::OptionalObjectiveCompleted, BattleEvent::MissionCompleted { .. }]));
-}
-```
-
-For the missed bonus test, set Gunner HP below half with nonlethal direct damage before the Round-3 terminal check and assert `optional_complete == false`.
-
-- [ ] **Step 8: Run Mission 2 and regression suites**
+- [ ] **Step 8: Run Mission 2/regression suites**
 
 ```bash
 cargo fmt --check
@@ -968,118 +711,71 @@ cargo test --lib domain::enemy::
 cargo test --all-targets
 ```
 
-Expected: all pass; no hidden destroy-all victory for Mission 2.
+Expected: no hidden destroy-all victory; Mission 1 remains green.
 
-- [ ] **Step 9: Commit Mission 2**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/mission/mission_two.rs src/mission/mod.rs src/presentation/campaign_ui.rs src/domain/battle.rs src/domain/enemy.rs
+git add src/mission/mission_two.rs src/mission/mod.rs src/domain/battle.rs src/domain/enemy.rs src/presentation/campaign_ui.rs
 
 git commit -m "feat: add mission 2 gunner defense"
 ```
 
 ---
 
-### Task 4: Author Mission 3 interception and complete campaign progression through it
+### Task 4: Author Mission 3 interception and advance the campaign to Mission 4 handoff
 
 **Files:**
 - Create: `src/mission/mission_three.rs`
 - Modify: `src/mission/mod.rs`
 - Modify: `src/presentation/campaign_ui.rs`
 - Modify: `src/campaign/progression.rs` tests
-- Modify: save/session tests where MissionId variants are enumerated
+- Modify: existing save tests for enum round-trip
 
 **Interfaces:**
-- Produces: `mission_three(seed)` / `mission_three_for_campaign(seed, upgrades)`.
-- Produces: `MISSION_THREE_DEFINITION`.
-- Adds: `MissionId::Four`; `mission_definition(Three)` becomes authored; Four is the next handoff.
-- Preserves: same `CampaignState` shape and same save file format structure.
+- Produces: `mission_three(seed)`, `mission_three_for_campaign(seed, upgrades)`, `MISSION_THREE_DEFINITION`.
+- Adds: `MissionId::Four`; One–Three are authored, Four is handoff.
+- Preserves: same `CampaignState` shape and save implementation.
 
-- [ ] **Step 1: Write Mission 3 authoring/objective tests first**
+- [ ] **Step 1: Write Mission 3 authoring tests first**
 
-Pin exact authoring:
-
-```rust
-#[test]
-fn mission_three_authors_the_courier_interception() {
-    let battle = mission_three(7);
-    assert_eq!(battle.board().width(), 9);
-    assert_eq!(battle.board().height(), 9);
-    assert_eq!(battle.unit(ids::COURIER).unwrap().archetype, UnitArchetype::Flanker);
-    assert_eq!(battle.unit(ids::COURIER).unwrap().position, GridPos::new(0, 6));
-    assert_eq!(
-        battle.rules().primary,
-        PrimaryObjective::InterceptBeforeEscape {
-            target: ids::COURIER,
-            escape: GridPos::new(8, 2),
-            deadline_round: 4,
-        }
-    );
-    assert_eq!(battle.rules().optional, OptionalObjective::VictoryByRound { round: 2 });
-}
-```
-
-Also pin deployment `(4,7)/(3,8)/(5,8)`, blocking `(4,3)/(4,4)/(4,5)`, hazard `(2,5)`, explosive `(6,3)`, and exactly three enemies (Courier/Rifleman/Striker).
-
-- [ ] **Step 2: Add red objective tests for KO/escort-clear/extraction/deadline/bonus**
+Pin:
 
 ```rust
-#[test]
-fn courier_ko_wins_with_escorts_alive() {
-    let mut battle = mission_three(7);
-    battle.apply_direct_damage(ids::COURIER, 99, DamageSource::PlayerWeapon(ids::RAIL_RIFLE));
-    assert_eq!(battle.result().unwrap().victory, true);
-    assert!(battle.units().any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out()));
-}
-
-#[test]
-fn escort_clear_does_not_win_mission_three() {
-    let mut battle = mission_three(7);
-    battle.apply_direct_damage(ids::RIFLEMAN, 99, DamageSource::PlayerWeapon(ids::RAIL_RIFLE));
-    battle.apply_direct_damage(ids::STRIKER, 99, DamageSource::PlayerWeapon(ids::RAIL_RIFLE));
-    assert_eq!(battle.result(), None);
-}
-
-#[test]
-fn courier_at_extraction_fails_mission_three() {
-    let mut battle = mission_three(7);
-    battle.move_unit_direct_for_test(ids::COURIER, GridPos::new(8, 2));
-    let events = battle.begin_round().unwrap();
-    assert!(matches!(battle.result(), Some(MissionResult { victory: false, .. })));
-    assert!(events.iter().any(|event| matches!(event, BattleEvent::MissionFailed { .. })));
-}
-
-#[test]
-fn round_four_deadline_fails_with_living_courier() {
-    let mut battle = mission_three(7);
-    battle.set_round_for_test(4);
-    battle.begin_round().unwrap();
-    assert!(matches!(battle.result(), Some(MissionResult { victory: false, .. })));
-}
-
-#[test]
-fn swift_intercept_bonus_is_round_two_only() {
-    let mut early = mission_three(7);
-    early.set_round_for_test(2);
-    early.apply_direct_damage(ids::COURIER, 99, DamageSource::PlayerWeapon(ids::RAIL_RIFLE));
-    assert!(early.result().unwrap().optional_complete);
-
-    let mut late = mission_three(7);
-    late.set_round_for_test(3);
-    late.apply_direct_damage(ids::COURIER, 99, DamageSource::PlayerWeapon(ids::RAIL_RIFLE));
-    assert!(!late.result().unwrap().optional_complete);
-}
+assert_eq!(battle.unit(ids::COURIER).unwrap().archetype, UnitArchetype::Flanker);
+assert_eq!(battle.unit(ids::COURIER).unwrap().position, GridPos::new(0, 6));
+assert_eq!(
+    battle.rules().primary,
+    PrimaryObjective::InterceptBeforeEscape {
+        target: ids::COURIER,
+        escape: GridPos::new(8, 2),
+        deadline_round: 4,
+    }
+);
+assert_eq!(battle.rules().optional, OptionalObjective::VictoryByRound { round: 2 });
 ```
 
-- [ ] **Step 3: Run the Mission 3 test target and confirm missing implementation**
+Also assert player deployment `(4,7)/(3,8)/(5,8)`, blocking `(4,3),(4,4),(4,5)`, hazard `(2,5)`, explosive `(6,3)` HP 4, and exactly Courier/Rifleman/Striker enemies.
+
+- [ ] **Step 2: Write red objective tests**
+
+Pin:
+
+- Courier KO wins while at least one escort remains alive.
+- Rifleman+Striker KO while Courier lives does not win.
+- Courier at `(8,2)` fails.
+- living Courier at `EnemyPlanning`, Round 4 fails.
+- Courier KO on Round 2 earns bonus; Round 3 KO wins without bonus.
+
+- [ ] **Step 3: Run the new module red**
 
 ```bash
 cargo test --lib mission::mission_three:: -- --nocapture
 ```
 
-Expected: missing module/definition/ID failures.
+Expected: missing implementation.
 
-- [ ] **Step 4: Implement exact Mission 3 data**
+- [ ] **Step 4: Implement exact Mission 3 content**
 
 IDs:
 
@@ -1089,37 +785,17 @@ pub const RIFLEMAN: UnitId = UnitId(32);
 pub const STRIKER: UnitId = UnitId(33);
 ```
 
-Deployment:
-
-```rust
-const MISSION_THREE_DEPLOYMENT: SquadDeployment = SquadDeployment {
-    vanguard: GridPos::new(4, 7),
-    gunner: GridPos::new(3, 8),
-    interceptor: GridPos::new(5, 8),
-};
-```
-
-Board:
-
-```rust
-BoardState::new(
-    9,
-    9,
-    [GridPos::new(4,3), GridPos::new(4,4), GridPos::new(4,5)],
-    [GridPos::new(2,5)],
-    [ExplosiveState { position: GridPos::new(6,3), hp: 4, exploded: false }],
-)
-```
-
-Enemies:
+Board/deployment:
 
 ```text
-Courier/Flanker (0,6)
-Rifleman         (3,2)
-Striker          (6,6)
+Players: V (4,7), G (3,8), I (5,8)
+Blocking: (4,3), (4,4), (4,5)
+Hazard: (2,5)
+Explosive: (6,3), HP 4
+Escape: (8,2)
 ```
 
-Opening:
+Enemy starts/opening:
 
 ```rust
 static MISSION_THREE_OPENING: [EnemyOpening; 3] = [
@@ -1129,21 +805,16 @@ static MISSION_THREE_OPENING: [EnemyOpening; 3] = [
 ];
 ```
 
-Rules/rewards/copy exactly match the spec:
+Starting positions: Courier `(0,6)`, Rifleman `(3,2)`, Striker `(6,6)`.
 
-```rust
-const MISSION_THREE_RULES: MissionRules = MissionRules {
-    primary: PrimaryObjective::InterceptBeforeEscape {
-        target: ids::COURIER,
-        escape: GridPos::new(8,2),
-        deadline_round: 4,
-    },
-    optional: OptionalObjective::VictoryByRound { round: 2 },
-    opening_plan: &MISSION_THREE_OPENING,
-};
+Definition:
+
+```text
+Mission 3 — Cut the Courier
+Intercept Courier before extraction or the end of Round 4.
+Swift Intercept: defeat Courier by the end of Round 2.
+500 base / 150 bonus / unlock Four
 ```
-
-Base 500, bonus 150, unlock Four.
 
 - [ ] **Step 5: Add exact Mission 3 VN copy using existing assets**
 
@@ -1162,87 +833,50 @@ Vanguard: Courier down. The route keys are intact.
 Control: Confirmed. They point to a larger force ahead. Spend the salvage and prepare for the next operation.
 ```
 
-Use the same `relay_nine_bg.png`/Control/Vanguard portraits; add no files under `assets/`.
+- [ ] **Step 6: Extend MissionId/dispatch to Four**
 
-- [ ] **Step 6: Extend `MissionId`/dispatch to Four and make Continue's handoff explicit**
+Final shape:
 
 ```rust
-pub enum MissionId {
-    One,
-    Two,
-    Three,
-    Four,
-}
-
-impl MissionId {
-    pub const fn number(self) -> u8 {
-        match self {
-            Self::One => 1,
-            Self::Two => 2,
-            Self::Three => 3,
-            Self::Four => 4,
-        }
-    }
-}
-
-pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
-    match id {
-        MissionId::One => Some(&mission_one::MISSION_ONE_DEFINITION),
-        MissionId::Two => Some(&mission_two::MISSION_TWO_DEFINITION),
-        MissionId::Three => Some(&mission_three::MISSION_THREE_DEFINITION),
-        MissionId::Four => None,
-    }
-}
+pub enum MissionId { One, Two, Three, Four }
 ```
+
+`mission_definition`: One/Two/Three `Some`, Four `None`; `number()` returns 1–4.
 
 Continue routing becomes:
 
-```rust
-Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-Ok(MissionId::Two | MissionId::Three) => next_state.set(GameScreen::Upgrade),
-Ok(MissionId::Four) => next_state.set(GameScreen::NextMission),
+```text
+One       -> PreMissionStory
+Two/Three -> Upgrade
+Four      -> NextMission
 ```
 
-The Task-3 `Proceed` authored-definition check now routes Three to its pre-story and Four to handoff automatically.
+The Task-3 definition-driven Proceed automatically routes Three to story and Four to handoff.
 
-- [ ] **Step 7: Add a campaign progression test that advances all three missions without optional bonuses**
+- [ ] **Step 7: Prove base progression through all three missions without bonuses**
 
-In `campaign/progression.rs` tests:
+In campaign progression tests, start new state and complete One, Two, Three with:
 
 ```rust
-#[test]
-fn normal_completion_advances_one_two_three_to_four_without_bonus_gating() {
-    let mut state = CampaignState::new_game();
-
-    for id in [MissionId::One, MissionId::Two, MissionId::Three] {
-        let definition = mission_definition(id).unwrap();
-        let before = state.credits;
-        let receipt = state
-            .complete_mission(
-                definition,
-                MissionResult {
-                    victory: true,
-                    optional_complete: false,
-                    rounds: 3,
-                },
-            )
-            .unwrap();
-        assert_eq!(receipt.optional_reward, 0);
-        assert_eq!(state.credits, before + definition.base_reward);
-    }
-
-    assert_eq!(state.next_mission, MissionId::Four);
-    assert_eq!(state.credits, 300 + 400 + 500);
+MissionResult {
+    victory: true,
+    optional_complete: false,
+    rounds: 3,
 }
 ```
 
-Add one separate case proving a true optional bit only adds that definition's optional reward and does not change the unlocked mission.
+Assert:
 
-- [ ] **Step 8: Extend save serialization coverage through MissionId Four**
+```rust
+assert_eq!(state.next_mission, MissionId::Four);
+assert_eq!(state.credits, 300 + 400 + 500);
+```
 
-Use the existing `SaveFile` temp-path test style. Persist a state with `next_mission: MissionId::Four`, nonzero credits, and at least one nonzero upgrade; reload and assert exact equality.
+Add one separate test proving `optional_complete: true` adds only `definition.optional_reward` and does not alter unlock behavior.
 
-Do not add a schema version/migration branch.
+- [ ] **Step 8: Extend save round-trip coverage to MissionId Four**
+
+Persist/reload a state with `next_mission: Four`, nonzero credits, and a nonzero upgrade. Assert exact equality. Do not add a schema version or migration path.
 
 - [ ] **Step 9: Run Mission 3/campaign/save suites**
 
@@ -1254,49 +888,48 @@ cargo test --lib campaign::save::
 cargo test --all-targets
 ```
 
-Expected: all pass; normal base rewards total 1200 credits through Mission 3 even with every bonus missed.
+Expected: normal no-bonus completion reaches Four with 1200 credits.
 
-- [ ] **Step 10: Commit Mission 3 and campaign advancement**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/mission/mission_three.rs src/mission/mod.rs src/presentation/campaign_ui.rs src/campaign/progression.rs src/campaign/save.rs
+git add src/mission/mission_three.rs src/mission/mod.rs src/presentation/campaign_ui.rs src/campaign/progression.rs
 
 git commit -m "feat: add mission 3 courier interception"
 ```
 
-Only stage `src/campaign/save.rs` if its inline tests changed.
+Stage the existing save-test file only if it changed.
 
 ---
 
-### Task 5: Make battle/campaign presentation objective-generic and visibly mark Flankers
+### Task 5: Make presentation objective-generic and visibly mark Flanker/extraction
 
 **Files:**
 - Modify: `src/presentation/ui.rs`
 - Modify: `src/presentation/campaign_ui.rs`
 - Modify: `src/presentation/battlefield.rs`
-- Modify: `src/presentation/interaction.rs` if the debug root name remains Mission-1-specific
+- Modify: `src/presentation/sync.rs`
+- Modify: `src/presentation/interaction.rs` only if Mission-1-specific debug names remain there
 
 **Interfaces:**
-- Changes: `result_overlay_copy(result, definition)` consumes authored objective text.
-- Produces: rule-aware primary/bonus progress strings inside `HudSnapshot::from_battle`.
-- Preserves: `MissionDefinition` as the only authored human-readable objective source.
-- Produces: Flanker uses scene 2, scale 0.62, and persistent under-ring.
+- Changes: `result_overlay_copy(result, definition)`.
+- Produces: rule-aware primary/bonus progress in `HudSnapshot`.
+- Produces: `unit_scale(archetype)` shared by spawn/sync.
+- Produces: Flanker child under-ring and static interception extraction ring, both using existing rendering assets.
 
-- [ ] **Step 1: Write pure presentation-copy tests first**
+- [ ] **Step 1: Write pure UI-copy tests first**
 
-Add/adjust `ui.rs` tests for all rule shapes. Use real mission builders/definitions where convenient.
-
-Mission 2 expected HUD substrings after `begin_round()`:
+For Mission 2 after round start:
 
 ```rust
 assert!(hud.primary.contains("Protect Gunner through the end of Round 3."));
 assert!(hud.primary.contains("Round 1/3"));
-assert!(hud.primary.contains("Gunner HP 12/12"));
+assert!(hud.primary.contains("Gunner HP"));
 assert!(hud.optional.contains("Hold Fast"));
 assert!(hud.optional.contains("On track"));
 ```
 
-Mission 3:
+For Mission 3:
 
 ```rust
 assert!(hud.primary.contains("Intercept Courier"));
@@ -1306,7 +939,7 @@ assert!(hud.optional.contains("Swift Intercept"));
 assert!(hud.optional.contains("Available"));
 ```
 
-Result overlay:
+Pin result copy:
 
 ```rust
 assert_eq!(
@@ -1318,108 +951,41 @@ assert_eq!(
 );
 ```
 
-Aftermath reward test changes expected label from `Turnabout +100` to `Bonus +100`.
+Change aftermath reward expectation from `Turnabout +100` to `Bonus +100`.
 
-- [ ] **Step 2: Run the pure UI tests and confirm expected failures**
+- [ ] **Step 2: Run UI tests red**
 
 ```bash
 cargo test --lib presentation::ui:: -- --nocapture
 cargo test --lib presentation::campaign_ui:: -- --nocapture
 ```
 
-Expected: failures on hard-coded enemy-count/Turnabout/Relay Nine/Mission 2 strings.
+Expected: fail on current hard-coded enemy-count/Turnabout/Relay Nine/Mission 2 copy.
 
-- [ ] **Step 3: Implement rule-aware objective progress inside `HudSnapshot::from_battle`**
+- [ ] **Step 3: Implement rule-aware objective progress**
 
-Keep all human-readable base copy from `definition.primary_objective` / `optional_objective`.
+Append to `MissionDefinition` copy:
 
-Primary suffixes:
+- eliminate: `{remaining} enemies remaining`;
+- protect: `Round {current}/{required} · {target} HP {hp}/{max}`;
+- intercept: `Round {current}/{deadline} · {distance} cells from extraction`.
 
-```rust
-let primary_progress = match battle.rules().primary {
-    PrimaryObjective::EliminateAllEnemies => {
-        let remaining = battle.units()
-            .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
-            .count();
-        format!("{remaining} enemies remaining")
-    }
-    PrimaryObjective::ProtectThroughRound { target, round } => {
-        let target = battle.unit(target).expect("authored protected target must exist");
-        format!(
-            "Round {}/{} · {} HP {}/{}",
-            battle.round().min(round),
-            round,
-            target.name,
-            target.hp,
-            target.stats.max_hp,
-        )
-    }
-    PrimaryObjective::InterceptBeforeEscape { target, escape, deadline_round } => {
-        let target = battle.unit(target).expect("authored interception target must exist");
-        format!(
-            "Round {}/{} · {} cells from extraction",
-            battle.round().min(deadline_round),
-            deadline_round,
-            target.position.manhattan(escape),
-        )
-    }
-};
-```
+Bonus state:
 
-Set `primary = format!("{} · {primary_progress}", definition.primary_objective)`.
+- Turnabout: `Complete` / `Not yet`;
+- half-HP: `On track` / `Missed`;
+- victory-by-round: `Available` / `Missed`;
+- terminal result: `Achieved` / `Missed` from `optional_complete`.
 
-Bonus status:
+Do not move authored objective strings into domain.
 
-```rust
-let optional_status = if battle.result().is_some() {
-    if battle.objectives().optional_complete { "Achieved" } else { "Missed" }
-} else {
-    match battle.rules().optional {
-        OptionalObjective::Turnabout => {
-            if battle.objectives().optional_complete { "Complete" } else { "Not yet" }
-        }
-        OptionalObjective::ProtectTargetAtHalfHp { target } => {
-            let target = battle.unit(target).expect("authored bonus target must exist");
-            if target.hp * 2 >= target.stats.max_hp { "On track" } else { "Missed" }
-        }
-        OptionalObjective::VictoryByRound { round } => {
-            if battle.round() <= round { "Available" } else { "Missed" }
-        }
-    }
-};
-```
+- [ ] **Step 4: Make terminal/event/reward copy generic**
 
-- [ ] **Step 4: Make terminal/event copy generic**
+`result_overlay_copy(result, definition)` renders mission title + authored primary/bonus + Complete/Failed/Achieved/Missed. Change `OptionalObjectiveCompleted` playback to `BONUS OBJECTIVE COMPLETE`. Change aftermath receipt label to `Bonus +...`.
 
-Change `result_overlay_copy` to:
+- [ ] **Step 5: Add and test `unit_scale`**
 
-```rust
-pub fn result_overlay_copy(result: MissionResult, definition: &MissionDefinition) -> String {
-    format!(
-        "{}\n{}\nPRIMARY  {} · {}\nBONUS    {} · {}",
-        if result.victory { "MISSION COMPLETE" } else { "MISSION FAILED" },
-        definition.title,
-        definition.primary_objective,
-        if result.victory { "Complete" } else { "Failed" },
-        definition.optional_objective,
-        if result.optional_complete { "Achieved" } else { "Missed" },
-    )
-}
-```
-
-`update_hud` passes `active_mission.0` alongside the result.
-
-Change:
-
-```rust
-BattleEvent::OptionalObjectiveCompleted => "BONUS OBJECTIVE COMPLETE".to_owned(),
-```
-
-Change `aftermath_reward_copy` to render `Bonus +{optional_reward}` rather than `Turnabout +...`.
-
-- [ ] **Step 5: Add pure visual-profile assertions for Flanker**
-
-Keep `scene_index(UnitArchetype::Flanker) == 2`. Add a tiny pure helper only if needed to avoid duplicated scale literals:
+In `battlefield.rs`:
 
 ```rust
 pub const fn unit_scale(archetype: UnitArchetype) -> f32 {
@@ -1430,40 +996,66 @@ pub const fn unit_scale(archetype: UnitArchetype) -> f32 {
 }
 ```
 
-Test:
+Test Flanker scene index 2, scale 0.62, and normal enemy scale 0.72.
 
-```rust
-assert_eq!(scene_index(UnitArchetype::Flanker), 2);
-assert_eq!(unit_scale(UnitArchetype::Flanker), 0.62);
-assert_eq!(unit_scale(UnitArchetype::Striker), 0.72);
-```
+- [ ] **Step 6: Spawn Flanker under-ring as a child of its unit visual**
 
-- [ ] **Step 6: Render the persistent Flanker marker with existing visual assets**
-
-When spawning each unit in `populate_mission_root`, retain the existing `WorldAssetRoot` entity. For `UnitArchetype::Flanker`, spawn a sibling under `PresentationRoot` at the same grid position:
+When spawning a Flanker model, retain the spawned unit entity and add a child:
 
 ```rust
 commands.spawn((
-    Name::new(format!("{} Flanker Marker", unit.name)),
+    Name::new("Flanker Marker"),
     Mesh3d(visual_assets.ring_mesh.clone()),
     MeshMaterial3d(visual_assets.telegraph_edge.clone()),
-    Transform::from_translation(grid_to_world(unit.position) + Vec3::Y * 0.03),
+    Transform::from_xyz(0.0, -0.17, 0.0).with_scale(Vec3::splat(0.9)),
     Pickable::IGNORE,
-    ChildOf(root),
+    ChildOf(unit_entity),
 ));
 ```
 
-Use `unit_scale(unit.archetype)` for the unit model transform. Do not add a new material or asset file.
+Use a local Y offset that leaves the ring just above the board after visual inspection; keep it a child so movement requires no new sync component/framework.
 
-Because the scene is rebuilt at battle entry/restart and unit transforms can move during battle, ensure the Flanker marker follows movement. The smallest correct approach is to give it a marker component keyed by `UnitId` (for example `FlankerVisual(UnitId)`) and update it alongside `UnitVisual` in the existing transform sync path. Do not create a general effect/attachment framework.
+- [ ] **Step 7: Preserve Flanker scale in `sync.rs`**
 
-- [ ] **Step 7: Remove Mission-1-only debug entity names where touched**
+Replace hard-coded:
 
-Use `Name::new("Mission Presentation")` in `spawn_presentation_root` and restart rebuild roots instead of `Mission 1 Presentation`.
+```rust
+transform.scale = Vec3::splat(0.72);
+```
 
-Do not rename `mission_one.gltf` or its constants in this ticket.
+with:
 
-- [ ] **Step 8: Run presentation tests**
+```rust
+transform.scale = Vec3::splat(unit_scale(unit.archetype));
+```
+
+Import the helper from `battlefield`. This prevents per-frame sync from erasing the fast-silhouette scale.
+
+- [ ] **Step 8: Spawn an extraction ring for interception rules**
+
+During mission-root population:
+
+```rust
+if let PrimaryObjective::InterceptBeforeEscape { escape, .. } = battle.0.rules().primary {
+    commands.spawn((
+        Name::new("Extraction Objective"),
+        Mesh3d(visual_assets.ring_mesh.clone()),
+        MeshMaterial3d(visual_assets.intended_target.clone()),
+        Transform::from_translation(grid_to_world(escape) + Vec3::Y * 0.03)
+            .with_scale(Vec3::splat(1.08)),
+        Pickable::IGNORE,
+        ChildOf(root),
+    ));
+}
+```
+
+No new domain prop or asset is introduced.
+
+- [ ] **Step 9: Remove touched Mission-1-only debug names**
+
+Use `Name::new("Mission Presentation")` instead of `Mission 1 Presentation` in battlefield/restart roots. Keep the asset filename/constants `mission_one.gltf` unchanged.
+
+- [ ] **Step 10: Run presentation tests**
 
 ```bash
 cargo fmt --check
@@ -1472,19 +1064,21 @@ cargo test --lib presentation::campaign_ui::
 cargo test --test presentation_app
 ```
 
-Expected: all pass; no renderer/window is required.
+Expected: all headless tests pass.
 
-- [ ] **Step 9: Commit generic objective presentation and Flanker visual**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add src/presentation/ui.rs src/presentation/campaign_ui.rs src/presentation/battlefield.rs src/presentation/interaction.rs
+git add src/presentation/ui.rs src/presentation/campaign_ui.rs src/presentation/battlefield.rs src/presentation/sync.rs src/presentation/interaction.rs
 
 git commit -m "feat: present mission objectives and flanker pressure"
 ```
 
+Only stage interaction if changed.
+
 ---
 
-### Task 6: Prove continuous M1 → M2 → M3 campaign entry, restart, and save/upgrade routing
+### Task 6: Prove continuous campaign entry/restart/save/upgrade routing through Mission 3
 
 **Files:**
 - Modify: `tests/presentation_app.rs`
@@ -1493,45 +1087,43 @@ git commit -m "feat: present mission objectives and flanker pressure"
 - Modify: `src/presentation/interaction.rs` only if restart is not mission-generic
 
 **Interfaces:**
-- Consumes: existing `enter_battle`, `ActiveMission`, `definition.build`, `CampaignRuntime`, `persist_purchase`.
-- Verifies: no new application state/resource is necessary for Missions 2–3.
+- Consumes: existing `enter_battle`, `ActiveMission`, `definition.build`, `CampaignRuntime`, `persist_purchase`, restart seams.
+- Verifies: no new app state/resource is needed for Missions 2–3.
 
-- [ ] **Step 1: Add a renderer-free battle-entry test for Mission 2**
+- [ ] **Step 1: Add renderer-free Mission 2 battle-entry coverage**
 
-Follow the existing bare-App fixture pattern in `tests/presentation_app.rs`. Set campaign state to `next_mission: MissionId::Two` with a nonzero upgrade, call the current battle-entry path, then assert:
+Create campaign state with `next_mission: Two` and a nonzero Gunner HP upgrade, invoke the existing battle-entry path, assert:
 
 ```rust
 assert_eq!(app.world().resource::<ActiveMission>().0.id, MissionId::Two);
 let battle = &app.world().resource::<BattleRuntime>().0;
-assert_eq!(battle.rules().primary, PrimaryObjective::ProtectThroughRound { target: squad::ids::GUNNER, round: 3 });
+assert_eq!(battle.rules().primary, PrimaryObjective::ProtectThroughRound {
+    target: squad::ids::GUNNER,
+    round: 3,
+});
 assert_eq!(battle.round(), 1);
 assert!(battle.unit(squad::ids::GUNNER).unwrap().stats.max_hp > 12);
 ```
 
-Use a Gunner HP upgrade to prove the persisted upgrade is projected into the Mission 2 builder.
+- [ ] **Step 2: Add Mission 3 entry/restart coverage**
 
-- [ ] **Step 2: Add the corresponding Mission 3 entry/restart test**
-
-Start at `MissionId::Three`, enter battle, capture the current `ActiveMission`, mutate battle state enough to differ from a fresh build, call the existing restart path with a fixed seed, then assert:
+Enter with `next_mission: Three`, mutate battle, call existing restart with a fixed seed, assert ActiveMission remains Three and fresh rules are:
 
 ```rust
-assert_eq!(active.id, MissionId::Three);
-assert_eq!(battle.rules().primary, PrimaryObjective::InterceptBeforeEscape {
+PrimaryObjective::InterceptBeforeEscape {
     target: mission_three::ids::COURIER,
     escape: GridPos::new(8, 2),
     deadline_round: 4,
-});
-assert_eq!(battle.round(), 0); // before restarted-round system, matching current restart contract
-assert_eq!(battle.unit(mission_three::ids::COURIER).unwrap().hp, 8);
+}
 ```
 
-Then run the existing `begin_restarted_round` seam/system if that is how current integration tests finish restart, and assert Round 1 plus committed intents.
+Assert fresh Courier HP 8. Respect the current restart contract: if restart leaves round 0 until `begin_restarted_round`, assert that first, run the existing restarted-round seam, then assert Round 1/intents.
 
-Do not special-case Mission 2/3 in `restart_battle`; it must continue to call `ActiveMission.0.build`.
+Do not special-case mission IDs inside restart.
 
-- [ ] **Step 3: Add pure campaign-action routing tests for every saved mission ID**
+- [ ] **Step 3: Add pure campaign-action routing coverage for every saved ID**
 
-Drive `apply_campaign_action` with a temp-save-backed `CampaignRuntime` and `NextState<GameScreen>`:
+Pin:
 
 ```text
 Continue One   -> PreMissionStory
@@ -1543,23 +1135,22 @@ Proceed Three  -> PreMissionStory
 Proceed Four   -> NextMission
 ```
 
-The Proceed cases use the already-loaded runtime state and do not write the save.
+- [ ] **Step 4: Add save-backed progression continuity through Mission 3**
 
-- [ ] **Step 4: Add a complete progression/session persistence test through Mission 3**
+Use existing temp-save/session test helpers:
 
-Using the existing temp save/session helpers:
+1. start new game;
+2. complete M1 without bonus;
+3. buy one affordable 200-credit upgrade;
+4. complete M2 without bonus;
+5. buy another affordable upgrade using current persisted costs/state;
+6. complete M3 without bonus;
+7. load with a fresh session;
+8. assert `next_mission == Four`, exact remaining credits, and exact purchased upgrades.
 
-1. `start_new_game`.
-2. complete Mission 1 with `optional_complete = false`.
-3. persist one 200-credit upgrade; assert credits become 100.
-4. complete Mission 2 with `optional_complete = false`; assert credits become 500.
-5. persist one 400-credit second-level upgrade on the same track (or two 200 first-level upgrades if current level/cost setup makes that clearer); assert the saved state exactly matches expected credits/upgrades.
-6. complete Mission 3 with `optional_complete = false`.
-7. reload with a fresh session and assert `next_mission == MissionId::Four` and all purchased upgrades remain.
+Do not require any bonus for progression/purchase viability.
 
-Do not require Mission 2/3 bonuses for any purchase/progression assertion.
-
-- [ ] **Step 5: Run integration and full tests**
+- [ ] **Step 5: Run integration/full tests**
 
 ```bash
 cargo fmt --check
@@ -1567,9 +1158,9 @@ cargo test --test presentation_app
 cargo test --all-targets
 ```
 
-Expected: all pass without touching `app.rs` or session/save implementation. If a test proves a current generic seam has a real Mission-2/3 assumption, make the smallest local fix and keep the same interfaces.
+Expected: green without changes to `app.rs` or save/session implementation. If a test exposes a real hard-coded Mission-1 assumption in those generic seams, make the smallest local correction only.
 
-- [ ] **Step 6: Commit campaign integration coverage**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/presentation_app.rs src/presentation/campaign_ui.rs src/app.rs src/presentation/interaction.rs
@@ -1577,55 +1168,44 @@ git add tests/presentation_app.rs src/presentation/campaign_ui.rs src/app.rs src
 git commit -m "test: cover campaign progression through mission 3"
 ```
 
-Only stage source files if the new tests required a real correction.
+Only stage source files that genuinely changed.
 
 ---
 
-### Task 7: Update player/developer docs, perform manual tuning, and record final validation
+### Task 7: Update docs, playtest authored tuning, and record final validation
 
 **Files:**
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
 - Create: `docs/validation/hpa-637.md`
-- Modify: `src/mission/mission_two.rs` / `mission_three.rs` only if the playtest shows authored tuning problems
+- Modify: `src/mission/mission_two.rs` / `src/mission/mission_three.rs` only if playtesting shows authored tuning problems
 
 **Interfaces:**
-- Produces: current project documentation and a reproducible HPA-637 validation ledger.
-- Does not change architecture unless an automated acceptance test is missing; playtest corrections should prefer authored numbers/positions over new systems.
+- Produces: current player/developer docs and reproducible HPA-637 validation evidence.
+- Playtest corrections should prefer authored positions/stats/rewards over new systems.
 
-- [ ] **Step 1: Update README campaign description and objective sections**
-
-Replace the HPA-635 one-mission summary with:
-
-```text
-Title → pre-mission VN → briefing → Mission 1 → aftermath/upgrades → Mission 2 → aftermath/upgrades → Mission 3 → Mission 4 unlocked handoff.
-```
+- [ ] **Step 1: Update README to the three-mission shipped flow**
 
 Document:
 
-- Mission 1: eliminate all, Turnabout, 300 + 100.
-- Mission 2: protect Gunner through Round 3, half-HP bonus, 400 + 100.
-- Mission 3: stop Courier before extraction/end Round 4, Round-2 bonus, 500 + 150.
-- Continue routing: active first mission story, inter-mission saves resume at Upgrade, post-Mission-3 save shows Mission 4 handoff.
-- Flanker: high movement/evasion, low durability, objective-seeking movement.
-- The combat controls/pilot skills are unchanged.
-- Validation links include `docs/validation/hpa-637.md`.
+```text
+Title -> story/briefing -> M1 -> aftermath/upgrades -> M2 -> aftermath/upgrades -> M3 -> M4 unlocked handoff
+```
 
-Delete the statement that Mission 2 content is not in the build.
+Include:
 
-- [ ] **Step 2: Bring `CLAUDE.md` current**
+- M1 eliminate + Turnabout, 300 + 100.
+- M2 Gunner defense Round 3 + half-HP bonus, 400 + 100.
+- M3 Courier interception before extraction/Round 4 + Round-2 bonus, 500 + 150.
+- Continue resumes active first mission story, inter-mission saves at Upgrade, post-M3 at Mission 4 handoff.
+- Flanker is fast/evasive/fragile and objective-seeking.
+- Existing controls/pilot skills remain unchanged.
 
-Correct its stale claim that the game boots straight into Mission 1 with no campaign/save. State the actual architecture:
+Remove the statement that Mission 2 is not in the build.
 
-- Title/VN/Briefing/Battle/Aftermath/Upgrade/NextMission flow exists.
-- `campaign` is plain Rust save/progression/session state.
-- `mission_definition` dispatches Missions 1–3; Four is handoff.
-- `BattleState` owns `MissionRules` with the three closed primary objective shapes and generic optional bit.
-- `mission::enemies` owns four regular enemy archetypes; Flanker has one explicit objective-aware planner branch.
-- Mission 2 protects Gunner; Mission 3 intercepts Courier.
-- Reference the HPA-637 design/plan/validation docs alongside HPA-632/HPA-635.
+- [ ] **Step 2: Bring `CLAUDE.md` architecture current**
 
-Keep the existing command/testing/determinism/committed-intent guidance.
+Correct the stale “boots straight into Mission 1 / no campaign” section. Record current boundaries: campaign plain Rust, MissionDefinition One–Three/Four handoff, closed MissionRules in BattleState, shared `mission::enemies`, explicit Flanker planner branch, Gunner defense, Courier interception, existing committed-intent invariant, and HPA-637 spec/plan/validation references.
 
 - [ ] **Step 3: Run all automated gates before manual play**
 
@@ -1636,111 +1216,48 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Record exact command results/summary counts in `docs/validation/hpa-637.md`.
+Record exact pass/test-count/build evidence in `docs/validation/hpa-637.md`.
 
-Expected: all four commands exit 0.
+- [ ] **Step 4: Manual Mission 2 validation**
 
-- [ ] **Step 4: Manual playtest Mission 2 success/failure/bonus behavior**
+With `cargo run`, record concrete evidence that:
 
-Run:
+- post-M1 Upgrade → Proceed enters M2 VN/briefing;
+- opening locks are Rifleman→Vanguard, Striker→Gunner, Artillery→Gunner, Flanker→Interceptor;
+- Guard/Evade/Counter/Aegis/movement meaningfully respond to those threats;
+- clearing enemies before Round 3 does not instantly win;
+- surviving the third enemy resolution with Gunner alive wins, even with an enemy alive;
+- Gunner KO fails;
+- Gunner ≥50% grants +100; below 50% still advances with +0.
 
-```bash
-cargo run
-```
+If ordinary play becomes empty-round stalling, tune authored Mission 2 positions/stats; do not add reinforcements/waves.
 
-Record evidence for all of these concrete cases:
-
-```text
-M2-A: enter from M1 aftermath -> Upgrade -> Proceed -> Mission 2 VN/briefing.
-M2-B: first round visibly shows Rifleman/Striker/Artillery/Flanker locked pressure on Gunner.
-M2-C: move/Guard/Evade/Aegis can alter that pressure without any new tutorial mechanic.
-M2-D: KO all enemies before Round 3; battle does not immediately win.
-M2-E: keep Gunner alive through the third enemy resolution; battle wins even if at least one enemy remains.
-M2-F: KO Gunner before completion; battle fails.
-M2-G: finish with Gunner >= 50% max HP; bonus is achieved and reward +100.
-M2-H: finish with Gunner < 50% max HP; mission still advances, bonus reward is 0.
-```
-
-If M2 requires repeatedly passing empty rounds in ordinary play, tune enemy HP/positions/opening cells in `mission_two.rs`; do not add reinforcements/waves in this ticket.
-
-- [ ] **Step 5: Manual playtest Mission 3 interception/Flanker behavior**
+- [ ] **Step 5: Manual Mission 3 validation**
 
 Record:
 
-```text
-M3-A: Proceed from the post-M2 Upgrade enters Mission 3 VN/briefing.
-M3-B: Courier is visibly the Flanker silhouette/under-ring and moves toward extraction/open lanes.
-M3-C: Courier movement does not retarget already committed footprints during the player phase.
-M3-D: defeating Courier wins while Rifleman/Striker can remain alive.
-M3-E: defeating only escorts does not win.
-M3-F: Courier reaching (8,2) fails the mission.
-M3-G: body-block/delay through the end of Round 4 still fails on deadline.
-M3-H: Courier defeat by end Round 2 grants +150; Round 3+ victory still advances with +0 bonus.
-M3-I: push/collision/hazard/explosive/reactions remain available and useful; no new subsystem is needed.
-```
+- post-M2 Upgrade → Proceed enters M3 VN/briefing;
+- Courier fast silhouette + under-ring and extraction white ring are visible;
+- Courier later movement heads toward extraction/open lanes;
+- committed enemy telegraphs remain locked during the player phase;
+- Courier KO wins with escort(s) alive;
+- escort clear alone does not win;
+- reaching `(8,2)` fails;
+- living Courier at Round-4 deadline fails even if blocked from exact extraction;
+- Courier KO by end Round 2 grants +150; later KO still wins with +0;
+- existing push/collision/hazard/explosive/reaction rules remain useful.
 
-If the Courier reaches extraction before the player has a meaningful interception opportunity, tune only Mission 3 positions/terrain or Flanker authored stats inside the locked design envelope. Keep movement high relative to Rifleman/Striker and durability lower.
+If the Courier gives no meaningful interception window, tune only Mission 3 authored positions/terrain or Flanker stats within the design envelope; keep it faster/more evasive/less durable than front-line enemies.
 
 - [ ] **Step 6: Manual save/continue/upgrade continuity**
 
-At least once after Mission 1 and once after Mission 2:
+After M1 and M2 at least once: quit/relaunch, Continue, verify persisted Upgrade credits/levels, Proceed, and confirm the next mission receives those upgrades. After M3, relaunch/Continue and verify `MISSION 4 UNLOCKED`.
 
-1. return/quit after the reward is persisted;
-2. relaunch;
-3. Continue;
-4. verify Upgrade is shown with exact saved credits/levels;
-5. Proceed and verify the next mission receives those upgrades.
+- [ ] **Step 7: Write concrete `docs/validation/hpa-637.md`**
 
-After Mission 3, relaunch/Continue and verify the generic handoff says `MISSION 4 UNLOCKED`.
+The final document must contain actual branch/head SHA, automated command outcomes/test counts, observed M2 opening/result/bonus evidence, M3 route/visual/result/deadline/bonus evidence, save/upgrade continuity, and a short-session verdict. Do not leave `TBD`, TODOs, template markers, or unchecked claims.
 
-- [ ] **Step 7: Complete `docs/validation/hpa-637.md`**
-
-Use this structure with concrete evidence, not unchecked boxes:
-
-```markdown
-# HPA-637 Validation
-
-## Baseline
-- Branch / head SHA:
-- Design:
-- Plan:
-
-## Automated gates
-- `cargo fmt --check`: PASS (...)
-- `cargo clippy --all-targets --all-features -- -D warnings`: PASS (...)
-- `cargo test --all-targets`: PASS (... test count ...)
-- `cargo build --release`: PASS (...)
-
-## Mission 2
-### Opening pressure
-<observed positions/intents>
-### Protect success
-<round/result evidence>
-### Protect failure
-<Gunner KO evidence>
-### Bonus achieved/missed
-<HP/reward evidence>
-
-## Mission 3
-### Courier movement/visual
-<observed route/marker>
-### Interception success
-<escort-alive evidence>
-### Extraction/deadline failures
-<observed result evidence>
-### Bonus achieved/missed
-<round/reward evidence>
-
-## Campaign/save/upgrades
-<Continue/Upgrade/Proceed and Mission 4 handoff evidence>
-
-## Short-session verdict
-<round counts and whether any low-pressure stalling was required>
-```
-
-Replace every angle-bracket line with the actual observed value before committing; do not leave template markers in the final file.
-
-- [ ] **Step 8: Re-run all gates after any playtest tuning/doc edits**
+- [ ] **Step 8: Re-run all gates after any tuning/doc edits**
 
 ```bash
 cargo fmt --check
@@ -1749,9 +1266,9 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Expected: all exit 0 after the final authored tuning.
+Expected: all exit 0.
 
-- [ ] **Step 9: Commit final docs/validation/tuning**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add README.md CLAUDE.md docs/validation/hpa-637.md src/mission/mission_two.rs src/mission/mission_three.rs
@@ -1759,39 +1276,40 @@ git add README.md CLAUDE.md docs/validation/hpa-637.md src/mission/mission_two.r
 git commit -m "docs: validate HPA-637 missions 2 and 3"
 ```
 
-Only stage mission files if manual validation actually changed their authored tuning.
+Only stage mission files if manual tuning changed them.
 
 ---
 
 ## Final PR Gate
 
-Before marking the draft ready for review, verify all of the following from the actual branch diff and test output:
+Before marking the draft ready for review:
 
-- [ ] Only HPA-637 scope is present; there is one PR for the ticket.
-- [ ] `Cargo.toml`/`Cargo.lock` have no new dependency.
-- [ ] No objective callback/trait/registry or behavior-tree/policy framework was introduced.
-- [ ] No neutral faction/objective role exists; Mission 2 protects Gunner.
-- [ ] Mission 1 exact opening intent regression passes.
-- [ ] Mission 2 cannot win from enemy clear and cannot continue after Gunner KO.
-- [ ] Mission 2 succeeds after the full third enemy resolution with Gunner alive.
-- [ ] Mission 3 wins on Courier KO with escorts alive.
-- [ ] Mission 3 loses on extraction and Round-4 deadline.
-- [ ] Flanker planner is deterministic and objective-aware, with no RNG call added to movement/target selection.
-- [ ] Flanker uses existing scene 2 + scale/under-ring; no new asset file/pipeline.
-- [ ] Briefing, HUD, and result overlay each show primary and bonus objectives for Missions 2/3.
-- [ ] Bonus completion changes credits only.
+- [ ] One PR contains only HPA-637 scope.
+- [ ] No new dependency or asset-generation pipeline.
+- [ ] No objective framework, neutral objective role, or behavior-tree/policy framework.
+- [ ] Mission 1 exact opening regression remains green.
+- [ ] Mission 2 enemy-clear does not win; Gunner KO fails; full Round-3 survive wins.
+- [ ] Mission 2 opening creates competing readable threats across all three players.
+- [ ] Mission 3 Courier KO wins with escorts alive; extraction and Round-4 deadline fail.
+- [ ] Flanker planner is deterministic and objective-aware with no new RNG call.
+- [ ] Flanker uses existing scene 2 + 0.62 scale + child under-ring; extraction uses existing white ring material.
+- [ ] `apply_unit_transforms` preserves Flanker scale.
+- [ ] Briefing, HUD, and results show primary + bonus objective for Missions 2/3.
+- [ ] Bonuses alter credits only.
 - [ ] M1 → M2 → M3 → M4 handoff works with save/Continue/Upgrade.
-- [ ] `README.md`, `CLAUDE.md`, and `docs/validation/hpa-637.md` describe the shipped state.
+- [ ] Base-only completion yields 1200 total credits through Mission 3.
+- [ ] README, CLAUDE.md, and `docs/validation/hpa-637.md` describe the final state.
 - [ ] `cargo fmt --check` passes.
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes.
 - [ ] `cargo test --all-targets` passes.
 - [ ] `cargo build --release` passes.
 
-## Self-review performed while writing this plan
+## Self-review
 
-- Spec coverage: every HPA-637 acceptance item maps to Tasks 1–7 and the Final PR Gate.
-- Scope: one bounded PR; no separate objective/AI/content subprojects are needed because each seam exists solely to make the two authored missions work.
-- Placeholder scan: implementation steps use concrete types, values, coordinates, copy, commands, and expected assertions; final validation explicitly forbids leaving template markers.
-- Type consistency: `MissionRules`, `PrimaryObjective`, `OptionalObjective`, `EnemyOpening`, `ObjectiveProgress::optional_complete`, and `MissionResult::optional_complete` use the same names throughout all tasks.
-- Campaign consistency: Mission 1 unlocks Two, Mission 2 unlocks Three, Mission 3 unlocks Four; only One–Three have definitions after Task 4.
-- Reward consistency: base rewards are 300/400/500; optional rewards 100/100/150; normal no-bonus completion reaches 1200 credits and never requires grinding.
+- **Spec coverage:** every HPA-637 acceptance item maps to Tasks 1–7 and the Final PR Gate.
+- **Scope:** one bounded implementation PR; no independent subproject warrants another ticket/PR.
+- **Placeholder scan:** implementation values, coordinates, copy, test expectations, and commands are explicit; final validation forbids placeholder evidence.
+- **Type consistency:** `MissionRules`, `PrimaryObjective`, `OptionalObjective`, `EnemyOpening`, `ObjectiveProgress::optional_complete`, and `MissionResult::optional_complete` use the same names throughout.
+- **Mission consistency:** One unlocks Two, Two unlocks Three, Three unlocks Four; only One–Three are authored.
+- **Encounter consistency:** Mission 2 opening is Rifleman→Vanguard, Striker→Gunner, Artillery→Gunner, Flanker→Interceptor; later Flanker pressure follows Gunner. Mission 3 escape is `(8,2)` and is visibly marked.
+- **Reward consistency:** base 300/400/500 and bonuses 100/100/150; base-only completion reaches 1200 credits without grinding.
