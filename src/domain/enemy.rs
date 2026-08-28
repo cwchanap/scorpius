@@ -91,11 +91,7 @@ impl BattleState {
     }
 
     pub fn resolve_enemy_phase(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
-        let result = self.resolve_enemy_phase_inner();
-        if result.is_ok() {
-            self.clear_aegis_target();
-        }
-        result
+        self.resolve_enemy_phase_inner()
     }
 
     fn resolve_enemy_phase_inner(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
@@ -123,6 +119,11 @@ impl BattleState {
             }
         }
 
+        // The current round's Aegis shield has been applied during resolution
+        // above. Expire it before planning the next round so `build_intent` does
+        // not bake the now-expired shield into the next round's previews. The
+        // terminal paths above already clear it via `check_terminal_state`.
+        self.clear_aegis_target();
         self.phase = BattlePhase::EnemyPlanning;
         events.extend(self.begin_round()?);
         Ok(events)
@@ -565,7 +566,7 @@ mod tests {
         domain::{
             board::GridPos,
             combat::DamageSource,
-            model::{BattleEvent, BattlePhase},
+            model::{BattleEvent, BattlePhase, Reaction},
         },
         mission::mission_one::{ids, mission_one},
     };
@@ -825,6 +826,64 @@ mod tests {
 
         assert_eq!(battle.pilot_skills().aegis_target, None);
         assert!(battle.pilot_skills().aegis_used);
+    }
+
+    #[test]
+    fn next_round_preview_is_unshielded_after_aegis_expires() {
+        // Round 0 commits RIFLEMAN_LEFT onto GUNNER (authored opening target).
+        // Aegis is cast on GUNNER, then VANGUARD is knocked out so GUNNER is the
+        // only living player in RIFLEMAN_LEFT's range next round. After the
+        // enemy phase resolves, the just-expired Aegis must not be baked into
+        // the next round's intended preview.
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle
+            .move_unit(ids::VANGUARD, GridPos::new(3, 7))
+            .unwrap();
+        battle.use_aegis(ids::GUNNER).unwrap();
+        battle
+            .choose_reaction(ids::VANGUARD, Reaction::Guard)
+            .unwrap();
+        battle.finish_activation(ids::VANGUARD).unwrap();
+        assert_eq!(battle.pilot_skills().aegis_target, Some(ids::GUNNER));
+
+        // Remove VANGUARD from the next-round target pool so GUNNER (priority 1)
+        // becomes the top living target.
+        battle.apply_direct_damage(ids::VANGUARD, 99, DamageSource::Hazard);
+        assert!(battle.unit(ids::VANGUARD).unwrap().is_knocked_out());
+
+        for player in [ids::GUNNER, ids::INTERCEPTOR] {
+            battle.begin_activation(player).unwrap();
+            battle
+                .choose_reaction(player, Reaction::Counter)
+                .unwrap();
+            battle.finish_activation(player).unwrap();
+        }
+        battle.resolve_enemy_phase().unwrap();
+
+        assert_eq!(battle.pilot_skills().aegis_target, None);
+        let gunner = battle.unit(ids::GUNNER).unwrap();
+        let next = battle
+            .intents()
+            .iter()
+            .find(|intent| intent.intended_occupant == Some(ids::GUNNER))
+            .expect("next round must target the formerly shielded GUNNER");
+        let preview = next
+            .intended_preview
+            .as_ref()
+            .expect("targeted intent carries a preview");
+        let unshielded = (next.profile.base_damage - gunner.stats.armor).max(1);
+        assert_eq!(
+            preview.normal_damage, unshielded,
+            "next-round preview must reflect the expired Aegis, not a 3-point reduction"
+        );
+        assert_ne!(
+            preview.normal_damage,
+            (unshielded - 3).max(0),
+            "preview must differ from the stale shielded value"
+        );
     }
 
     fn isolated_striker_fixture() -> crate::domain::battle::BattleState {
