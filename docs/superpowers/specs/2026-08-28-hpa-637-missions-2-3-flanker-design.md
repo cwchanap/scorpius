@@ -585,7 +585,7 @@ Keep focused private outcome tests for each match arm:
 - Protect fails on target KO, wins when no enemies remain, and wins at the required `completed_enemy_round(3)` boundary with enemies still present.
 - Intercept wins on target KO, ignores escort clear, fails on exact extraction and `completed_enemy_round(5)` deadline.
 - Half-HP and victory-by-round bonus boundaries.
-- Terminal bonus event precedes `MissionCompleted` once.
+- terminal bonus event precedes `MissionCompleted` once.
 - `completed_enemy_round` is false in Player phase even when `round` has the same numeric value.
 
 ### Lifecycle tests — required before playtest
