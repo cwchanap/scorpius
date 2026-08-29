@@ -257,6 +257,12 @@ impl BattleState {
             to: destination,
         }];
         events.extend(self.resolve_hazard_if_present(id)?);
+        // Terminal-check immediately so an escape/extraction move ends the
+        // movement pass at once; otherwise later enemies would keep moving
+        // (and could trip hazards) before `MissionFailed` is emitted. The
+        // post-loop `check_terminal_state` in `begin_round` is a no-op once a
+        // result is already locked in.
+        events.extend(self.check_terminal_state());
         Ok(events)
     }
 
