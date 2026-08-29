@@ -455,7 +455,9 @@ fn build_intent(
         .weapon(weapon_id)
         .ok_or(BattleError::UnknownWeapon(weapon_id))?;
     let choice = match forced_target {
-        Some(target) => choice_for_center(battle, weapon.shape, target),
+        // Authored openings keep shared occupant selection inside the forced
+        // footprint; only the protect-preference path overrides priority.
+        Some(target) => choice_for_center(battle, weapon.shape, target, None),
         None => choose_target(battle, attacker, weapon)?,
     };
     let profile = AttackProfile {
@@ -496,16 +498,32 @@ fn choose_target(
     weapon: &crate::domain::model::WeaponSpec,
 ) -> Result<TargetChoice, BattleError> {
     let players = living_players(battle);
+    // Flanker protect pressure: the mission's protected unit outranks the
+    // shared priority when a legal footprint covers it (spec: "prefer Gunner
+    // when legal").
+    let preferred = match (attacker.archetype, battle.rules().primary) {
+        (UnitArchetype::Flanker, PrimaryObjective::ProtectThroughRound { target, .. }) => players
+            .iter()
+            .find(|player| player.id == target)
+            .map(|player| player.id),
+        _ => None,
+    };
     let mut choices: Vec<_> = (0..battle.board().height())
         .flat_map(|y| (0..battle.board().width()).map(move |x| GridPos::new(x, y)))
         .filter(|target| {
             let distance = attacker.position.manhattan(*target);
             distance >= weapon.min_range && distance <= weapon.max_range
         })
-        .map(|target| choice_for_center(battle, weapon.shape, target))
+        .map(|target| choice_for_center(battle, weapon.shape, target, preferred))
         .collect();
     if choices.is_empty() {
         return Err(BattleError::InvalidTarget(attacker.position));
+    }
+    if let Some(preferred) = preferred {
+        let covers_preferred = |choice: &TargetChoice| choice.intended_occupant == Some(preferred);
+        if choices.iter().any(covers_preferred) {
+            choices.retain(covers_preferred);
+        }
     }
 
     if choices
@@ -552,12 +570,17 @@ fn choice_for_center(
     battle: &BattleState,
     shape: crate::domain::model::WeaponShape,
     center: GridPos,
+    preferred: Option<UnitId>,
 ) -> TargetChoice {
     let footprint = attack_footprint(battle, shape, center);
-    let intended_occupant = living_players(battle)
+    let covered: Vec<_> = living_players(battle)
         .into_iter()
         .filter(|player| footprint.contains(&player.position))
-        .min_by_key(player_priority)
+        .collect();
+    let intended_occupant = covered
+        .iter()
+        .find(|player| Some(player.id) == preferred)
+        .or_else(|| covered.iter().min_by_key(|player| player_priority(player)))
         .map(|player| player.id);
     TargetChoice {
         center,
@@ -622,7 +645,8 @@ mod tests {
             combat::DamageSource,
             model::{
                 BattleEvent, BattlePhase, Faction, MissionRules, OptionalObjective,
-                PrimaryObjective, Reaction, UnitArchetype, UnitId,
+                PrimaryObjective, Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
+                WeaponSpec,
             },
         },
         mission::{
@@ -637,6 +661,8 @@ mod tests {
     const FLANKER_COURIER: UnitId = UnitId(21);
     const PROTECTED: UnitId = UnitId(2);
     const DECOY: UnitId = UnitId(3);
+    const SHARED_VANGUARD: UnitId = UnitId(2);
+    const PROTECT_GUNNER: UnitId = UnitId(3);
 
     #[test]
     fn authored_opening_places_four_locked_threats() {
@@ -1113,6 +1139,115 @@ mod tests {
         let destination = battle.unit(FLANKER_COURIER).unwrap().position;
         assert_eq!(destination, GridPos::new(0, 2));
         assert_eq!(destination.manhattan(GridPos::new(8, 0)), 10);
+    }
+
+    #[test]
+    fn flanker_protect_intent_locks_the_protected_gunner_over_shared_priority() {
+        // One Cross1 center covers BOTH the Vanguard (shared priority 0) and the
+        // Gunner; the protect preference must still lock the Gunner.
+        let mut battle = intent_fixture(
+            protect_rules(PROTECT_GUNNER),
+            GridPos::new(5, 5),
+            GridPos::new(4, 5),
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle
+                .intent_for(FLANKER_COURIER)
+                .unwrap()
+                .intended_occupant,
+            Some(PROTECT_GUNNER)
+        );
+    }
+
+    #[test]
+    fn flanker_fallback_intent_keeps_shared_priority_targeting() {
+        // Same geometry without a protect primary: the shared Vanguard-first
+        // priority wins even though the Gunner is equally coverable.
+        let mut battle = intent_fixture(eliminate_rules(), GridPos::new(5, 5), GridPos::new(4, 5));
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle
+                .intent_for(FLANKER_COURIER)
+                .unwrap()
+                .intended_occupant,
+            Some(SHARED_VANGUARD)
+        );
+    }
+
+    #[test]
+    fn flanker_protect_intent_falls_back_when_gunner_is_out_of_footprint() {
+        // Gunner alive but every reachable footprint misses her (any cell within
+        // move 4 of (4,4) is at least Manhattan 4 from (8,8)); shared targeting
+        // must stand. From any plausible landing the Vanguard stays coverable.
+        let mut battle = intent_fixture(
+            protect_rules(PROTECT_GUNNER),
+            GridPos::new(8, 8),
+            GridPos::new(7, 5),
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle
+                .intent_for(FLANKER_COURIER)
+                .unwrap()
+                .intended_occupant,
+            Some(SHARED_VANGUARD)
+        );
+    }
+
+    fn band_cross() -> WeaponSpec {
+        squad::weapon(
+            WeaponId(205),
+            "Test Cross",
+            1,
+            2,
+            WeaponShape::Cross1,
+            4,
+            0,
+            0,
+            0,
+            false,
+            false,
+        )
+    }
+
+    fn intent_fixture(
+        rules: MissionRules,
+        gunner_at: GridPos,
+        vanguard_at: GridPos,
+    ) -> BattleState {
+        let board = BoardState::new(9, 9, [], [], []);
+        let mut units = vec![squad::unit(
+            FLANKER_COURIER,
+            "Flanker",
+            UnitArchetype::Flanker,
+            Faction::Enemy,
+            squad::stats(8, 0, 4, 82, 30, 0),
+            GridPos::new(4, 4),
+            vec![WeaponId(205)],
+        )];
+        units.push(squad::unit(
+            SHARED_VANGUARD,
+            "Vanguard",
+            UnitArchetype::Vanguard,
+            Faction::Player,
+            squad::stats(20, 3, 3, 78, 5, 7),
+            vanguard_at,
+            vec![],
+        ));
+        units.push(squad::unit(
+            PROTECT_GUNNER,
+            "Gunner",
+            UnitArchetype::Gunner,
+            Faction::Player,
+            squad::stats(12, 0, 3, 70, 10, 7),
+            gunner_at,
+            vec![],
+        ));
+        BattleState::new(board, units, vec![band_cross()], rules, 7)
     }
 
     #[test]
