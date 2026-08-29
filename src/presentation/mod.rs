@@ -76,6 +76,11 @@ pub struct ReactionVisual {
     pub reaction: Reaction,
 }
 
+/// Ground marker at the intercept mission's escape cell; spawned/kept by
+/// `sync::reconcile_extraction_marker` only while the primary is intercept.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExtractionVisual(pub GridPos);
+
 #[derive(Resource, Default)]
 pub struct BattleEventQueue(pub VecDeque<BattleEvent>);
 

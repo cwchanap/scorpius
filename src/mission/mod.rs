@@ -17,6 +17,18 @@ pub enum MissionId {
     Four,
 }
 
+impl std::fmt::Display for MissionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let number = match self {
+            MissionId::One => 1,
+            MissionId::Two => 2,
+            MissionId::Three => 3,
+            MissionId::Four => 4,
+        };
+        write!(f, "{number}")
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DialogueLine {
     pub speaker: &'static str,

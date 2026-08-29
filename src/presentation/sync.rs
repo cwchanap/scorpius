@@ -3,13 +3,13 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
 
-use crate::domain::model::{Faction, WeaponShape};
+use crate::domain::model::{Faction, PrimaryObjective, WeaponShape};
 
 use super::{
-    AttackPreviewCells, BattleRuntime, CellVisual, EventPlayback, IntentLineVisual,
-    IntentTargetVisual, PresentationRoot, PropVisual, ReactionVisual, SelectedCell,
-    TelegraphGlyphVisual, TelegraphVisual, UnitVisual, battlefield::BattlefieldVisualAssets,
-    grid_to_world,
+    AttackPreviewCells, BattleRuntime, CellVisual, EventPlayback, ExtractionVisual,
+    IntentLineVisual, IntentTargetVisual, PresentationRoot, PropVisual, ReactionVisual,
+    SelectedCell, TelegraphGlyphVisual, TelegraphVisual, UnitVisual,
+    battlefield::BattlefieldVisualAssets, grid_to_world,
 };
 
 pub fn apply_unit_transforms(
@@ -199,6 +199,46 @@ pub fn reconcile_intent_guides(
     }
 }
 
+/// Keeps exactly one ground ring at the intercept mission's escape cell; no
+/// marker exists in missions whose primary is not `InterceptBeforeEscape`.
+pub fn reconcile_extraction_marker(
+    mut commands: Commands,
+    battle: Res<BattleRuntime>,
+    playback: Option<Res<EventPlayback>>,
+    roots: Query<Entity, With<PresentationRoot>>,
+    existing: Query<(Entity, &ExtractionVisual)>,
+) {
+    if playback.is_some_and(|playback| playback.input_locked) {
+        return;
+    }
+    let expected = match battle.0.rules().primary {
+        PrimaryObjective::InterceptBeforeEscape { escape, .. } => Some(escape),
+        PrimaryObjective::EliminateAllEnemies | PrimaryObjective::ProtectThroughRound { .. } => {
+            None
+        }
+    };
+
+    for (entity, marker) in &existing {
+        if Some(marker.0) != expected {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    if let Some(escape) = expected {
+        if existing.iter().any(|(_, marker)| marker.0 == escape) {
+            return;
+        }
+        let mut marker = commands.spawn((
+            ExtractionVisual(escape),
+            Transform::from_translation(grid_to_world(escape) + Vec3::Y * 0.06),
+            Visibility::Visible,
+        ));
+        if let Some(root) = roots.iter().next() {
+            marker.insert(ChildOf(root));
+        }
+    }
+}
+
 pub fn reconcile_reaction_markers(
     mut commands: Commands,
     battle: Res<BattleRuntime>,
@@ -334,6 +374,23 @@ pub(crate) fn attach_intent_line_rendering(
         commands.entity(entity).insert((
             Mesh3d(visual_assets.line_mesh.clone()),
             MeshMaterial3d(visual_assets.intent_line.clone()),
+            Pickable::IGNORE,
+        ));
+    }
+}
+
+pub fn attach_extraction_rendering(
+    mut commands: Commands,
+    visual_assets: Option<Res<BattlefieldVisualAssets>>,
+    rings: Query<Entity, Added<ExtractionVisual>>,
+) {
+    let Some(visual_assets) = visual_assets else {
+        return;
+    };
+    for entity in &rings {
+        commands.entity(entity).insert((
+            Mesh3d(visual_assets.ring_mesh.clone()),
+            MeshMaterial3d(visual_assets.intended_target.clone()),
             Pickable::IGNORE,
         ));
     }

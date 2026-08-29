@@ -59,9 +59,7 @@ pub const fn scene_index(archetype: UnitArchetype) -> usize {
         UnitArchetype::Rifleman => 3,
         UnitArchetype::Striker => 4,
         UnitArchetype::Artillery => 5,
-        // Interim borrow of the Interceptor scene; the authored Flanker scene
-        // replaces this when the glTF work lands.
-        UnitArchetype::Flanker => 2,
+        UnitArchetype::Flanker => 10,
     }
 }
 
@@ -230,7 +228,7 @@ fn populate_mission_root(
     }
 }
 
-fn create_visual_assets(
+pub fn create_visual_assets(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) -> BattlefieldVisualAssets {

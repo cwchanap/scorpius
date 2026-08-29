@@ -23,9 +23,10 @@ use crate::{
         },
         playback::{begin_restarted_round, play_battle_events},
         sync::{
-            apply_prop_visibility, apply_unit_transforms, attach_intent_line_rendering,
-            attach_intent_target_rendering, attach_reaction_rendering, attach_telegraph_rendering,
-            pulse_telegraphs, reconcile_intent_guides, reconcile_reaction_markers,
+            apply_prop_visibility, apply_unit_transforms, attach_extraction_rendering,
+            attach_intent_line_rendering, attach_intent_target_rendering,
+            attach_reaction_rendering, attach_telegraph_rendering, pulse_telegraphs,
+            reconcile_extraction_marker, reconcile_intent_guides, reconcile_reaction_markers,
             reconcile_telegraph_markers, sync_auxiliary_transforms, sync_cell_highlights,
         },
         ui::{HudRoot, setup_mission_ui, update_asset_status_text, update_hud},
@@ -135,10 +136,12 @@ impl Plugin for ScorpiusPlugin {
                 reconcile_telegraph_markers,
                 reconcile_intent_guides,
                 reconcile_reaction_markers,
+                reconcile_extraction_marker,
                 attach_telegraph_rendering,
                 attach_intent_target_rendering,
                 attach_intent_line_rendering,
                 attach_reaction_rendering,
+                attach_extraction_rendering,
             )
                 .chain()
                 .after(begin_restarted_round)
