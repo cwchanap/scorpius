@@ -449,6 +449,7 @@ fn terminal_overlay_copy_matches_the_mission_result() {
                 optional_complete: true,
                 rounds: 2,
             },
+            mission_one(7).rules().primary,
             definition,
         ),
         "MISSION COMPLETE\nMission 1 — Turnabout at Relay Nine\nBONUS Achieved"
@@ -460,8 +461,39 @@ fn terminal_overlay_copy_matches_the_mission_result() {
                 optional_complete: false,
                 rounds: 3,
             },
+            mission_one(7).rules().primary,
             definition,
         ),
         "MISSION FAILED\nSquad knocked out"
+    );
+}
+
+fn defeat_result() -> MissionResult {
+    MissionResult {
+        victory: false,
+        optional_complete: false,
+        rounds: 3,
+    }
+}
+
+#[test]
+fn defeat_overlay_names_the_lost_protect_target() {
+    let definition = mission_definition(MissionId::Two).unwrap();
+    assert_eq!(
+        result_overlay_copy(defeat_result(), mission_two(7).rules().primary, definition),
+        "MISSION FAILED\nProtect target lost"
+    );
+}
+
+#[test]
+fn defeat_overlay_names_the_escaped_courier() {
+    let definition = mission_definition(MissionId::Three).unwrap();
+    assert_eq!(
+        result_overlay_copy(
+            defeat_result(),
+            mission_three(7).rules().primary,
+            definition
+        ),
+        "MISSION FAILED\nCourier not stopped in time"
     );
 }

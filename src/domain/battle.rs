@@ -501,15 +501,21 @@ impl BattleState {
         };
         // Turnabout stays trigger-driven via `objectives`; every other optional
         // is only evaluated at the moment of victory.
-        let optional_complete = self.objectives.optional_complete
-            || (victory
-                && match self.rules.optional {
-                    OptionalObjective::Turnabout => false,
-                    OptionalObjective::ProtectTargetAtHalfHp { target } => self
-                        .unit(target)
-                        .is_some_and(|unit| unit.hp * 2 >= unit.stats.max_hp),
-                    OptionalObjective::VictoryByRound { round } => self.round <= round,
-                });
+        let mut events = Vec::new();
+        if victory
+            && !self.objectives.optional_complete
+            && match self.rules.optional {
+                OptionalObjective::Turnabout => false,
+                OptionalObjective::ProtectTargetAtHalfHp { target } => self
+                    .unit(target)
+                    .is_some_and(|unit| unit.hp * 2 >= unit.stats.max_hp),
+                OptionalObjective::VictoryByRound { round } => self.round <= round,
+            }
+        {
+            self.objectives.optional_complete = true;
+            events.push(BattleEvent::OptionalObjectiveCompleted);
+        }
+        let optional_complete = self.objectives.optional_complete;
         let result = MissionResult {
             victory,
             optional_complete,
@@ -526,11 +532,12 @@ impl BattleState {
         self.pilot_skills.focus_pending = false;
         self.result = Some(result);
 
-        vec![if victory {
+        events.push(if victory {
             BattleEvent::MissionCompleted { result }
         } else {
             BattleEvent::MissionFailed { result }
-        }]
+        });
+        events
     }
 
     pub(super) fn roll_percent(&mut self) -> u8 {
@@ -1133,6 +1140,83 @@ mod tests {
         );
         assert!(battle.result().is_none());
         assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
+    }
+
+    #[test]
+    fn hold_fast_bonus_grants_at_victory_before_mission_completed() {
+        let mut battle = m2::mission_two(7);
+        let mut events = Vec::new();
+        for enemy in [
+            m2::ids::RIFLEMAN,
+            m2::ids::STRIKER,
+            m2::ids::ARTILLERY,
+            m2::ids::FLANKER,
+        ] {
+            events.extend(battle.apply_direct_damage(
+                enemy,
+                99,
+                DamageSource::PlayerWeapon(ids::PILE_LANCE),
+            ));
+        }
+
+        assert_eq!(battle.phase(), BattlePhase::Victory);
+        assert!(battle.objectives().optional_complete);
+        let bonus = events
+            .iter()
+            .position(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
+            .expect("victory-time bonus must emit OptionalObjectiveCompleted");
+        let completed = events
+            .iter()
+            .position(|event| matches!(event, BattleEvent::MissionCompleted { .. }))
+            .expect("victory must emit MissionCompleted");
+        assert!(bonus < completed, "events: {events:?}");
+    }
+
+    #[test]
+    fn swift_intercept_bonus_grants_at_victory_before_mission_completed() {
+        let mut battle = m3::mission_three(7);
+        battle.set_round_for_test(2);
+        let mut events = Vec::new();
+        for enemy in [m3::ids::COURIER, m3::ids::RIFLEMAN, m3::ids::STRIKER] {
+            events.extend(battle.apply_direct_damage(
+                enemy,
+                99,
+                DamageSource::PlayerWeapon(ids::PILE_LANCE),
+            ));
+        }
+
+        assert_eq!(battle.phase(), BattlePhase::Victory);
+        assert!(battle.objectives().optional_complete);
+        let bonus = events
+            .iter()
+            .position(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
+            .expect("victory-time bonus must emit OptionalObjectiveCompleted");
+        let completed = events
+            .iter()
+            .position(|event| matches!(event, BattleEvent::MissionCompleted { .. }))
+            .expect("victory must emit MissionCompleted");
+        assert!(bonus < completed, "events: {events:?}");
+    }
+
+    #[test]
+    fn turnabout_bonus_does_not_refire_when_victory_follows() {
+        let mut battle = mission_one(7);
+        battle.apply_direct_damage(ids::STRIKER, 1, DamageSource::Hazard);
+        assert!(battle.objectives().optional_complete);
+
+        let events = knock_out_all_enemies(&mut battle);
+
+        assert_eq!(battle.phase(), BattlePhase::Victory);
+        assert!(
+            battle
+                .result()
+                .is_some_and(|result| result.optional_complete)
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
+        );
     }
 
     #[test]

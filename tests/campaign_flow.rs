@@ -819,14 +819,14 @@ fn next_mission_copy_announces_each_authored_mission() {
         "unlock heading must follow the runtime's next mission"
     );
 
-    // Four has no authored definition: the handoff is the campaign-complete
-    // terminal screen.
+    // Four has no authored definition yet: the handoff still announces the
+    // unlock — the campaign continues toward Mission 4, it is not complete.
     let four = CampaignState {
         next_mission: MissionId::Four,
         ..CampaignState::new_game()
     };
     let copy = next_mission_copy(&four);
-    assert!(copy.contains("CAMPAIGN COMPLETE"), "handoff copy: {copy}");
+    assert!(copy.contains("MISSION 4 UNLOCKED"), "handoff copy: {copy}");
     assert!(copy.contains("Credits:"), "handoff copy: {copy}");
 }
 
