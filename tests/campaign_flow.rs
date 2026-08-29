@@ -10,9 +10,12 @@ use scorpius::campaign::model::{
 use scorpius::campaign::progression::CompletionReceipt;
 use scorpius::campaign::save::SaveFile;
 use scorpius::campaign::session::CampaignSession;
+use scorpius::domain::board::GridPos;
+use scorpius::domain::model::{OptionalObjective, PrimaryObjective};
 use scorpius::mission::MissionId;
 use scorpius::mission::mission_definition;
 use scorpius::mission::mission_one::ids;
+use scorpius::mission::mission_three;
 use scorpius::presentation::campaign_ui::{
     CampaignStatus, CampaignUiAction, DialogueCursor, aftermath_reward_copy, apply_campaign_action,
     briefing_copy, dialogue_snapshot, next_mission_copy, upgrade_row_copy,
@@ -21,7 +24,7 @@ use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
     ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
     EventPlayback, PresentationRoot, SelectedCell,
-    interaction::{InteractionState, StatusMessage},
+    interaction::{InteractionState, StatusMessage, restart_battle},
 };
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
@@ -78,6 +81,137 @@ fn battle_entry_builds_the_active_mission_with_campaign_upgrades() {
     let battle = &app.world().resource::<BattleRuntime>().0;
     assert_eq!(battle.unit(ids::VANGUARD).unwrap().stats.max_hp, 23);
     assert_eq!(battle.round(), 1);
+}
+
+#[test]
+fn mission_two_entry_and_restart_run_the_shared_definition_path_with_upgrades() {
+    let mut app = App::new();
+    app.insert_resource(CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Two,
+            credits: 800,
+            upgrades: SquadUpgrades {
+                gunner: UpgradeLevels {
+                    hp: 1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        }),
+        save: SaveFile::new(temp_save_path("entry-restart-two")),
+        last_completion: None,
+    }));
+    init_battle_transients(&mut app);
+    app.add_systems(Update, enter_battle);
+
+    app.update();
+
+    let active = app.world().resource::<ActiveMission>().0;
+    assert_eq!(active, mission_definition(MissionId::Two).unwrap());
+    {
+        let battle = &app.world().resource::<BattleRuntime>().0;
+        assert_eq!(battle.round(), 1, "entry must run the authored opening");
+        let gunner = battle.unit(ids::GUNNER).unwrap();
+        assert_eq!(
+            gunner.stats.max_hp, 18,
+            "campaign HP upgrade must project into Mission 2"
+        );
+    }
+
+    // Fight into the mission: move the Vanguard off its authored deployment.
+    {
+        let battle = &mut app.world_mut().resource_mut::<BattleRuntime>().0;
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(3, 6)).unwrap();
+    }
+    assert_eq!(
+        app.world()
+            .resource::<BattleRuntime>()
+            .0
+            .unit(ids::VANGUARD)
+            .unwrap()
+            .position,
+        GridPos::new(3, 6)
+    );
+
+    restart_battle(app.world_mut(), 4242);
+
+    let battle = &app.world().resource::<BattleRuntime>().0;
+    assert_eq!(battle.round(), 0, "rebuild waits for the opening round");
+    assert_eq!(
+        battle.rules().primary,
+        PrimaryObjective::ProtectThroughRound {
+            target: ids::GUNNER,
+            round: 3,
+        },
+        "restart must rebuild the authored Mission 2 rules"
+    );
+    assert_eq!(
+        battle.rules().optional,
+        OptionalObjective::ProtectTargetAtHalfHp {
+            target: ids::GUNNER
+        }
+    );
+    let gunner = battle.unit(ids::GUNNER).unwrap();
+    assert_eq!(gunner.stats.max_hp, 18, "upgrades must survive restart");
+    assert_eq!(gunner.hp, 18, "restart rebuilds at full authored HP");
+    assert_eq!(gunner.position, GridPos::new(4, 6), "authored deployment");
+    assert_eq!(
+        battle.unit(ids::VANGUARD).unwrap().position,
+        GridPos::new(3, 7),
+        "mid-battle movement must be undone by the rebuild"
+    );
+    assert_eq!(app.world().resource::<ActiveMission>().0.id, MissionId::Two);
+}
+
+#[test]
+fn mission_three_entry_builds_through_the_shared_definition_path_with_upgrades() {
+    let mut app = App::new();
+    app.insert_resource(CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Three,
+            credits: 800,
+            upgrades: SquadUpgrades {
+                vanguard: UpgradeLevels {
+                    hp: 1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        }),
+        save: SaveFile::new(temp_save_path("entry-three")),
+        last_completion: None,
+    }));
+    init_battle_transients(&mut app);
+    app.add_systems(Update, enter_battle);
+
+    app.update();
+
+    let active = app.world().resource::<ActiveMission>().0;
+    assert_eq!(active, mission_definition(MissionId::Three).unwrap());
+    let battle = &app.world().resource::<BattleRuntime>().0;
+    assert_eq!(battle.round(), 1, "entry must run the authored opening");
+    assert_eq!(
+        battle.rules().primary,
+        PrimaryObjective::InterceptBeforeEscape {
+            target: mission_three::ids::COURIER,
+            escape: mission_three::EXTRACTION,
+            deadline_round: 5,
+        }
+    );
+    assert_eq!(
+        battle.rules().optional,
+        OptionalObjective::VictoryByRound { round: 2 }
+    );
+    assert_eq!(
+        battle.unit(ids::VANGUARD).unwrap().stats.max_hp,
+        23,
+        "campaign HP upgrade must project into Mission 3"
+    );
+    assert_eq!(
+        battle.unit(mission_three::ids::COURIER).unwrap().position,
+        GridPos::new(0, 6)
+    );
 }
 
 #[test]
@@ -628,6 +762,27 @@ fn continue_and_proceed_route_three_to_upgrade_and_four_to_the_handoff() {
         route_continue(MissionId::Four),
         Some(GameScreen::NextMission)
     );
+
+    // PROCEED at the Three handoff opens Mission 3's story.
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Three,
+            credits: 900,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("proceed-three")),
+        last_completion: None,
+    });
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut DialogueCursor(0),
+        &mut CampaignStatus::default(),
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
 
     // PROCEED at the Four handoff stays on the handoff screen.
     let mut runtime = CampaignRuntime(CampaignSession {
