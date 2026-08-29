@@ -3,29 +3,26 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
     model::{
-        Faction, MissionRules, OptionalObjective, PrimaryObjective, UnitArchetype, UnitState,
-        WeaponShape, WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
     },
 };
-use crate::mission::squad::{SquadDeployment, build_player_squad, stats, unit, weapon};
+use crate::mission::enemies;
+use crate::mission::squad::{SquadDeployment, build_player_squad};
 use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
 
 pub mod ids {
+    pub use crate::mission::enemies::ids::{SERVICE_RIFLE, SHOCK_CLAW, SIEGE_MORTAR};
     pub use crate::mission::squad::ids::{
         ANCHOR_CANNON, ARC_BLADE, BURST_MISSILE, GUNNER, INTERCEPTOR, OVERCHARGE_SHOT, PILE_LANCE,
         PULSE_CARBINE, RAIL_RIFLE, REPULSOR_RAM, VANGUARD, VECTOR_PULSE,
     };
 
-    use crate::domain::model::{UnitId, WeaponId};
+    use crate::domain::model::UnitId;
 
     pub const RIFLEMAN_LEFT: UnitId = UnitId(11);
     pub const RIFLEMAN_RIGHT: UnitId = UnitId(12);
     pub const STRIKER: UnitId = UnitId(13);
     pub const ARTILLERY: UnitId = UnitId(14);
-
-    pub const SERVICE_RIFLE: WeaponId = WeaponId(201);
-    pub const SHOCK_CLAW: WeaponId = WeaponId(202);
-    pub const SIEGE_MORTAR: WeaponId = WeaponId(203);
 }
 
 const MISSION_ONE_DEPLOYMENT: SquadDeployment = SquadDeployment {
@@ -38,11 +35,36 @@ pub fn mission_one(seed: u64) -> BattleState {
     mission_one_for_campaign(seed, &SquadUpgrades::default())
 }
 
-/// Task 2 moves the authored opening movement into `opening_plan` rows.
+/// Authored opening: each enemy locks its destination and intended opening
+/// target before the player phase. Destinations and targets mirror the
+/// original hardcoded opening exactly.
+static MISSION_ONE_OPENING: [EnemyOpening; 4] = [
+    EnemyOpening {
+        unit: ids::RIFLEMAN_LEFT,
+        destination: GridPos::new(2, 5),
+        target: Some(ids::GUNNER),
+    },
+    EnemyOpening {
+        unit: ids::RIFLEMAN_RIGHT,
+        destination: GridPos::new(6, 5),
+        target: Some(ids::INTERCEPTOR),
+    },
+    EnemyOpening {
+        unit: ids::STRIKER,
+        destination: GridPos::new(4, 6),
+        target: Some(ids::VANGUARD),
+    },
+    EnemyOpening {
+        unit: ids::ARTILLERY,
+        destination: GridPos::new(4, 0),
+        target: Some(ids::VANGUARD),
+    },
+];
+
 const MISSION_ONE_RULES: MissionRules = MissionRules {
     primary: PrimaryObjective::EliminateAllEnemies,
     optional: OptionalObjective::Turnabout,
-    opening_plan: &[],
+    opening_plan: &MISSION_ONE_OPENING,
 };
 
 pub fn mission_one_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleState {
@@ -75,86 +97,18 @@ fn mission_one_board() -> BoardState {
 
 fn mission_one_enemy_units() -> Vec<UnitState> {
     vec![
-        unit(
-            ids::RIFLEMAN_LEFT,
-            "Rifleman L",
-            UnitArchetype::Rifleman,
-            Faction::Enemy,
-            stats(9, 1, 2, 72, 5, 0),
-            GridPos::new(2, 3),
-            vec![ids::SERVICE_RIFLE],
-        ),
-        unit(
-            ids::RIFLEMAN_RIGHT,
-            "Rifleman R",
-            UnitArchetype::Rifleman,
-            Faction::Enemy,
-            stats(9, 1, 2, 72, 5, 0),
-            GridPos::new(6, 3),
-            vec![ids::SERVICE_RIFLE],
-        ),
-        unit(
-            ids::STRIKER,
-            "Striker",
-            UnitArchetype::Striker,
-            Faction::Enemy,
-            stats(12, 2, 2, 78, 10, 0),
-            GridPos::new(4, 4),
-            vec![ids::SHOCK_CLAW],
-        ),
-        unit(
-            ids::ARTILLERY,
-            "Artillery",
-            UnitArchetype::Artillery,
-            Faction::Enemy,
-            stats(10, 1, 1, 90, 0, 0),
-            GridPos::new(4, 0),
-            vec![ids::SIEGE_MORTAR],
-        ),
+        enemies::rifleman(ids::RIFLEMAN_LEFT, "Rifleman L", GridPos::new(2, 3)),
+        enemies::rifleman(ids::RIFLEMAN_RIGHT, "Rifleman R", GridPos::new(6, 3)),
+        enemies::striker(ids::STRIKER, "Striker", GridPos::new(4, 4)),
+        enemies::artillery(ids::ARTILLERY, "Artillery", GridPos::new(4, 0)),
     ]
 }
 
 fn mission_one_enemy_weapons() -> Vec<WeaponSpec> {
     vec![
-        weapon(
-            ids::SERVICE_RIFLE,
-            "Service Rifle",
-            2,
-            4,
-            WeaponShape::Single,
-            5,
-            0,
-            5,
-            0,
-            false,
-            false,
-        ),
-        weapon(
-            ids::SHOCK_CLAW,
-            "Shock Claw",
-            1,
-            1,
-            WeaponShape::Single,
-            7,
-            10,
-            10,
-            0,
-            false,
-            false,
-        ),
-        weapon(
-            ids::SIEGE_MORTAR,
-            "Siege Mortar",
-            3,
-            8,
-            WeaponShape::Cross1,
-            6,
-            5,
-            5,
-            0,
-            false,
-            false,
-        ),
+        enemies::service_rifle(),
+        enemies::shock_claw(),
+        enemies::siege_mortar(),
     ]
 }
 
@@ -212,7 +166,7 @@ pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
 mod tests {
     use super::*;
     use crate::campaign::model::UpgradeLevels;
-    use crate::domain::model::PilotSkillState;
+    use crate::domain::model::{Faction, PilotSkillState, WeaponShape};
 
     #[test]
     fn mission_one_constructors_start_with_default_pilot_skills() {
@@ -229,7 +183,32 @@ mod tests {
         let rules = battle.rules();
         assert_eq!(rules.primary, PrimaryObjective::EliminateAllEnemies);
         assert_eq!(rules.optional, OptionalObjective::Turnabout);
-        assert!(rules.opening_plan.is_empty());
+        assert_eq!(rules.opening_plan.len(), 4);
+        assert_eq!(rules.opening_plan[0].unit, ids::RIFLEMAN_LEFT);
+        assert_eq!(rules.opening_plan[0].destination, GridPos::new(2, 5));
+        assert_eq!(rules.opening_plan[0].target, Some(ids::GUNNER));
+    }
+
+    #[test]
+    fn mission_one_opening_rows_reference_legal_units_and_destinations() {
+        let battle = mission_one(7);
+        let rules = battle.rules();
+        let enemies: Vec<_> = battle
+            .units()
+            .filter(|unit| unit.faction == Faction::Enemy)
+            .map(|unit| unit.id)
+            .collect();
+
+        assert_eq!(rules.opening_plan.len(), enemies.len());
+        for opening in rules.opening_plan {
+            let unit = battle.unit(opening.unit).expect("opening refs a real unit");
+            assert_eq!(unit.faction, Faction::Enemy);
+            assert!(battle.board().contains(opening.destination));
+            assert!(!battle.board().is_blocking(opening.destination));
+            assert!(!battle.board().is_hazard(opening.destination));
+            let target = opening.target.expect("M1 opening rows lock a target");
+            assert_eq!(battle.unit(target).unwrap().faction, Faction::Player);
+        }
     }
 
     #[test]

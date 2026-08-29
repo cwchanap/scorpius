@@ -5,8 +5,8 @@ use crate::domain::{
     board::GridPos,
     combat::{AttackPreview, attack_footprint, preview_for_profile},
     model::{
-        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, UnitArchetype, UnitId,
-        UnitState, WeaponId,
+        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, PrimaryObjective,
+        UnitArchetype, UnitId, UnitState, WeaponId, WeaponSpec,
     },
 };
 
@@ -204,21 +204,15 @@ impl BattleState {
     }
 
     fn apply_authored_opening_movement(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
-        let enemies: Vec<_> = self
-            .units()
-            .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
-            .map(|unit| (unit.id, unit.archetype, unit.position))
+        let plan: Vec<(UnitId, GridPos)> = self
+            .rules()
+            .opening_plan
+            .iter()
+            .map(|opening| (opening.unit, opening.destination))
             .collect();
         let mut events = Vec::new();
 
-        for (id, archetype, origin) in enemies {
-            let destination = match archetype {
-                UnitArchetype::Rifleman if origin.x < 4 => GridPos::new(2, 5),
-                UnitArchetype::Rifleman => GridPos::new(6, 5),
-                UnitArchetype::Striker => GridPos::new(4, 6),
-                UnitArchetype::Artillery => origin,
-                _ => origin,
-            };
+        for (id, destination) in plan {
             events.extend(self.move_enemy_to(id, destination)?);
             if self.result().is_some() {
                 break;
@@ -316,41 +310,22 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
     candidates.sort_by_key(|position| (position.y, position.x));
 
     match unit.archetype {
+        UnitArchetype::Flanker => {
+            let weapon = unit_weapon(battle, unit)?;
+            Ok(flanker_destination(
+                battle,
+                unit,
+                &candidates,
+                &players,
+                weapon,
+            ))
+        }
         UnitArchetype::Rifleman | UnitArchetype::Striker => {
-            let weapon = unit
-                .weapons
-                .first()
-                .and_then(|weapon| battle.weapon(*weapon))
-                .ok_or(BattleError::InvalidTarget(unit.position))?;
-            Ok(*candidates
-                .iter()
-                .min_by_key(|position| {
-                    let band_distance = players
-                        .iter()
-                        .map(|player| {
-                            distance_to_band(
-                                position.manhattan(player.position),
-                                weapon.min_range,
-                                weapon.max_range,
-                            )
-                        })
-                        .min()
-                        .unwrap_or(0);
-                    let nearest = players
-                        .iter()
-                        .map(|player| position.manhattan(player.position))
-                        .min()
-                        .unwrap_or(0);
-                    (band_distance, nearest, position.y, position.x)
-                })
-                .expect("origin is always a movement candidate"))
+            let weapon = unit_weapon(battle, unit)?;
+            Ok(attack_band_destination(&candidates, &players, weapon))
         }
         UnitArchetype::Artillery => {
-            let weapon = unit
-                .weapons
-                .first()
-                .and_then(|weapon| battle.weapon(*weapon))
-                .ok_or(BattleError::InvalidTarget(unit.position))?;
+            let weapon = unit_weapon(battle, unit)?;
             if players.iter().any(|player| {
                 let distance = unit.position.manhattan(player.position);
                 distance >= weapon.min_range && distance <= weapon.max_range
@@ -376,6 +351,90 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
                 .expect("origin is always a movement candidate"))
         }
         _ => Ok(unit.position),
+    }
+}
+
+fn unit_weapon<'a>(
+    battle: &'a BattleState,
+    unit: &UnitState,
+) -> Result<&'a WeaponSpec, BattleError> {
+    unit.weapons
+        .first()
+        .and_then(|weapon| battle.weapon(*weapon))
+        .ok_or(BattleError::InvalidTarget(unit.position))
+}
+
+fn attack_band_destination(
+    candidates: &[GridPos],
+    players: &[UnitState],
+    weapon: &WeaponSpec,
+) -> GridPos {
+    *candidates
+        .iter()
+        .min_by_key(|position| attack_band_key(**position, players, weapon))
+        .expect("origin is always a movement candidate")
+}
+
+fn attack_band_key(
+    position: GridPos,
+    players: &[UnitState],
+    weapon: &WeaponSpec,
+) -> (u8, u8, u8, u8) {
+    let band_distance = players
+        .iter()
+        .map(|player| {
+            distance_to_band(
+                position.manhattan(player.position),
+                weapon.min_range,
+                weapon.max_range,
+            )
+        })
+        .min()
+        .unwrap_or(0);
+    let nearest = players
+        .iter()
+        .map(|player| position.manhattan(player.position))
+        .min()
+        .unwrap_or(0);
+    (band_distance, nearest, position.y, position.x)
+}
+
+/// Explicit Flanker branches keyed on the mission primary: protect pressure
+/// hugs the protected unit's weapon band, the intercepted Courier races the
+/// escape point, everything else falls back to the normal attack band. No
+/// policy object, no RNG.
+fn flanker_destination(
+    battle: &BattleState,
+    unit: &UnitState,
+    candidates: &[GridPos],
+    players: &[UnitState],
+    weapon: &WeaponSpec,
+) -> GridPos {
+    match battle.rules().primary {
+        PrimaryObjective::ProtectThroughRound { target, .. } => {
+            let Some(protect) = players.iter().find(|player| player.id == target) else {
+                return attack_band_destination(candidates, players, weapon);
+            };
+            *candidates
+                .iter()
+                .min_by_key(|position| {
+                    let distance = position.manhattan(protect.position);
+                    (
+                        distance_to_band(distance, weapon.min_range, weapon.max_range),
+                        distance,
+                        position.y,
+                        position.x,
+                    )
+                })
+                .expect("origin is always a movement candidate")
+        }
+        PrimaryObjective::InterceptBeforeEscape { target, escape, .. } if target == unit.id => {
+            *candidates
+                .iter()
+                .min_by_key(|position| (position.manhattan(escape), position.y, position.x))
+                .expect("origin is always a movement candidate")
+        }
+        _ => attack_band_destination(candidates, players, weapon),
     }
 }
 
@@ -508,21 +567,15 @@ fn choice_for_center(
 }
 
 fn opening_target(battle: &BattleState, attacker: UnitId) -> Option<GridPos> {
-    let enemy = battle.unit(attacker)?;
-    let target_archetype = match enemy.archetype {
-        UnitArchetype::Striker | UnitArchetype::Artillery => UnitArchetype::Vanguard,
-        UnitArchetype::Rifleman if enemy.position.x < 4 => UnitArchetype::Gunner,
-        UnitArchetype::Rifleman => UnitArchetype::Interceptor,
-        _ => return None,
-    };
-    battle
-        .units()
-        .find(|unit| {
-            unit.faction == Faction::Player
-                && unit.archetype == target_archetype
-                && !unit.is_knocked_out()
-        })
-        .map(|unit| unit.position)
+    let opening = battle
+        .rules()
+        .opening_plan
+        .iter()
+        .find(|opening| opening.unit == attacker)?;
+    let target = battle
+        .unit(opening.target?)
+        .filter(|unit| !unit.is_knocked_out())?;
+    Some(target.position)
 }
 
 fn living_players(battle: &BattleState) -> Vec<UnitState> {
@@ -545,8 +598,8 @@ fn player_priority(unit: &UnitState) -> u8 {
 fn initiative(unit: &UnitState) -> i16 {
     match unit.archetype {
         UnitArchetype::Striker => 30,
-        UnitArchetype::Rifleman if unit.position.x < 4 => 20,
-        UnitArchetype::Rifleman => 19,
+        UnitArchetype::Flanker => 25,
+        UnitArchetype::Rifleman => 20,
         UnitArchetype::Artillery => 10,
         _ => 0,
     }
@@ -564,12 +617,26 @@ fn distance_to_band(distance: u8, min_range: u8, max_range: u8) -> u8 {
 mod tests {
     use crate::{
         domain::{
-            board::GridPos,
+            battle::BattleState,
+            board::{BoardState, GridPos},
             combat::DamageSource,
-            model::{BattleEvent, BattlePhase, Reaction},
+            model::{
+                BattleEvent, BattlePhase, Faction, MissionRules, OptionalObjective,
+                PrimaryObjective, Reaction, UnitArchetype, UnitId,
+            },
         },
-        mission::mission_one::{ids, mission_one},
+        mission::{
+            enemies,
+            mission_one::{ids, mission_one},
+            squad,
+        },
     };
+
+    use super::initiative;
+
+    const FLANKER_COURIER: UnitId = UnitId(21);
+    const PROTECTED: UnitId = UnitId(2);
+    const DECOY: UnitId = UnitId(3);
 
     #[test]
     fn authored_opening_places_four_locked_threats() {
@@ -606,6 +673,21 @@ mod tests {
                 ids::RIFLEMAN_LEFT,
                 ids::RIFLEMAN_RIGHT,
                 ids::ARTILLERY,
+            ]
+        );
+        // Every authored opening locks its intended victim.
+        let intended: Vec<_> = battle
+            .intents()
+            .iter()
+            .map(|intent| (intent.attacker, intent.intended_occupant))
+            .collect();
+        assert_eq!(
+            intended,
+            vec![
+                (ids::STRIKER, Some(ids::VANGUARD)),
+                (ids::RIFLEMAN_LEFT, Some(ids::GUNNER)),
+                (ids::RIFLEMAN_RIGHT, Some(ids::INTERCEPTOR)),
+                (ids::ARTILLERY, Some(ids::VANGUARD)),
             ]
         );
         assert!(
@@ -882,7 +964,274 @@ mod tests {
         );
     }
 
-    fn isolated_striker_fixture() -> crate::domain::battle::BattleState {
+    #[test]
+    fn initiative_is_fixed_per_archetype_without_position() {
+        assert_eq!(
+            initiative(&enemies::striker(UnitId(13), "Striker", GridPos::new(4, 4))),
+            30
+        );
+        assert_eq!(
+            initiative(&enemies::flanker(UnitId(21), "Flanker", GridPos::new(0, 6))),
+            25
+        );
+        assert_eq!(
+            initiative(&enemies::rifleman(
+                UnitId(11),
+                "Rifleman L",
+                GridPos::new(0, 3)
+            )),
+            20
+        );
+        assert_eq!(
+            initiative(&enemies::rifleman(
+                UnitId(12),
+                "Rifleman R",
+                GridPos::new(8, 3)
+            )),
+            20
+        );
+        assert_eq!(
+            initiative(&enemies::artillery(
+                UnitId(14),
+                "Artillery",
+                GridPos::new(4, 0)
+            )),
+            10
+        );
+    }
+
+    #[test]
+    fn flanker_initiative_slots_between_striker_and_rifleman() {
+        let mut battle = squad_fixture(
+            eliminate_rules(),
+            [
+                (UnitId(11), UnitArchetype::Rifleman, GridPos::new(0, 3)),
+                (FLANKER_COURIER, UnitArchetype::Flanker, GridPos::new(4, 4)),
+                (UnitId(12), UnitArchetype::Striker, GridPos::new(4, 3)),
+                (UnitId(13), UnitArchetype::Artillery, GridPos::new(4, 0)),
+            ],
+            [(PROTECTED, GridPos::new(8, 8))],
+        );
+        battle.set_round_for_test(1);
+        battle.begin_round().unwrap();
+
+        let order: Vec<_> = battle
+            .intents()
+            .iter()
+            .map(|intent| (intent.attacker, intent.initiative))
+            .collect();
+
+        // The Flanker commits before the lower-id Rifleman: initiative, not id,
+        // drives the order.
+        assert_eq!(
+            order,
+            vec![
+                (UnitId(12), 30),
+                (FLANKER_COURIER, 25),
+                (UnitId(11), 20),
+                (UnitId(13), 10),
+            ]
+        );
+    }
+
+    #[test]
+    fn flanker_protect_pressure_hugs_the_protected_units_weapon_band() {
+        // The protected unit sits at (4,4); the nearer decoy at (1,5) must be
+        // ignored. Band 0 of (4,4) with Manhattan 1 is (3,4); fallback band
+        // logic would instead hug the decoy at (0,5).
+        let mut battle = pressure_fixture(
+            protect_rules(PROTECTED),
+            GridPos::new(0, 4),
+            [(PROTECTED, GridPos::new(4, 4)), (DECOY, GridPos::new(1, 5))],
+            &[],
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle.unit(FLANKER_COURIER).unwrap().position,
+            GridPos::new(3, 4)
+        );
+    }
+
+    #[test]
+    fn flanker_protect_tie_breaks_band_then_manhattan_then_row_then_column() {
+        let rules = protect_rules(PROTECTED);
+
+        // Manhattan level: (2,1), (3,1), and (1,2) are all in band with
+        // Manhattan 1 to the protected unit at (2,2); the lower row wins.
+        let mut battle = pressure_fixture(
+            rules,
+            GridPos::new(0, 0),
+            [(PROTECTED, GridPos::new(2, 2))],
+            &[],
+        );
+        advance_a_later_round(&mut battle);
+        assert_eq!(
+            battle.unit(FLANKER_COURIER).unwrap().position,
+            GridPos::new(2, 1)
+        );
+
+        // Manhattan level: with (2,1) blocked, (1,2) is the only Manhattan-1
+        // cell and wins even though lower-row Manhattan-2 cells exist.
+        let mut battle = pressure_fixture(
+            rules,
+            GridPos::new(0, 0),
+            [(PROTECTED, GridPos::new(2, 2))],
+            &[GridPos::new(2, 1)],
+        );
+        advance_a_later_round(&mut battle);
+        assert_eq!(
+            battle.unit(FLANKER_COURIER).unwrap().position,
+            GridPos::new(1, 2)
+        );
+
+        // Column level: with the Manhattan-1 cells and row-0 (2,0) blocked,
+        // (1,1) beats (3,1) on the shared row 1 and (0,2) on row.
+        let mut battle = pressure_fixture(
+            rules,
+            GridPos::new(0, 0),
+            [(PROTECTED, GridPos::new(2, 2))],
+            &[GridPos::new(1, 2), GridPos::new(2, 1), GridPos::new(2, 0)],
+        );
+        advance_a_later_round(&mut battle);
+        assert_eq!(
+            battle.unit(FLANKER_COURIER).unwrap().position,
+            GridPos::new(1, 1)
+        );
+    }
+
+    #[test]
+    fn flanker_courier_pressure_races_manhattan_to_the_escape_point() {
+        let mut battle = pressure_fixture(
+            courier_rules(),
+            GridPos::new(0, 6),
+            [(DECOY, GridPos::new(8, 8))],
+            &[],
+        );
+        advance_a_later_round(&mut battle);
+
+        let destination = battle.unit(FLANKER_COURIER).unwrap().position;
+        assert_eq!(destination, GridPos::new(0, 2));
+        assert_eq!(destination.manhattan(GridPos::new(8, 0)), 10);
+    }
+
+    #[test]
+    fn flanker_without_a_pressure_rule_reuses_the_attack_band_fallback() {
+        // Same geometry as the protect test: without a protect primary the
+        // Flanker hugs the nearest player (the decoy at (1,5), best cell
+        // (1,4)) instead of the protected unit at (4,4), whose best cell is
+        // (3,4).
+        let mut battle = pressure_fixture(
+            eliminate_rules(),
+            GridPos::new(0, 4),
+            [(PROTECTED, GridPos::new(4, 4)), (DECOY, GridPos::new(1, 5))],
+            &[],
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle.unit(FLANKER_COURIER).unwrap().position,
+            GridPos::new(1, 4)
+        );
+    }
+
+    fn eliminate_rules() -> MissionRules {
+        MissionRules {
+            primary: PrimaryObjective::EliminateAllEnemies,
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        }
+    }
+
+    fn protect_rules(target: UnitId) -> MissionRules {
+        MissionRules {
+            primary: PrimaryObjective::ProtectThroughRound { target, round: 3 },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        }
+    }
+
+    fn courier_rules() -> MissionRules {
+        MissionRules {
+            primary: PrimaryObjective::InterceptBeforeEscape {
+                target: FLANKER_COURIER,
+                escape: GridPos::new(8, 0),
+                deadline_round: 5,
+            },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        }
+    }
+
+    fn pressure_fixture(
+        rules: MissionRules,
+        flanker_at: GridPos,
+        players: impl IntoIterator<Item = (UnitId, GridPos)>,
+        blocking: &[GridPos],
+    ) -> BattleState {
+        let board = BoardState::new(9, 9, blocking.iter().copied(), [], []);
+        let mut units = vec![enemies::flanker(FLANKER_COURIER, "Flanker", flanker_at)];
+        units.extend(players.into_iter().map(|(id, position)| {
+            squad::unit(
+                id,
+                "Player",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                squad::stats(20, 3, 3, 78, 5, 7),
+                position,
+                vec![],
+            )
+        }));
+        BattleState::new(board, units, vec![enemies::skirmish_carbine()], rules, 7)
+    }
+
+    fn squad_fixture(
+        rules: MissionRules,
+        enemy_roster: impl IntoIterator<Item = (UnitId, UnitArchetype, GridPos)>,
+        players: impl IntoIterator<Item = (UnitId, GridPos)>,
+    ) -> BattleState {
+        let board = BoardState::new(9, 9, [], [], []);
+        let mut units: Vec<_> = enemy_roster
+            .into_iter()
+            .map(|(id, archetype, position)| match archetype {
+                UnitArchetype::Rifleman => enemies::rifleman(id, "Rifleman", position),
+                UnitArchetype::Striker => enemies::striker(id, "Striker", position),
+                UnitArchetype::Artillery => enemies::artillery(id, "Artillery", position),
+                UnitArchetype::Flanker => enemies::flanker(id, "Flanker", position),
+                _ => unreachable!("players are built separately"),
+            })
+            .collect();
+        units.extend(players.into_iter().map(|(id, position)| {
+            squad::unit(
+                id,
+                "Player",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                squad::stats(20, 3, 3, 78, 5, 7),
+                position,
+                vec![],
+            )
+        }));
+        BattleState::new(
+            board,
+            units,
+            vec![
+                enemies::service_rifle(),
+                enemies::shock_claw(),
+                enemies::siege_mortar(),
+                enemies::skirmish_carbine(),
+            ],
+            rules,
+            7,
+        )
+    }
+
+    fn advance_a_later_round(battle: &mut BattleState) {
+        battle.set_round_for_test(1);
+        battle.begin_round().unwrap();
+    }
+
+    fn isolated_striker_fixture() -> BattleState {
         let mut battle = mission_one(7);
         battle.set_round_for_test(1);
         battle.move_unit_direct_for_test(ids::STRIKER, GridPos::new(0, 0));
@@ -892,7 +1241,7 @@ mod tests {
         battle
     }
 
-    fn locked_mortar_fixture(seed: u64) -> crate::domain::battle::BattleState {
+    fn locked_mortar_fixture(seed: u64) -> BattleState {
         let mut battle = mission_one(seed);
         battle.begin_round().unwrap();
         battle

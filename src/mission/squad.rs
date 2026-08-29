@@ -1,7 +1,7 @@
 //! Shared fixed Vanguard/Gunner/Interceptor roster construction from upgrade levels.
 //!
-//! Missions own their deployment positions and enemy roster; this module owns the
-//! player squad itself so every mission builder projects the same upgrades the
+//! Missions own their deployment positions and enemy openings; this module owns
+//! the player squad itself so every mission builder projects the same upgrades the
 //! same way. Upgrade effects per level: HP +3 max HP, Armor +1, Mobility +5
 //! evasion (movement range is unchanged), Weapon +1 base damage to the mech's
 //! three weapons.

@@ -22,6 +22,7 @@ pub enum UnitArchetype {
     Rifleman,
     Striker,
     Artillery,
+    Flanker,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
