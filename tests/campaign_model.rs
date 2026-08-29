@@ -28,6 +28,8 @@ fn new_game_and_mission_one_definition_are_locked() {
     let two = mission_definition(MissionId::Two).unwrap();
     assert_eq!(two.unlocks, MissionId::Three);
     assert_eq!(two.base_reward, 400);
-    assert_eq!(mission_definition(MissionId::Three), None);
+    let three = mission_definition(MissionId::Three).unwrap();
+    assert_eq!(three.unlocks, MissionId::Four);
+    assert_eq!(three.base_reward, 500);
     assert_eq!(mission_definition(MissionId::Four), None);
 }

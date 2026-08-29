@@ -76,6 +76,54 @@ fn base_reward_only_when_turnabout_missed() {
 }
 
 #[test]
+fn campaign_progresses_through_four_on_base_rewards_alone() {
+    let mut state = CampaignState::new_game();
+    for (id, base) in [
+        (MissionId::One, 300),
+        (MissionId::Two, 400),
+        (MissionId::Three, 500),
+    ] {
+        let definition = mission_definition(id).unwrap();
+        let receipt = state
+            .complete_mission(definition, mission_result(true, false))
+            .unwrap();
+        assert_eq!(receipt.base_reward, base);
+        assert_eq!(receipt.optional_reward, 0);
+    }
+
+    assert_eq!(state.credits, 1200);
+    assert_eq!(state.next_mission, MissionId::Four);
+    // Four is the terminal handoff: authored content ends at Three.
+    assert!(mission_definition(MissionId::Four).is_none());
+}
+
+#[test]
+fn save_at_four_round_trips_purchased_upgrades() {
+    let path = temp_path();
+    let mut session = CampaignSession::new(SaveFile::new(path.clone()));
+    start_new_game(&mut session).unwrap();
+    for id in [MissionId::One, MissionId::Two, MissionId::Three] {
+        complete_current_mission(
+            &mut session,
+            mission_definition(id).unwrap(),
+            mission_result(true, true),
+        )
+        .unwrap();
+    }
+    persist_purchase(&mut session, PlayerMech::Vanguard, UpgradeTrack::Weapon).unwrap();
+    persist_purchase(&mut session, PlayerMech::Gunner, UpgradeTrack::Hp).unwrap();
+
+    let mut resumed = CampaignSession::new(SaveFile::new(path));
+    assert_eq!(continue_game(&mut resumed).unwrap(), MissionId::Four);
+    let state = resumed.state.as_ref().unwrap();
+    assert_eq!(state.next_mission, MissionId::Four);
+    assert_eq!(state.upgrades.vanguard.weapon, 1);
+    assert_eq!(state.upgrades.gunner.hp, 1);
+    // 400+500+650 all-optionals rewards minus two 200-credit level-1 purchases.
+    assert_eq!(state.credits, 1150);
+}
+
+#[test]
 fn missing_save_loads_none() {
     let save = SaveFile::new(temp_path());
     assert_eq!(save.load().unwrap(), None);
