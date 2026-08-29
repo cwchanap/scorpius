@@ -59,6 +59,9 @@ pub const fn scene_index(archetype: UnitArchetype) -> usize {
         UnitArchetype::Rifleman => 3,
         UnitArchetype::Striker => 4,
         UnitArchetype::Artillery => 5,
+        // Interim borrow of the Interceptor scene; the authored Flanker scene
+        // replaces this when the glTF work lands.
+        UnitArchetype::Flanker => 2,
     }
 }
 

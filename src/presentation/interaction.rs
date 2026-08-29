@@ -173,7 +173,10 @@ pub fn execute_command(
                 }
                 UnitArchetype::Gunner => battle.use_focus()?,
                 UnitArchetype::Interceptor => battle.use_overdrive()?,
-                UnitArchetype::Rifleman | UnitArchetype::Striker | UnitArchetype::Artillery => {
+                UnitArchetype::Rifleman
+                | UnitArchetype::Striker
+                | UnitArchetype::Artillery
+                | UnitArchetype::Flanker => {
                     return Err(BattleError::PilotSkillWrongUnit(unit_id));
                 }
             }

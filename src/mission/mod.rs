@@ -1,6 +1,7 @@
 use crate::{campaign::model::SquadUpgrades, domain::battle::BattleState};
 use serde::{Deserialize, Serialize};
 
+pub mod enemies;
 pub mod mission_one;
 pub mod squad;
 
