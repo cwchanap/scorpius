@@ -312,18 +312,15 @@ pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
 }
 
 /// NextMission handoff copy; the heading follows the runtime's next mission —
-/// authored missions announce their unlock, Four (no definition) is the
-/// campaign-complete terminal handoff. `Vanguard/Gunner/Interceptor` lines
+/// authored missions and the Mission 4 handoff alike announce the unlock.
+/// `Vanguard/Gunner/Interceptor` lines
 /// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
 pub fn next_mission_copy(state: &CampaignState) -> String {
     let levels = |mech: PlayerMech| {
         let l = state.upgrades.levels(mech);
         format!("{} {} {} {}", l.hp, l.armor, l.mobility, l.weapon)
     };
-    let heading = mission_definition(state.next_mission).map_or_else(
-        || "CAMPAIGN COMPLETE".to_owned(),
-        |_| format!("MISSION {} UNLOCKED", state.next_mission),
-    );
+    let heading = format!("MISSION {} UNLOCKED", state.next_mission);
     format!(
         "{heading}\n\nCampaign progress saved.\n\nCredits: {}\n\nVanguard {}\nGunner {}\nInterceptor {}\n\nHP / ARMOR / MOBILITY / WEAPON",
         state.credits,

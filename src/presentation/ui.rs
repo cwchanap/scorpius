@@ -661,7 +661,7 @@ pub(crate) fn update_hud(
                 .as_ref()
                 .map_or_else(String::new, |(event, _)| format_event(event, &battle.0)),
             HudTextRole::Result => battle.0.result().map_or_else(String::new, |result| {
-                result_overlay_copy(result, active_mission.0)
+                result_overlay_copy(result, battle.0.rules().primary, active_mission.0)
             }),
         };
         if matches!(role, HudTextRole::Playback)
@@ -820,7 +820,11 @@ fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
 
 /// Result-overlay copy, derived from the active mission's authored data — no
 /// mission-specific wording is hardcoded here.
-pub fn result_overlay_copy(result: MissionResult, definition: &MissionDefinition) -> String {
+pub fn result_overlay_copy(
+    result: MissionResult,
+    primary: PrimaryObjective,
+    definition: &MissionDefinition,
+) -> String {
     if result.victory {
         format!(
             "MISSION COMPLETE\n{}\nBONUS {}",
@@ -832,7 +836,12 @@ pub fn result_overlay_copy(result: MissionResult, definition: &MissionDefinition
             }
         )
     } else {
-        "MISSION FAILED\nSquad knocked out".to_owned()
+        let reason = match primary {
+            PrimaryObjective::EliminateAllEnemies => "Squad knocked out",
+            PrimaryObjective::ProtectThroughRound { .. } => "Protect target lost",
+            PrimaryObjective::InterceptBeforeEscape { .. } => "Courier not stopped in time",
+        };
+        format!("MISSION FAILED\n{reason}")
     }
 }
 
