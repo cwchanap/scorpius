@@ -422,7 +422,13 @@ impl BattleState {
                 | DamageSource::Hazard
                 | DamageSource::Explosion
         );
-        if !damages_enemy || !qualifies || self.objectives.optional_complete {
+        // Enemy damage locks the bonus only in Turnabout missions; every other
+        // optional is evaluated at victory time via `check_terminal_state`.
+        if self.rules.optional != OptionalObjective::Turnabout
+            || !damages_enemy
+            || !qualifies
+            || self.objectives.optional_complete
+        {
             return Vec::new();
         }
 
@@ -578,6 +584,8 @@ mod tests {
             },
         },
         mission::mission_one::{ids, mission_one},
+        mission::mission_three as m3,
+        mission::mission_two as m2,
     };
 
     #[test]
@@ -709,6 +717,25 @@ mod tests {
         battle.apply_direct_damage(ids::STRIKER, 1, DamageSource::PlayerWeapon(ids::PILE_LANCE));
 
         assert!(!battle.objectives().optional_complete);
+    }
+
+    /// The enemy-damage trigger is Turnabout's alone: a hazard or explosion
+    /// wounding an enemy in any other mission must never auto-award the bonus.
+    #[test]
+    fn non_turnabout_optionals_ignore_the_enemy_damage_trigger() {
+        for (mut battle, enemy) in [
+            (m2::mission_two(7), m2::ids::FLANKER),
+            (m3::mission_three(7), m3::ids::STRIKER),
+        ] {
+            let events = battle.apply_direct_damage(enemy, 1, DamageSource::Hazard);
+
+            assert!(!battle.objectives().optional_complete);
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
+            );
+        }
     }
 
     #[test]

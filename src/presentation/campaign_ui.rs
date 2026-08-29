@@ -302,7 +302,7 @@ pub fn setup_title_screen(
 pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
     receipt.map_or_else(String::new, |receipt| {
         format!(
-            "MISSION REWARD\nBase {}\nTurnabout +{}\nTotal {}\nCredits {}",
+            "MISSION REWARD\nBase {}\nBonus +{}\nTotal {}\nCredits {}",
             receipt.base_reward,
             receipt.optional_reward,
             receipt.total_reward,
@@ -311,15 +311,21 @@ pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
     })
 }
 
-/// NextMission handoff copy; `Vanguard/Gunner/Interceptor` lines list each
-/// mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
+/// NextMission handoff copy; the heading follows the runtime's next mission —
+/// authored missions announce their unlock, Four (no definition) is the
+/// campaign-complete terminal handoff. `Vanguard/Gunner/Interceptor` lines
+/// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
 pub fn next_mission_copy(state: &CampaignState) -> String {
     let levels = |mech: PlayerMech| {
         let l = state.upgrades.levels(mech);
         format!("{} {} {} {}", l.hp, l.armor, l.mobility, l.weapon)
     };
+    let heading = mission_definition(state.next_mission).map_or_else(
+        || "CAMPAIGN COMPLETE".to_owned(),
+        |_| format!("MISSION {} UNLOCKED", state.next_mission),
+    );
     format!(
-        "MISSION 2 UNLOCKED\n\nCampaign progress saved.\n\nCredits: {}\n\nVanguard {}\nGunner {}\nInterceptor {}\n\nHP / ARMOR / MOBILITY / WEAPON",
+        "{heading}\n\nCampaign progress saved.\n\nCredits: {}\n\nVanguard {}\nGunner {}\nInterceptor {}\n\nHP / ARMOR / MOBILITY / WEAPON",
         state.credits,
         levels(PlayerMech::Vanguard),
         levels(PlayerMech::Gunner),

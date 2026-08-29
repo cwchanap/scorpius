@@ -107,6 +107,12 @@
         47,
         48
       ]
+    },
+    {
+      "name": "Flanker",
+      "nodes": [
+        49
+      ]
     }
   ],
   "nodes": [
@@ -795,6 +801,106 @@
         0.7
       ],
       "name": "Impact Z"
+    },
+    {
+      "scale": [
+        0.72,
+        0.72,
+        0.72
+      ],
+      "name": "Flanker Root",
+      "children": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ]
+    },
+    {
+      "mesh": 10,
+      "translation": [
+        -0.16,
+        0.2,
+        0.0
+      ],
+      "scale": [
+        0.12,
+        0.42,
+        0.16
+      ],
+      "name": "Left Leg"
+    },
+    {
+      "mesh": 10,
+      "translation": [
+        0.16,
+        0.2,
+        0.0
+      ],
+      "scale": [
+        0.12,
+        0.42,
+        0.16
+      ],
+      "name": "Right Leg"
+    },
+    {
+      "mesh": 10,
+      "translation": [
+        0.0,
+        0.7,
+        0.0
+      ],
+      "scale": [
+        0.36,
+        0.52,
+        0.3
+      ],
+      "name": "Torso"
+    },
+    {
+      "mesh": 10,
+      "translation": [
+        0.0,
+        1.1,
+        0.0
+      ],
+      "scale": [
+        0.22,
+        0.24,
+        0.22
+      ],
+      "name": "Head"
+    },
+    {
+      "mesh": 10,
+      "translation": [
+        -0.5,
+        0.82,
+        0.08
+      ],
+      "scale": [
+        0.62,
+        0.08,
+        0.28
+      ],
+      "name": "Left Wing Blade"
+    },
+    {
+      "mesh": 10,
+      "translation": [
+        0.5,
+        0.82,
+        0.08
+      ],
+      "scale": [
+        0.62,
+        0.08,
+        0.28
+      ],
+      "name": "Right Wing Blade"
     }
   ],
   "meshes": [
@@ -925,6 +1031,19 @@
           },
           "indices": 2,
           "material": 9
+        }
+      ]
+    },
+    {
+      "name": "Flanker Magenta",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1
+          },
+          "indices": 2,
+          "material": 10
         }
       ]
     }
@@ -1113,6 +1232,24 @@
       ],
       "alphaMode": "BLEND",
       "doubleSided": true
+    },
+    {
+      "name": "Flanker Magenta",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.82,
+          0.12,
+          0.72,
+          1.0
+        ],
+        "metallicFactor": 0.25,
+        "roughnessFactor": 0.62
+      },
+      "emissiveFactor": [
+        0.1,
+        0.02,
+        0.09
+      ]
     }
   ],
   "buffers": [

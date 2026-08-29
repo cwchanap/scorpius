@@ -3,7 +3,10 @@ use bevy::{ecs::system::SystemParam, prelude::*};
 use crate::domain::{
     battle::BattleState,
     combat::AttackPreview,
-    model::{BattleEvent, BattlePhase, Faction, MissionResult, Reaction, UnitArchetype, UnitId},
+    model::{
+        BattleEvent, BattlePhase, Faction, MissionResult, PrimaryObjective, Reaction,
+        UnitArchetype, UnitId,
+    },
 };
 use crate::mission::MissionDefinition;
 
@@ -26,11 +29,28 @@ pub struct ThreatSnapshot {
     pub hit_chance: u8,
 }
 
+/// Live tracker derived from the mission's primary objective: the protected
+/// unit's HP in protect missions, the hunted unit's Manhattan distance to the
+/// exit in intercept missions. `None` when nothing is tracked (elimination).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ObjectiveTrackSnapshot {
+    Protect {
+        name: &'static str,
+        hp: i16,
+        max_hp: i16,
+    },
+    Intercept {
+        name: &'static str,
+        distance: u8,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HudSnapshot {
     pub round_phase: String,
     pub primary: String,
     pub optional: String,
+    pub objective_track: Option<ObjectiveTrackSnapshot>,
     pub selected_name: Option<&'static str>,
     pub selected_summary: String,
     pub threats: Vec<ThreatSnapshot>,
@@ -118,8 +138,40 @@ impl HudSnapshot {
             }
         };
 
+        let objective_track = match battle.rules().primary {
+            PrimaryObjective::ProtectThroughRound { target, .. } => {
+                battle
+                    .unit(target)
+                    .map(|unit| ObjectiveTrackSnapshot::Protect {
+                        name: unit.name,
+                        hp: unit.hp,
+                        max_hp: unit.stats.max_hp,
+                    })
+            }
+            PrimaryObjective::InterceptBeforeEscape { target, escape, .. } => battle
+                .unit(target)
+                .map(|unit| ObjectiveTrackSnapshot::Intercept {
+                    name: unit.name,
+                    distance: unit.position.manhattan(escape),
+                }),
+            PrimaryObjective::EliminateAllEnemies => None,
+        };
+        let round_cap = match battle.rules().primary {
+            PrimaryObjective::ProtectThroughRound { round, .. } => Some(round),
+            PrimaryObjective::InterceptBeforeEscape { deadline_round, .. } => Some(deadline_round),
+            PrimaryObjective::EliminateAllEnemies => None,
+        };
+
         Self {
-            round_phase: format!("Round {} · {}", battle.round(), phase_label(battle.phase())),
+            round_phase: match round_cap {
+                Some(cap) => format!(
+                    "Round {}/{} · {}",
+                    battle.round(),
+                    cap,
+                    phase_label(battle.phase())
+                ),
+                None => format!("Round {} · {}", battle.round(), phase_label(battle.phase())),
+            },
             primary: format!("{} · {remaining} remaining", definition.primary_objective),
             optional: format!(
                 "{} · {}",
@@ -132,6 +184,7 @@ impl HudSnapshot {
             ),
             selected_name: selected_unit.map(|unit| unit.name),
             selected_summary,
+            objective_track,
             threats: battle
                 .intents()
                 .iter()
@@ -241,7 +294,7 @@ pub struct AssetStatusText;
 #[derive(Component)]
 pub struct HudRoot;
 
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HudTextRole {
     Objective,
     Threats,
@@ -581,12 +634,21 @@ pub(crate) fn update_hud(
 
     for (role, mut text, visibility) in &mut queries.texts {
         text.0 = match role {
-            HudTextRole::Objective => format!(
-                "// OBJECTIVES\n{}\nPRIMARY  {}\nBONUS    {}",
-                ascii_separators(&hud.round_phase),
-                ascii_separators(&hud.primary),
-                ascii_separators(&hud.optional)
-            ),
+            HudTextRole::Objective => {
+                let mut text = format!(
+                    "// OBJECTIVES\n{}\nPRIMARY  {}\nBONUS    {}",
+                    ascii_separators(&hud.round_phase),
+                    ascii_separators(&hud.primary),
+                    ascii_separators(&hud.optional)
+                );
+                if let Some(track) = &hud.objective_track {
+                    text.push_str(&format!(
+                        "\nTRACK    {}",
+                        ascii_separators(&format_track(track))
+                    ));
+                }
+                text
+            }
             HudTextRole::Threats => threat_text.clone(),
             HudTextRole::Unit => format!(
                 "// UNIT\n{}\nPILOT  AEGIS {}  FOCUS {}  OVERDRIVE {}",
@@ -598,10 +660,9 @@ pub(crate) fn update_hud(
                 .current
                 .as_ref()
                 .map_or_else(String::new, |(event, _)| format_event(event, &battle.0)),
-            HudTextRole::Result => battle
-                .0
-                .result()
-                .map_or_else(String::new, result_overlay_copy),
+            HudTextRole::Result => battle.0.result().map_or_else(String::new, |result| {
+                result_overlay_copy(result, active_mission.0)
+            }),
         };
         if matches!(role, HudTextRole::Playback)
             && let Some(mut visibility) = visibility
@@ -757,10 +818,13 @@ fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
     }
 }
 
-pub fn result_overlay_copy(result: MissionResult) -> String {
+/// Result-overlay copy, derived from the active mission's authored data — no
+/// mission-specific wording is hardcoded here.
+pub fn result_overlay_copy(result: MissionResult, definition: &MissionDefinition) -> String {
     if result.victory {
         format!(
-            "MISSION COMPLETE\nRelay Nine secured\nTurnabout: {}",
+            "MISSION COMPLETE\n{}\nBONUS {}",
+            definition.title,
             if result.optional_complete {
                 "Achieved"
             } else {
@@ -819,7 +883,7 @@ fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
         BattleEvent::CounterFired { defender, .. } => {
             format!("{} COUNTER", unit_name(battle, *defender))
         }
-        BattleEvent::OptionalObjectiveCompleted => "TURNABOUT ACHIEVED".to_owned(),
+        BattleEvent::OptionalObjectiveCompleted => "BONUS ACHIEVED".to_owned(),
         BattleEvent::MissionCompleted { .. } => "MISSION COMPLETE".to_owned(),
         BattleEvent::MissionFailed { .. } => "MISSION FAILED".to_owned(),
     }
@@ -900,6 +964,15 @@ fn ascii_separators(value: &str) -> String {
     value.replace('·', "/")
 }
 
+fn format_track(track: &ObjectiveTrackSnapshot) -> String {
+    match track {
+        ObjectiveTrackSnapshot::Protect { name, hp, max_hp } => format!("{name} HP {hp}/{max_hp}"),
+        ObjectiveTrackSnapshot::Intercept { name, distance } => {
+            format!("{name} {distance} FROM EXIT")
+        }
+    }
+}
+
 fn text_font(size: f32) -> TextFont {
     TextFont {
         font_size: FontSize::Px(size),
@@ -927,6 +1000,7 @@ mod tests {
     use super::*;
     use crate::domain::combat::DamageSource;
     use crate::mission::mission_one::{ids, mission_one};
+    use crate::mission::mission_two::mission_two;
     use crate::mission::{MissionId, mission_definition};
 
     fn terminal_battle(victory: bool) -> BattleState {
@@ -986,6 +1060,32 @@ mod tests {
             find(app, CommandAction::Restart),
             find(app, CommandAction::ContinueVictory),
         ]
+    }
+
+    #[test]
+    fn objective_panel_renders_round_cap_and_protect_tracker() {
+        let mut battle = mission_two(7);
+        battle.begin_round().unwrap();
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(battle))
+            .insert_resource(ActiveMission(mission_definition(MissionId::Two).unwrap()))
+            .init_resource::<InteractionState>()
+            .init_resource::<StatusMessage>()
+            .init_resource::<EventPlayback>()
+            .add_systems(Update, (setup_mission_ui, update_hud).chain());
+        app.update();
+
+        let mut texts = app.world_mut().query::<(&HudTextRole, &Text)>();
+        let (_, text) = texts
+            .iter(app.world())
+            .find(|(role, _)| **role == HudTextRole::Objective)
+            .expect("objective panel must exist");
+        assert!(text.0.contains("Round 1/3"), "objective text: {}", text.0);
+        assert!(
+            text.0.contains("TRACK    Gunner HP 15/15"),
+            "objective text: {}",
+            text.0
+        );
     }
 
     #[test]

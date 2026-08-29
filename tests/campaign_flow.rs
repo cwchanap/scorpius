@@ -394,11 +394,11 @@ static AFTERMATH_FIXTURE_RECEIPTS: [CompletionReceipt; 2] = [
 fn aftermath_reward_copy_reads_the_persisted_receipt_verbatim() {
     assert_eq!(
         aftermath_reward_copy(Some(AFTERMATH_FIXTURE_RECEIPTS[0])),
-        "MISSION REWARD\nBase 300\nTurnabout +0\nTotal 300\nCredits 300"
+        "MISSION REWARD\nBase 300\nBonus +0\nTotal 300\nCredits 300"
     );
     assert_eq!(
         aftermath_reward_copy(Some(AFTERMATH_FIXTURE_RECEIPTS[1])),
-        "MISSION REWARD\nBase 300\nTurnabout +100\nTotal 400\nCredits 400"
+        "MISSION REWARD\nBase 300\nBonus +100\nTotal 400\nCredits 400"
     );
     assert_eq!(aftermath_reward_copy(None), "");
 }
@@ -649,6 +649,30 @@ fn continue_and_proceed_route_three_to_upgrade_and_four_to_the_handoff() {
         &mut next,
     );
     assert_eq!(pending(&next), Some(GameScreen::NextMission));
+}
+
+#[test]
+fn next_mission_copy_announces_each_authored_mission() {
+    let two = CampaignState {
+        next_mission: MissionId::Three,
+        ..CampaignState::new_game()
+    };
+    let copy = next_mission_copy(&two);
+    assert!(copy.contains("MISSION 3 UNLOCKED"), "handoff copy: {copy}");
+    assert!(
+        !copy.contains("MISSION 2"),
+        "unlock heading must follow the runtime's next mission"
+    );
+
+    // Four has no authored definition: the handoff is the campaign-complete
+    // terminal screen.
+    let four = CampaignState {
+        next_mission: MissionId::Four,
+        ..CampaignState::new_game()
+    };
+    let copy = next_mission_copy(&four);
+    assert!(copy.contains("CAMPAIGN COMPLETE"), "handoff copy: {copy}");
+    assert!(copy.contains("Credits:"), "handoff copy: {copy}");
 }
 
 #[test]

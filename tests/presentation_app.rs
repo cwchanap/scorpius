@@ -11,18 +11,24 @@ use scorpius::{
         model::{BattlePhase, MissionResult, Reaction, UnitId},
     },
     mission::mission_one::{ids, mission_one},
+    mission::mission_three::{self, mission_three},
+    mission::mission_two::mission_two,
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        EventPlayback, PresentationRoot, SelectedCell, TelegraphVisual, UnitVisual,
-        battlefield::mission_grid_cells,
+        EventPlayback, ExtractionVisual, PresentationRoot, SelectedCell, TelegraphVisual,
+        UnitVisual,
+        battlefield::{create_visual_assets, mission_grid_cells},
         grid_to_world,
         interaction::{
             CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
             handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
         },
-        sync::{apply_unit_transforms, reconcile_telegraph_markers},
-        ui::{HudSnapshot, result_overlay_copy},
+        sync::{
+            apply_unit_transforms, attach_extraction_rendering, reconcile_extraction_marker,
+            reconcile_telegraph_markers,
+        },
+        ui::{HudSnapshot, ObjectiveTrackSnapshot, result_overlay_copy},
     },
 };
 
@@ -196,6 +202,7 @@ fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
 
     assert_eq!(hud.round_phase, "Round 1 · Player Phase");
     assert_eq!(hud.primary, "Eliminate all enemies. · 4 remaining");
+    assert_eq!(hud.objective_track, None, "M1 has no tracked unit");
     assert_eq!(
         hud.optional,
         "Turnabout: damage an enemy with enemy fire, collision, hazard, or explosion. · Not yet"
@@ -237,6 +244,92 @@ fn hud_reports_pilot_skill_states_and_dynamic_pilot_label() {
     assert_eq!(hud.pilot_aegis, "READY");
     assert_eq!(hud.pilot_focus, "ACTIVE");
     assert_eq!(hud.pilot_overdrive, "USED");
+}
+
+#[test]
+fn hud_tracks_protect_mission_round_cap_and_gunner_hp() {
+    let mut battle = mission_two(7);
+    battle.begin_round().unwrap();
+    let hud = HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::Two).unwrap());
+
+    assert_eq!(hud.round_phase, "Round 1/3 · Player Phase");
+    assert_eq!(
+        hud.objective_track,
+        Some(ObjectiveTrackSnapshot::Protect {
+            name: "Gunner",
+            hp: 15,
+            max_hp: 15
+        })
+    );
+}
+
+#[test]
+fn hud_tracks_intercept_mission_round_cap_and_courier_distance_to_exit() {
+    let mut battle = mission_three(7);
+    battle.begin_round().unwrap();
+    let hud =
+        HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::Three).unwrap());
+
+    assert_eq!(hud.round_phase, "Round 1/5 · Player Phase");
+    assert_eq!(
+        hud.objective_track,
+        Some(ObjectiveTrackSnapshot::Intercept {
+            name: "Courier",
+            distance: 14
+        })
+    );
+}
+
+#[test]
+fn intercept_mission_spawns_one_white_extraction_ring_at_the_escape_cell() {
+    let mut battle = mission_three(7);
+    battle.begin_round().unwrap();
+    let mut app = App::new();
+    let mut meshes = Assets::<Mesh>::default();
+    let mut materials = Assets::<StandardMaterial>::default();
+    let visuals = create_visual_assets(&mut meshes, &mut materials);
+    let (ring_mesh, white_material) = (visuals.ring_mesh.clone(), visuals.intended_target.clone());
+    app.insert_resource(meshes)
+        .insert_resource(materials)
+        .insert_resource(visuals)
+        .insert_resource(BattleRuntime(battle))
+        .add_systems(
+            Update,
+            (reconcile_extraction_marker, attach_extraction_rendering).chain(),
+        );
+    app.world_mut().spawn(PresentationRoot);
+    app.update();
+
+    let mut markers = app.world_mut().query::<(
+        &ExtractionVisual,
+        &Mesh3d,
+        &MeshMaterial3d<StandardMaterial>,
+    )>();
+    let markers: Vec<_> = markers.iter(app.world()).collect();
+    assert_eq!(markers.len(), 1, "exactly one extraction ring");
+    let (marker, mesh, material) = markers[0];
+    assert_eq!(marker.0, GridPos::new(8, 0));
+    assert_eq!(marker.0, mission_three::EXTRACTION);
+    assert_eq!(mesh.0.id(), ring_mesh.id());
+    assert_eq!(
+        material.0.id(),
+        white_material.id(),
+        "ring uses the existing white material"
+    );
+}
+
+#[test]
+fn missions_without_an_intercept_primary_spawn_no_extraction_marker() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(battle))
+        .add_systems(Update, reconcile_extraction_marker);
+    app.world_mut().spawn(PresentationRoot);
+    app.update();
+
+    let mut markers = app.world_mut().query::<&ExtractionVisual>();
+    assert_eq!(markers.iter(app.world()).count(), 0);
 }
 
 #[test]
@@ -348,20 +441,27 @@ fn restart_replaces_presentation_root_and_transient_state() {
 
 #[test]
 fn terminal_overlay_copy_matches_the_mission_result() {
+    let definition = mission_definition(MissionId::One).unwrap();
     assert_eq!(
-        result_overlay_copy(MissionResult {
-            victory: true,
-            optional_complete: true,
-            rounds: 2,
-        }),
-        "MISSION COMPLETE\nRelay Nine secured\nTurnabout: Achieved"
+        result_overlay_copy(
+            MissionResult {
+                victory: true,
+                optional_complete: true,
+                rounds: 2,
+            },
+            definition,
+        ),
+        "MISSION COMPLETE\nMission 1 — Turnabout at Relay Nine\nBONUS Achieved"
     );
     assert_eq!(
-        result_overlay_copy(MissionResult {
-            victory: false,
-            optional_complete: false,
-            rounds: 3,
-        }),
+        result_overlay_copy(
+            MissionResult {
+                victory: false,
+                optional_complete: false,
+                rounds: 3,
+            },
+            definition,
+        ),
         "MISSION FAILED\nSquad knocked out"
     );
 }
