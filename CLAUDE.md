@@ -4,14 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. It currently boots straight
-into **Mission 1: Turnabout at Relay Nine** — a retained combat vertical slice (HPA-632). There is no
-title screen, campaign flow, or save data, and those are deliberately out of scope.
+Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), and HPA-637 authored Missions 2–3 and the Flanker enemy. The campaign now runs authored One→Two→Three and stops at the Mission 4 handoff screen; Mission 4 content is deliberately out of scope.
 
 ## Commands
 
 ```bash
-cargo run                                                   # launch Mission 1
+cargo run                                                   # launch the game (Title screen)
 cargo fmt --check                                           # CI gate
 cargo clippy --all-targets --all-features -- -D warnings    # CI gate (warnings are errors)
 cargo test --all-targets                                    # unit + integration tests
@@ -65,11 +63,15 @@ to leave the initial `EnemyPlanning` phase.
 hit chance during `begin_round`. Nothing during the player phase — including player movement — may
 retarget a committed intent. Preserve this when touching `enemy.rs` or movement.
 
-### `src/mission/mission_one.rs` — authored data
+### `src/mission/` — authored data
 
-Mission 1's board, props, units, weapons, and stable IDs (`mission::mission_one::ids`), all as typed
-Rust constants. No RON/JSON/scripting layer exists; keep new content typed here. `restart_mission`
-rebuilds the whole state from a new seed.
+Mission 1–3 boards, props, units, weapons, openings, and stable IDs (`mission::mission_one::ids`,
+`mission::mission_two` / `mission_three` define their own), all as typed Rust constants.
+`mission::enemies` mirrors `mission::squad` with fixed enemy factories (Rifleman, Striker,
+Artillery, Flanker) and weapons. No RON/JSON/scripting layer exists; keep new content typed here.
+`restart_mission` rebuilds the whole state from a new seed. Mission rules carry a typed
+`PrimaryObjective` / `OptionalObjective` plus an `EnemyOpening` plan; only objective boundary
+logic lives in the domain (`completed_enemy_round`).
 
 ### `src/presentation/` — Bevy adapters
 
@@ -120,8 +122,10 @@ breaks seeded tests; that's intended signal, not flakiness.
 
 ## Reference docs
 
-- `docs/superpowers/specs/2026-08-23-hpa-632-*-design.md` — design spec and rules of record
-- `docs/superpowers/plans/2026-08-23-hpa-632-*.md` — implementation plan ledger
-- `docs/validation/hpa-632.md` — playtest and viability evidence
+- `docs/superpowers/specs/2026-08-23-hpa-632-*-design.md`, `2026-08-26-hpa-635-*.md`,
+  `2026-08-28-hpa-637-*.md` — design specs and rules of record
+- `docs/superpowers/plans/2026-08-23-hpa-632-*.md` and the 635/637 siblings — implementation plan ledgers
+- `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md` —
+  playtest and viability evidence
 
 Commits follow Conventional Commits (`feat:`, `ci:`, `docs:`, `chore:`).
