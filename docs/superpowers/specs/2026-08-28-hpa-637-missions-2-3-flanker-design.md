@@ -1,24 +1,12 @@
 # HPA-637 Missions 2–3 and Flanker Design
 
-## Context
+## Outcome
 
-HPA-637 extends the completed HPA-635 campaign loop through Missions 2 and 3 and adds the fourth regular enemy, Flanker. The implementation remains one Rust/Bevy application crate and one ticket/PR.
+Extend the validated Scorpius campaign through Missions 2 and 3 and add Flanker without introducing a generic objective or AI framework.
 
-The design intentionally adds only what these two missions consume: three closed primary objective shapes, three closed bonus shapes, one authored opening slice, one shared regular-enemy catalog, and one explicit Flanker planner branch. No objective framework, behavior tree, neutral faction, scripting/data format, new status system, or new save layer is justified.
+Keep one ticket = one PR, one Rust 2024 / Bevy 0.19 application crate, plain-Rust domain rules, typed mission authoring, existing campaign/save/UI composition, and the committed-intent invariant.
 
-## Locked decisions
-
-- Mission 2 protects the existing Gunner.
-- Mission 2 wins when Gunner survives through full Round 3 **or** every attacker is eliminated while Gunner lives. Do not make the player click through empty rounds.
-- Mission 3 Courier starts `(0,6)`, extraction `(8,0)`, Move4, open-path distance14.
-- Mission 3 deadline is **Round5**. Player Round4 is guaranteed; open-route move4 can extract after player Round4. Round5 is only anti-stall/body-block fallback.
-- Flanker stats: HP8, Armor0, Move4, Acc82, Eva30; Skirmish Carbine range1–2/damage4/hit+5/crit10/EN0/no push/no counter.
-- Non-objective Flanker reuses normal attack-band movement.
-- Existing initiative match becomes Striker30 / Flanker25 / Rifleman20 / Artillery10. No new initiative field/system.
-- Flanker gets checked-in glTF scene10, not friendly Interceptor scene2 + runtime scale/under-ring compensation.
-- Campaign/save/upgrade flow remains M1 → Upgrade → M2 → Upgrade → M3 → M4 handoff.
-
-## Closed domain rules
+## Closed mission rules
 
 ```rust
 pub enum PrimaryObjective {
@@ -46,11 +34,11 @@ pub struct MissionRules {
 }
 ```
 
-`BattleState` stores rules. Rename objective/result `turnabout_complete` to generic `optional_complete`; keep Turnabout's damage trigger special.
+`BattleState` stores `MissionRules`. Rename the Mission1-only objective/result bit `turnabout_complete` to generic `optional_complete`. Turnabout's qualifying damage trigger stays special; no objective callback/trait registry.
 
-## One round-boundary helper
+## One named round boundary
 
-Both new objectives depend on the same `begin_round()` ordering. Name it once:
+Both protect duration and interception deadline use:
 
 ```rust
 fn completed_enemy_round(&self, round: u16) -> bool {
@@ -58,56 +46,82 @@ fn completed_enemy_round(&self, round: u16) -> bool {
 }
 ```
 
-At this boundary `round` is the count of completed player/enemy rounds. Do not duplicate this predicate.
+At this state, `round` is the number of completed player/enemy rounds. Do not duplicate the phase/round predicate.
 
-## Terminal outcome
+## Primary outcome semantics
 
 Global squad wipe remains defeat.
 
-Protect:
+### Mission 1
+
+Eliminate all enemies, unchanged.
+
+### Mission 2
+
+`ProtectThroughRound { target: GUNNER, round: 3 }`:
 
 ```text
 Gunner KO -> defeat
-no living enemy + Gunner alive -> victory
-completed_enemy_round(3) + Gunner alive -> victory
+no living enemy and Gunner alive -> immediate victory
+completed_enemy_round(3) and Gunner alive -> victory
 otherwise continue
 ```
 
-Primary copy: `Protect Gunner through the end of Round 3, or eliminate all attackers.`
+Player-facing primary copy is explicit:
 
-Intercept:
+`Protect Gunner through the end of Round 3, or eliminate all attackers.`
+
+This preserves the defense lesson without forcing empty-board reaction clicks after every threat is gone.
+
+### Mission 3
+
+`InterceptBeforeEscape { target: COURIER, escape: (8,0), deadline_round: 5 }`:
 
 ```text
-Courier KO -> victory
+Courier KO -> victory, escorts irrelevant
 Courier at (8,0) -> defeat
-completed_enemy_round(5) with living Courier -> defeat
+completed_enemy_round(5) with Courier alive -> defeat
 escort clear alone -> continue
 ```
 
-Extraction is normal failure. Round5 is fallback.
+Extraction is the normal failure. Round 5 is only the anti-stall/body-block backstop.
 
-## Mission 3 clock
+## Mission 3 clock and geometry
 
-Mission3 is 9×9.
+Board: **9×9**. Courier start `(0,6)`, extraction `(8,0)`, Move4, open-path Manhattan distance14.
 
 ```text
-round0 begin: opening, Courier stays -> player1
-round1 begin: move1 <=4 -> player2
-round2 begin: move2 <=8 -> player3
-round3 begin: move3 <=12 -> player4, cannot extract
-round4 begin: deadline5 not reached; move4 can reach (8,0) -> extraction defeat
-round5 begin: only if blocked/delayed; deadline fails before another move
+round0 begin: opening, Courier stays -> player Round1
+round1 begin: move1 <=4 -> player Round2
+round2 begin: move2 <=8 -> player Round3
+round3 begin: move3 <=12 -> player Round4, cannot extract
+round4 begin: deadline5 not reached; move4 can reach extraction -> extraction defeat
+round5 begin: only if blocked/delayed; deadline fires before another move
 ```
 
-Tests must prove player4 exists, open-route extraction on move4, blocked exit reaches Round5 deadline, and `resolve_push` onto extraction fails immediately. Do not pin exact intermediate distance.
+Required tests:
+
+- player Round4 exists after three later moves;
+- Courier is not on extraction then;
+- open-route fourth later move reaches `(8,0)` after player Round4 and fails;
+- occupied exit reaches player Round5, then deadline fails before another Courier move;
+- player `resolve_push` onto `(8,0)` fails immediately.
+
+Do not pin exact intermediate distance; it is tie-break detail.
 
 ## Bonus semantics
 
-One `optional_complete` bit. Turnabout remains event-driven. Hold Fast checks Gunner ≥50% HP on victory. Swift Intercept checks victory by Round2. New terminal bonus event precedes MissionCompleted.
+One `optional_complete` bit:
 
-## Openings
+- Turnabout: existing event-driven damage trigger.
+- Hold Fast: Gunner at or above 50% HP when M2 wins.
+- Swift Intercept: Courier defeated by end Round2.
 
-Mission1 opening becomes authored data but remains exact:
+New terminal bonus event precedes `MissionCompleted`. Defeat does not newly earn a terminal-only bonus.
+
+## Mission-authored openings
+
+Replace Mission1 opening movement/targeting hardcodes with `EnemyOpening` data. Mission1 stays exact:
 
 ```text
 Rifleman L -> (2,5), Gunner
@@ -116,21 +130,30 @@ Striker -> (4,6), Vanguard
 Artillery -> (4,0), Vanguard
 ```
 
-Round0 placement remains direct scripted movement; later movement remains planner-driven.
+Round0 authored placement remains direct scripted movement. Later movement remains deterministic planner logic.
 
-## Shared enemies and Flanker planner
+## Shared enemies and Flanker behavior
 
-Create `mission::enemies` mirroring `squad.rs`. Missions keep IDs/board/positions/openings/copy/rewards.
+Create `mission::enemies`, mirroring `squad.rs`.
 
-Protect Flanker score: weapon-band distance to Gunner, Manhattan, more open neighbors, y,x; prefer Gunner target when legal.
+```text
+Rifleman HP9 Armor1 Move2 Acc72 Eva5
+Striker HP12 Armor2 Move2 Acc78 Eva10
+Artillery HP10 Armor1 Move1 Acc90 Eva0
+Flanker HP8 Armor0 Move4 Acc82 Eva30
+```
 
-Courier score: Manhattan to extraction, more open neighbors, y,x.
+Flanker weapon: Skirmish Carbine, range1–2, Single, damage4, hit+5, crit10, EN0, no push/counter.
 
-Fallback Flanker: current Rifleman/Striker attack-band scoring.
+Planner:
 
-No RNG/policy object.
+- Protect Flanker: weapon-band distance to protected Gunner, Manhattan, more open neighbors, y,x; prefer Gunner target when legal.
+- Courier: Manhattan to extraction, more open neighbors, y,x.
+- Other Flanker: reuse Rifleman/Striker attack-band movement instead of standing still.
 
-Initiative becomes:
+No policy objects or RNG.
+
+Existing initiative match becomes:
 
 ```rust
 Striker => 30,
@@ -140,65 +163,76 @@ Artillery => 10,
 _ => 0,
 ```
 
-Equal Riflemen preserve left/right order through existing attacker-ID tie-break.
+This removes the `Rifleman if unit.position.x < 4` hack. Mission1 left/right order remains through attacker-ID tie-break.
 
-## Mission 2 content
+## Mission 2 — Hold Relay Nine
 
-Board **9×9**:
+Board **9×9**.
 
 ```text
-Players V(3,7) G(4,6) I(5,7)
-Blocking (3,3),(5,3),(2,6),(6,6)
-Hazards (1,5),(7,5)
-Explosive (6,4) HP4
-Rifleman21 start(2,2)->(2,4), Vanguard
-Striker22 start(4,3)->(4,5), Gunner
-Artillery23 (4,0), Gunner
-Flanker24 start(8,4)->(5,5), Interceptor
+Players: V(3,7), G(4,6), I(5,7)
+Blocking: (3,3),(5,3),(2,6),(6,6)
+Hazards: (1,5),(7,5)
+Explosive: (6,4), HP4
+
+Rifleman21 start(2,2) -> opening(2,4), target Vanguard
+Striker22 start(4,3) -> opening(4,5), target Gunner
+Artillery23 start/stay(4,0), target Gunner
+Flanker24 start(8,4) -> opening(5,5), target Interceptor
 ```
 
 ```text
-Mission 2 — Hold Relay Nine
+Title: Mission 2 — Hold Relay Nine
 Primary: Protect Gunner through the end of Round 3, or eliminate all attackers.
 Bonus: Hold Fast: finish with Gunner at or above 50% HP.
-400 + 100; unlock Three
+Reward: 400 + 100
+Unlock: Three
 ```
 
-Reuse existing VN images. Copy explicitly mentions both three-round survival and eliminating all interrupting attackers.
+Reuse existing VN images. Copy states the three-round upload and the eliminate-all early-safe alternative.
 
-## Mission 3 content
+## Mission 3 — Cut the Courier
 
-Board **9×9**:
+Board **9×9**.
 
 ```text
-Players V(4,7) G(3,8) I(5,8)
-Blocking (4,3),(4,4),(4,5)
-Hazard (2,5)
-Explosive (6,3) HP4
-Extraction (8,0)
+Players: V(4,7), G(3,8), I(5,8)
+Blocking: (4,3),(4,4),(4,5)
+Hazard: (2,5)
+Explosive: (6,3), HP4
+Extraction: (8,0)
+
 Courier31 Flanker start/stay(0,6)
-Rifleman32 start(3,2)->(3,4), Vanguard
-Striker33 start(6,6)->(5,7), Interceptor
+Rifleman32 start(3,2) -> opening(3,4), target Vanguard
+Striker33 start(6,6) -> opening(5,7), target Interceptor
 ```
 
 ```text
-Mission 3 — Cut the Courier
+Title: Mission 3 — Cut the Courier
 Primary: Intercept Courier before extraction or the end of Round 5.
 Bonus: Swift Intercept: defeat Courier by end Round2.
-500 + 150; unlock Four
+Reward: 500 + 150
+Unlock: Four
 ```
 
 VN line: `If it gets out, or Round 5 closes, the data is gone.`
 
 ## Authoring validation
 
-Keep runtime `.expect` assumptions. Mission tests assert board9×9, rule targets exist/correct faction, opening references exist, destinations legal. Mission3 also asserts extraction in-bounds/non-blocking/non-hazard/no explosive and start→exit Manhattan14.
+Do not add runtime validation machinery. Mission tests assert:
 
-No validation framework.
+- board 9×9;
+- rule targets exist/correct faction;
+- opening unit/target refs exist;
+- opening destinations legal;
+- Mission3 extraction in bounds, non-blocking, non-hazard, no live explosive;
+- start→escape Manhattan14.
 
-## Mission IDs and routing
+Runtime authored-data `expect` remains acceptable because CI pins constants.
 
-Add `MissionId { One, Two, Three, Four }` once in Mission2 task. Final authored: One/Two/Three; Four handoff.
+## Mission IDs and campaign
+
+Add `MissionId { One, Two, Three, Four }` once in the Mission2 task. Final authored: One/Two/Three; Four handoff.
 
 ```text
 Continue One -> story
@@ -208,17 +242,24 @@ Proceed authored -> story
 Proceed unauthored -> handoff
 ```
 
-Save shape unchanged.
+Save shape remains next mission + credits + upgrades.
 
-## Presentation
+## HUD/results
 
-HUD: M1 enemy count; M2 Round n/3 + Gunner HP; M3 Round n/5 + distance to extraction. Results use authored title/objectives + generic bonus status. Playback says `BONUS OBJECTIVE COMPLETE`; aftermath says `Bonus +...`.
+- M1: enemy count.
+- M2: Round n/3 + Gunner HP.
+- M3: Round n/5 + Courier Manhattan distance to extraction.
+- Generic terminal achieved/missed bonus.
+- Playback: `BONUS OBJECTIVE COMPLETE`.
+- Aftermath: `Bonus +...`.
 
-Extraction ring uses existing white ring material at rule escape.
+Extraction ring uses existing white ring mesh/material at the authored escape cell.
 
-## Distinct Flanker scene
+## Distinct Flanker glTF scene
 
-Extend existing glTF with scene10, mesh10/material10 `Flanker Magenta`; bump scene count to11; map Flanker→10. Keep root scale0.72. No `unit_scale`, child under-ring, inverse-scale math.
+Extend existing `assets/models/mission_one.gltf` with scene10 rather than reusing friendly Interceptor scene2.
+
+Scene `Flanker`, nodes49–55, mesh10/material10 `Flanker Magenta`.
 
 Material:
 
@@ -234,33 +275,31 @@ Material:
 }
 ```
 
-Scene nodes49–55 use mesh10 with slimmer fast-mech proportions specified in the implementation plan. Existing buffer/accessors stay unchanged.
+Nodes49–55 use the existing cuboid accessors with slimmer proportions defined in the implementation plan. Set scene count11 and `scene_index(Flanker)=10`. Keep root scale0.72. Do not add `unit_scale`, child under-ring, or inverse-scale math.
 
-## Required coverage
+## Required automated coverage
 
 - Mission1 opening/order unchanged.
-- One round-boundary helper semantics.
-- M2 KO fail, immediate clear win, Round3 survival win with enemy alive, half-HP bonus.
-- M3 escort-clear non-win, Courier KO win, player Round4, open move4 extraction, blocked Round5 deadline, push-to-exit loss, early bonus.
-- Flanker protect/Courier/fallback movement + tie-break.
-- Initiative constants 30/25/20/10.
-- Authored-reference legality.
-- glTF scene10 / scene count11.
-- M2 HUD n/3; M3 HUD n/5; generic result/reward copy.
-- One→Two→Three→Four save/upgrade progression; base total1200.
+- completed_enemy_round phase semantics.
+- M2 target KO fail, immediate clear win, Round3 survival win with enemy alive, bonus boundary.
+- M3 escort-clear non-win, Courier KO win, player Round4, live move4 extraction, blocked Round5 deadline, push-to-exit loss, bonus boundary.
+- Flanker protect/Courier/fallback/tie-break behavior.
+- initiative 30/25/20/10.
+- authoring reference legality.
+- glTF scene10/count11.
+- M2 HUD n/3, M3 HUD n/5, generic result/reward copy.
+- One→Two→Three→Four save/upgrade progression; 1200 base credits.
 
 ## Manual validation
 
-M2: competing threats, immediate clear win, full Round3 win, Gunner KO, bonus states. M3: magenta Courier, extraction ring, player Round4, open extraction, blocked Round5 backstop, Courier-only win, bonus states. Verify save/Continue/upgrades and full CI-equivalent gates.
+M2: competing threats, immediate-clear win, full Round3 win, Gunner KO, bonus states. M3: distinct magenta Courier, extraction ring, player Round4, open extraction, blocked Round5 fallback, Courier-only victory, bonus states. Verify save/Continue/upgrades and full local gates.
 
-## File boundaries
+## Scope guardrails
 
-New: enemies.rs, mission_two.rs, mission_three.rs, validation ledger.
+No new dependency, objective/AI framework, neutral objective role, status system, new playable unit, mission select, branching, difficulty, runtime asset pipeline, save migration, or second PR.
 
-Modified: domain model/battle/enemy; mission mod/Mission1; campaign progression; presentation assets/battlefield/interaction/ui/campaign_ui; existing glTF; campaign/persistence/presentation tests; README/CLAUDE.
-
-Keep sync.rs, app.rs, save/session implementation, VN assets, Cargo files unchanged unless tests force a concrete correction.
+Keep `sync.rs`, `app.rs`, save/session implementation, VN assets, Cargo files unchanged unless concrete tests force a small correction.
 
 ## Decision summary
 
-Mission2 does not punish success with empty rounds. Mission3 has a live extraction failure after player Round4 and a Round5 stall backstop. Flanker is a real checked-in enemy scene. Round-boundary semantics are named once, authoring assumptions are tested, positional initiative hack is removed, and the architecture remains deliberately small.
+Mission2 does not punish success with empty turns. Mission3 has a live extraction failure and Round5 anti-stall backstop. Flanker has a real enemy scene. One helper owns the subtle round-boundary meaning, authored references are tested, the positional initiative hack is removed, and the architecture stays deliberately small.
