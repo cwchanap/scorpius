@@ -351,7 +351,7 @@ fn terminal_overlay_copy_matches_the_mission_result() {
     assert_eq!(
         result_overlay_copy(MissionResult {
             victory: true,
-            turnabout_complete: true,
+            optional_complete: true,
             rounds: 2,
         }),
         "MISSION COMPLETE\nRelay Nine secured\nTurnabout: Achieved"
@@ -359,7 +359,7 @@ fn terminal_overlay_copy_matches_the_mission_result() {
     assert_eq!(
         result_overlay_copy(MissionResult {
             victory: false,
-            turnabout_complete: false,
+            optional_complete: false,
             rounds: 3,
         }),
         "MISSION FAILED\nSquad knocked out"

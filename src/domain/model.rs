@@ -99,9 +99,48 @@ pub enum BattlePhase {
     Defeat,
 }
 
+/// Authored, closed set of primary win/loss rules. Evaluation lives in
+/// `BattleState::check_terminal_state`; no runtime registration or scripting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PrimaryObjective {
+    EliminateAllEnemies,
+    ProtectThroughRound {
+        target: UnitId,
+        round: u16,
+    },
+    InterceptBeforeEscape {
+        target: UnitId,
+        escape: GridPos,
+        deadline_round: u16,
+    },
+}
+
+/// Authored, closed set of optional objectives. `Turnabout` keeps its
+/// damage-trigger path; the others are evaluated at victory time.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OptionalObjective {
+    Turnabout,
+    ProtectTargetAtHalfHp { target: UnitId },
+    VictoryByRound { round: u16 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnemyOpening {
+    pub unit: UnitId,
+    pub destination: GridPos,
+    pub target: Option<UnitId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MissionRules {
+    pub primary: PrimaryObjective,
+    pub optional: OptionalObjective,
+    pub opening_plan: &'static [EnemyOpening],
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ObjectiveProgress {
-    pub turnabout_complete: bool,
+    pub optional_complete: bool,
 }
 
 /// Battle-local pilot skill usage: never serialized, reset by rebuilding the
@@ -119,7 +158,7 @@ pub struct PilotSkillState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MissionResult {
     pub victory: bool,
-    pub turnabout_complete: bool,
+    pub optional_complete: bool,
     pub rounds: u16,
 }
 

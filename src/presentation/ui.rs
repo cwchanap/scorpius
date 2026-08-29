@@ -124,7 +124,7 @@ impl HudSnapshot {
             optional: format!(
                 "{} · {}",
                 definition.optional_objective,
-                if battle.objectives().turnabout_complete {
+                if battle.objectives().optional_complete {
                     "Complete"
                 } else {
                     "Not yet"
@@ -759,7 +759,7 @@ pub fn result_overlay_copy(result: MissionResult) -> String {
     if result.victory {
         format!(
             "MISSION COMPLETE\nRelay Nine secured\nTurnabout: {}",
-            if result.turnabout_complete {
+            if result.optional_complete {
                 "Achieved"
             } else {
                 "Missed"

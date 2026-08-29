@@ -6,8 +6,8 @@ use super::{
     enemy::AttackIntent,
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MissionResult,
-        ObjectiveProgress, PilotSkillState, Reaction, UnitArchetype, UnitId, UnitState, UnitStats,
-        WeaponId, WeaponSpec,
+        MissionRules, ObjectiveProgress, OptionalObjective, PilotSkillState, PrimaryObjective,
+        Reaction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId, WeaponSpec,
     },
     rng::BattleRng,
 };
@@ -21,6 +21,7 @@ pub struct BattleState {
     pub(super) round: u16,
     pub(super) active_unit: Option<UnitId>,
     pub(super) intents: Vec<AttackIntent>,
+    rules: MissionRules,
     objectives: ObjectiveProgress,
     pilot_skills: PilotSkillState,
     result: Option<MissionResult>,
@@ -32,6 +33,7 @@ impl BattleState {
         board: BoardState,
         units: impl IntoIterator<Item = UnitState>,
         weapons: impl IntoIterator<Item = WeaponSpec>,
+        rules: MissionRules,
         seed: u64,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl BattleState {
                 .into_iter()
                 .map(|weapon| (weapon.id, weapon))
                 .collect(),
+            rules,
             phase: BattlePhase::EnemyPlanning,
             round: 0,
             active_unit: None,
@@ -77,6 +80,11 @@ impl BattleState {
                 reaction: None,
             }],
             [],
+            MissionRules {
+                primary: PrimaryObjective::EliminateAllEnemies,
+                optional: OptionalObjective::Turnabout,
+                opening_plan: &[],
+            },
             0,
         );
         battle.phase = BattlePhase::Player;
@@ -126,6 +134,10 @@ impl BattleState {
 
     pub const fn objectives(&self) -> ObjectiveProgress {
         self.objectives
+    }
+
+    pub const fn rules(&self) -> &MissionRules {
+        &self.rules
     }
 
     pub const fn pilot_skills(&self) -> PilotSkillState {
@@ -410,12 +422,18 @@ impl BattleState {
                 | DamageSource::Hazard
                 | DamageSource::Explosion
         );
-        if !damages_enemy || !qualifies || self.objectives.turnabout_complete {
+        if !damages_enemy || !qualifies || self.objectives.optional_complete {
             return Vec::new();
         }
 
-        self.objectives.turnabout_complete = true;
+        self.objectives.optional_complete = true;
         vec![BattleEvent::OptionalObjectiveCompleted]
+    }
+
+    /// A full enemy round `round` is complete once the battle is back in
+    /// planning after that round resolved: the only shared deadline boundary.
+    fn completed_enemy_round(&self, round: u16) -> bool {
+        self.phase == BattlePhase::EnemyPlanning && self.round >= round
     }
 
     pub(super) fn check_terminal_state(&mut self) -> Vec<BattleEvent> {
@@ -431,20 +449,64 @@ impl BattleState {
             .units
             .values()
             .any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out());
-        let victory = if any_living_player && !any_living_enemy {
-            Some(true)
-        } else if !any_living_player {
-            Some(false)
-        } else {
-            None
+        let victory = match self.rules.primary {
+            PrimaryObjective::EliminateAllEnemies => {
+                if any_living_player && !any_living_enemy {
+                    Some(true)
+                } else if !any_living_player {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            PrimaryObjective::ProtectThroughRound { target, round } => {
+                let target_alive = self.unit(target).is_some_and(|unit| !unit.is_knocked_out());
+                if !target_alive {
+                    Some(false)
+                } else if !any_living_enemy || self.completed_enemy_round(round) {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            PrimaryObjective::InterceptBeforeEscape {
+                target,
+                escape,
+                deadline_round,
+            } => {
+                let target_alive = self.unit(target).is_some_and(|unit| !unit.is_knocked_out());
+                if !target_alive {
+                    Some(true)
+                } else if self
+                    .unit(target)
+                    .is_some_and(|unit| unit.position == escape)
+                    || self.completed_enemy_round(deadline_round)
+                    || !any_living_player
+                {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
         };
 
         let Some(victory) = victory else {
             return Vec::new();
         };
+        // Turnabout stays trigger-driven via `objectives`; every other optional
+        // is only evaluated at the moment of victory.
+        let optional_complete = self.objectives.optional_complete
+            || (victory
+                && match self.rules.optional {
+                    OptionalObjective::Turnabout => false,
+                    OptionalObjective::ProtectTargetAtHalfHp { target } => self
+                        .unit(target)
+                        .is_some_and(|unit| unit.hp * 2 >= unit.stats.max_hp),
+                    OptionalObjective::VictoryByRound { round } => self.round <= round,
+                });
         let result = MissionResult {
             victory,
-            turnabout_complete: self.objectives.turnabout_complete,
+            optional_complete,
             rounds: self.round,
         };
         self.phase = if victory {
@@ -492,6 +554,16 @@ impl BattleState {
     pub(crate) fn set_round_for_test(&mut self, round: u16) {
         self.round = round;
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_phase_for_test(&mut self, phase: BattlePhase) {
+        self.phase = phase;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_rules_for_test(&mut self, rules: MissionRules) {
+        self.rules = rules;
+    }
 }
 
 #[cfg(test)]
@@ -500,7 +572,10 @@ mod tests {
     use crate::{
         domain::{
             combat::DamageSource,
-            model::{ActivationState, MissionResult, Reaction},
+            model::{
+                ActivationState, MissionResult, MissionRules, OptionalObjective, PrimaryObjective,
+                Reaction,
+            },
         },
         mission::mission_one::{ids, mission_one},
     };
@@ -611,7 +686,7 @@ mod tests {
             let mut battle = mission_one(7);
             let events = battle.apply_direct_damage(ids::STRIKER, 1, source);
 
-            assert!(battle.objectives().turnabout_complete, "source {source:?}");
+            assert!(battle.objectives().optional_complete, "source {source:?}");
             assert_eq!(
                 events
                     .iter()
@@ -633,7 +708,7 @@ mod tests {
         let mut battle = mission_one(7);
         battle.apply_direct_damage(ids::STRIKER, 1, DamageSource::PlayerWeapon(ids::PILE_LANCE));
 
-        assert!(!battle.objectives().turnabout_complete);
+        assert!(!battle.objectives().optional_complete);
     }
 
     #[test]
@@ -644,7 +719,7 @@ mod tests {
             battle.result(),
             Some(MissionResult {
                 victory: true,
-                turnabout_complete: false,
+                optional_complete: false,
                 rounds: 0,
             })
         );
@@ -665,7 +740,7 @@ mod tests {
                 .all(|unit| unit.hp == unit.stats.max_hp && unit.en == unit.stats.max_en)
         );
         assert!(battle.intents().is_empty());
-        assert!(!battle.objectives().turnabout_complete);
+        assert!(!battle.objectives().optional_complete);
 
         let failure_events = knock_out_all_players(&mut battle);
         assert_eq!(battle.phase(), BattlePhase::Defeat);
@@ -673,7 +748,7 @@ mod tests {
             battle.result(),
             Some(MissionResult {
                 victory: false,
-                turnabout_complete: false,
+                optional_complete: false,
                 rounds: 0,
             })
         );
@@ -860,6 +935,236 @@ mod tests {
         assert!(!pilot.focus_pending);
         assert!(!pilot.overdrive_active);
         assert!(pilot.aegis_used && pilot.focus_used && pilot.overdrive_used);
+    }
+
+    fn protect_rules() -> MissionRules {
+        MissionRules {
+            primary: PrimaryObjective::ProtectThroughRound {
+                target: ids::GUNNER,
+                round: 3,
+            },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        }
+    }
+
+    fn intercept_rules() -> MissionRules {
+        MissionRules {
+            primary: PrimaryObjective::InterceptBeforeEscape {
+                target: ids::STRIKER,
+                escape: GridPos::new(8, 0),
+                deadline_round: 5,
+            },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        }
+    }
+
+    #[test]
+    fn completed_enemy_round_requires_enemy_planning_and_the_reached_round() {
+        let mut battle = mission_one(7);
+        assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
+        assert!(!battle.completed_enemy_round(1));
+
+        battle.set_round_for_test(3);
+        assert!(battle.completed_enemy_round(2));
+        assert!(battle.completed_enemy_round(3));
+        assert!(!battle.completed_enemy_round(4));
+
+        battle.enter_player_phase_for_test();
+        assert!(!battle.completed_enemy_round(3));
+    }
+
+    #[test]
+    fn protect_rules_fail_when_the_target_dies() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(protect_rules());
+
+        let events = battle.apply_direct_damage(ids::GUNNER, 99, DamageSource::Hazard);
+
+        assert_eq!(battle.phase(), BattlePhase::Defeat);
+        assert_eq!(
+            battle.result(),
+            Some(MissionResult {
+                victory: false,
+                optional_complete: false,
+                rounds: 0,
+            })
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::MissionFailed { .. }))
+        );
+    }
+
+    #[test]
+    fn protect_rules_win_immediately_when_all_attackers_die() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(protect_rules());
+
+        let events = knock_out_all_enemies(&mut battle);
+
+        assert_eq!(battle.phase(), BattlePhase::Victory);
+        assert_eq!(
+            battle.result(),
+            Some(MissionResult {
+                victory: true,
+                optional_complete: false,
+                rounds: 0,
+            })
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::MissionCompleted { .. }))
+        );
+    }
+
+    #[test]
+    fn protect_rules_win_at_round_three_and_only_then() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(protect_rules());
+        battle.set_round_for_test(2);
+        battle.set_phase_for_test(BattlePhase::EnemyPlanning);
+        battle.check_terminal_state();
+        assert!(battle.result().is_none());
+
+        battle.set_round_for_test(3);
+        let events = battle.check_terminal_state();
+
+        assert_eq!(battle.phase(), BattlePhase::Victory);
+        assert!(battle.result().is_some_and(|result| result.victory));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::MissionCompleted { .. }))
+        );
+    }
+
+    #[test]
+    fn intercept_rules_win_when_the_courier_dies() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(intercept_rules());
+
+        battle.apply_direct_damage(
+            ids::STRIKER,
+            99,
+            DamageSource::PlayerWeapon(ids::PILE_LANCE),
+        );
+
+        assert_eq!(battle.phase(), BattlePhase::Victory);
+        assert!(battle.result().is_some_and(|result| result.victory));
+    }
+
+    #[test]
+    fn intercept_rules_fail_when_the_courier_reaches_extraction() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(intercept_rules());
+        battle.move_unit_direct_for_test(ids::STRIKER, GridPos::new(8, 0));
+
+        let events = battle.check_terminal_state();
+
+        assert_eq!(battle.phase(), BattlePhase::Defeat);
+        assert!(battle.result().is_some_and(|result| !result.victory));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::MissionFailed { .. }))
+        );
+    }
+
+    #[test]
+    fn intercept_rules_fail_at_the_round_five_deadline() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(intercept_rules());
+        battle.set_round_for_test(4);
+        battle.set_phase_for_test(BattlePhase::EnemyPlanning);
+        battle.check_terminal_state();
+        assert!(battle.result().is_none());
+
+        battle.set_round_for_test(5);
+        battle.check_terminal_state();
+
+        assert_eq!(battle.phase(), BattlePhase::Defeat);
+        assert!(battle.result().is_some_and(|result| !result.victory));
+    }
+
+    #[test]
+    fn clearing_the_escort_alone_does_not_win_an_intercept() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(intercept_rules());
+
+        for enemy in [ids::RIFLEMAN_LEFT, ids::RIFLEMAN_RIGHT, ids::ARTILLERY] {
+            battle.apply_direct_damage(enemy, 99, DamageSource::PlayerWeapon(ids::PILE_LANCE));
+        }
+
+        assert!(
+            battle
+                .unit(ids::STRIKER)
+                .is_some_and(|unit| !unit.is_knocked_out())
+        );
+        assert!(battle.result().is_none());
+        assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
+    }
+
+    #[test]
+    fn victory_by_round_optional_is_decided_at_victory_time() {
+        let rules = |round| MissionRules {
+            primary: PrimaryObjective::EliminateAllEnemies,
+            optional: OptionalObjective::VictoryByRound { round },
+            opening_plan: &[],
+        };
+
+        let mut early = mission_one(7);
+        early.set_rules_for_test(rules(2));
+        early.set_round_for_test(2);
+        knock_out_all_enemies(&mut early);
+        assert!(
+            early
+                .result()
+                .is_some_and(|result| result.optional_complete)
+        );
+
+        let mut late = mission_one(7);
+        late.set_rules_for_test(rules(2));
+        late.set_round_for_test(3);
+        knock_out_all_enemies(&mut late);
+        assert!(
+            late.result()
+                .is_some_and(|result| !result.optional_complete)
+        );
+    }
+
+    #[test]
+    fn protect_target_at_half_hp_optional_tracks_the_boundary() {
+        let rules = MissionRules {
+            primary: PrimaryObjective::EliminateAllEnemies,
+            optional: OptionalObjective::ProtectTargetAtHalfHp {
+                target: ids::GUNNER,
+            },
+            opening_plan: &[],
+        };
+
+        let mut at_half = mission_one(7);
+        at_half.set_rules_for_test(rules);
+        at_half.unit_mut_for_test(ids::GUNNER).unwrap().hp = 6; // exactly 50% of 12
+        knock_out_all_enemies(&mut at_half);
+        assert!(
+            at_half
+                .result()
+                .is_some_and(|result| result.optional_complete)
+        );
+
+        let mut below_half = mission_one(7);
+        below_half.set_rules_for_test(rules);
+        below_half.unit_mut_for_test(ids::GUNNER).unwrap().hp = 5;
+        knock_out_all_enemies(&mut below_half);
+        assert!(
+            below_half
+                .result()
+                .is_some_and(|result| !result.optional_complete)
+        );
     }
 
     fn knock_out_all_enemies(battle: &mut BattleState) -> Vec<BattleEvent> {
