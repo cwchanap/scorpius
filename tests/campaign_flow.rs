@@ -544,7 +544,7 @@ fn upgrade_row_copy_lists_level_effects_cost_and_max() {
 }
 
 #[test]
-fn proceed_opens_next_mission_and_return_to_title_never_writes_save() {
+fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes_save() {
     let mut runtime = CampaignRuntime(CampaignSession {
         state: Some(CampaignState {
             next_mission: MissionId::Two,
@@ -567,6 +567,7 @@ fn proceed_opens_next_mission_and_return_to_title_never_writes_save() {
     let mut status = CampaignStatus::default();
     let mut next = NextState::Unchanged;
 
+    // Mission 2 is authored: PROCEED skips the handoff and opens its story.
     apply_campaign_action(
         CampaignUiAction::Proceed,
         &mut runtime,
@@ -575,7 +576,7 @@ fn proceed_opens_next_mission_and_return_to_title_never_writes_save() {
         &mut status,
         &mut next,
     );
-    assert_eq!(pending(&next), Some(GameScreen::NextMission));
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
 
     apply_campaign_action(
         CampaignUiAction::ReturnToTitle,
@@ -592,6 +593,62 @@ fn proceed_opens_next_mission_and_return_to_title_never_writes_save() {
     assert_eq!(disk.next_mission, MissionId::Two);
     assert_eq!(disk.credits, 400);
     assert!(disk.upgrades == SquadUpgrades::default());
+}
+
+#[test]
+fn continue_and_proceed_route_three_to_upgrade_and_four_to_the_handoff() {
+    let route_continue = |next_mission| {
+        let mut runtime = CampaignRuntime(CampaignSession {
+            state: None,
+            save: SaveFile::new(temp_save_path("continue-route")),
+            last_completion: None,
+        });
+        runtime
+            .0
+            .save
+            .store(&CampaignState {
+                next_mission,
+                credits: 0,
+                upgrades: SquadUpgrades::default(),
+            })
+            .unwrap();
+        let mut next = NextState::Unchanged;
+        apply_campaign_action(
+            CampaignUiAction::Continue,
+            &mut runtime,
+            None,
+            &mut DialogueCursor(0),
+            &mut CampaignStatus::default(),
+            &mut next,
+        );
+        pending(&next)
+    };
+    assert_eq!(route_continue(MissionId::Three), Some(GameScreen::Upgrade));
+    assert_eq!(
+        route_continue(MissionId::Four),
+        Some(GameScreen::NextMission)
+    );
+
+    // PROCEED at the Four handoff stays on the handoff screen.
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Four,
+            credits: 1200,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("proceed-four")),
+        last_completion: None,
+    });
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut DialogueCursor(0),
+        &mut CampaignStatus::default(),
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::NextMission));
 }
 
 #[test]

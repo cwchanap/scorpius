@@ -769,7 +769,9 @@ pub fn apply_campaign_action(
         },
         CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
             Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-            Ok(MissionId::Two) => next_state.set(GameScreen::Upgrade),
+            Ok(MissionId::Two | MissionId::Three) => next_state.set(GameScreen::Upgrade),
+            // Four has no authored content: the handoff summary is terminal.
+            Ok(MissionId::Four) => next_state.set(GameScreen::NextMission),
             Err(error) => status.0 = error.to_string(),
         },
         CampaignUiAction::AdvanceDialogue => {
@@ -802,7 +804,20 @@ pub fn apply_campaign_action(
                 Err(error) => status.0 = error.to_string(),
             }
         }
-        CampaignUiAction::Proceed => next_state.set(GameScreen::NextMission),
+        CampaignUiAction::Proceed => {
+            // Authored next mission: straight into its pre-mission story.
+            // Four is the terminal handoff state.
+            let authored = runtime
+                .0
+                .state
+                .as_ref()
+                .is_some_and(|state| mission_definition(state.next_mission).is_some());
+            next_state.set(if authored {
+                GameScreen::PreMissionStory
+            } else {
+                GameScreen::NextMission
+            });
+        }
         CampaignUiAction::ReturnToTitle => next_state.set(GameScreen::Title),
     }
 }

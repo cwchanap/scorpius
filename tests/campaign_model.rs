@@ -25,5 +25,9 @@ fn new_game_and_mission_one_definition_are_locked() {
     let battle = (definition.build)(7, &SquadUpgrades::default());
     assert_eq!(battle.board().width(), 9);
     assert_eq!(battle.board().height(), 9);
-    assert_eq!(mission_definition(MissionId::Two), None);
+    let two = mission_definition(MissionId::Two).unwrap();
+    assert_eq!(two.unlocks, MissionId::Three);
+    assert_eq!(two.base_reward, 400);
+    assert_eq!(mission_definition(MissionId::Three), None);
+    assert_eq!(mission_definition(MissionId::Four), None);
 }

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod enemies;
 pub mod mission_one;
+pub mod mission_two;
 pub mod squad;
 
 pub type MissionBuilder = fn(u64, &SquadUpgrades) -> BattleState;
@@ -11,6 +12,8 @@ pub type MissionBuilder = fn(u64, &SquadUpgrades) -> BattleState;
 pub enum MissionId {
     One,
     Two,
+    Three,
+    Four,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +61,9 @@ impl PartialEq for MissionDefinition {
 pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
     match id {
         MissionId::One => Some(&mission_one::MISSION_ONE_DEFINITION),
-        MissionId::Two => None,
+        MissionId::Two => Some(&mission_two::MISSION_TWO_DEFINITION),
+        // Three is authored by the Mission 3 task; Four is the terminal
+        // handoff state with no battle content.
+        MissionId::Three | MissionId::Four => None,
     }
 }
