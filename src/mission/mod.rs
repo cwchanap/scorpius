@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod enemies;
 pub mod mission_one;
+pub mod mission_three;
 pub mod mission_two;
 pub mod squad;
 
@@ -62,8 +63,8 @@ pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
     match id {
         MissionId::One => Some(&mission_one::MISSION_ONE_DEFINITION),
         MissionId::Two => Some(&mission_two::MISSION_TWO_DEFINITION),
-        // Three is authored by the Mission 3 task; Four is the terminal
-        // handoff state with no battle content.
-        MissionId::Three | MissionId::Four => None,
+        MissionId::Three => Some(&mission_three::MISSION_THREE_DEFINITION),
+        // Four is the terminal handoff state with no battle content.
+        MissionId::Four => None,
     }
 }

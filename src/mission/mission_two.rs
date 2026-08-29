@@ -447,7 +447,9 @@ mod tests {
         let two = mission_definition(MissionId::Two).unwrap();
         assert_eq!(two.id, MissionId::Two);
         assert_eq!(two.unlocks, MissionId::Three);
-        assert!(mission_definition(MissionId::Three).is_none());
+        let three = mission_definition(MissionId::Three).unwrap();
+        assert_eq!(three.id, MissionId::Three);
+        assert_eq!(three.unlocks, MissionId::Four);
         assert!(mission_definition(MissionId::Four).is_none());
     }
 
