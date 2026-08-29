@@ -66,7 +66,7 @@ impl CampaignState {
                 actual: self.next_mission,
             });
         }
-        let optional_reward = if result.turnabout_complete {
+        let optional_reward = if result.optional_complete {
             definition.optional_reward
         } else {
             0

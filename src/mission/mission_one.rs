@@ -2,7 +2,10 @@ use crate::campaign::model::SquadUpgrades;
 use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
-    model::{Faction, UnitArchetype, UnitState, WeaponShape, WeaponSpec},
+    model::{
+        Faction, MissionRules, OptionalObjective, PrimaryObjective, UnitArchetype, UnitState,
+        WeaponShape, WeaponSpec,
+    },
 };
 use crate::mission::squad::{SquadDeployment, build_player_squad, stats, unit, weapon};
 use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
@@ -35,11 +38,18 @@ pub fn mission_one(seed: u64) -> BattleState {
     mission_one_for_campaign(seed, &SquadUpgrades::default())
 }
 
+/// Task 2 moves the authored opening movement into `opening_plan` rows.
+const MISSION_ONE_RULES: MissionRules = MissionRules {
+    primary: PrimaryObjective::EliminateAllEnemies,
+    optional: OptionalObjective::Turnabout,
+    opening_plan: &[],
+};
+
 pub fn mission_one_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleState {
     let (mut units, mut weapons) = build_player_squad(upgrades, MISSION_ONE_DEPLOYMENT);
     units.extend(mission_one_enemy_units());
     weapons.extend(mission_one_enemy_weapons());
-    BattleState::new(mission_one_board(), units, weapons, seed)
+    BattleState::new(mission_one_board(), units, weapons, MISSION_ONE_RULES, seed)
 }
 
 fn mission_one_board() -> BoardState {
@@ -211,6 +221,15 @@ mod tests {
             mission_one_for_campaign(7, &SquadUpgrades::default()).pilot_skills(),
             PilotSkillState::default()
         );
+    }
+
+    #[test]
+    fn mission_one_stores_its_authored_rules() {
+        let battle = mission_one(7);
+        let rules = battle.rules();
+        assert_eq!(rules.primary, PrimaryObjective::EliminateAllEnemies);
+        assert_eq!(rules.optional, OptionalObjective::Turnabout);
+        assert!(rules.opening_plan.is_empty());
     }
 
     #[test]

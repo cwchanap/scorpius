@@ -18,10 +18,10 @@ fn temp_path() -> PathBuf {
     std::env::temp_dir().join(format!("scorpius-campaign-{}-{n}.json", std::process::id()))
 }
 
-fn mission_result(victory: bool, turnabout_complete: bool) -> MissionResult {
+fn mission_result(victory: bool, optional_complete: bool) -> MissionResult {
     MissionResult {
         victory,
-        turnabout_complete,
+        optional_complete,
         rounds: 3,
     }
 }
@@ -32,7 +32,7 @@ fn completion_advances_once_from_the_supplied_definition() {
     let definition = mission_definition(MissionId::One).unwrap();
     let result = MissionResult {
         victory: true,
-        turnabout_complete: true,
+        optional_complete: true,
         rounds: 3,
     };
 
