@@ -1,116 +1,87 @@
 # HPA-637 Missions 2–3 and Flanker Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. One ticket = one PR.
 
-**Goal:** Extend Scorpius through Missions 2–3 with a Gunner-defense mission, a real Courier chase, and a distinct Flanker enemy while keeping one small typed mission/combat architecture.
-
-**Architecture:** `BattleState` receives one closed `MissionRules` row. Mission modules author board/roster/openings/copy/rewards. A shared enemy catalog mirrors `squad.rs`. Flanker is one explicit branch in the deterministic planner. Existing campaign/save/UI composition remains. Flanker gets one new scene in the existing checked-in glTF rather than runtime scale/marker compensation.
+**Goal:** Ship Mission2 defense + Mission3 Courier chase + Flanker with the smallest typed extension of existing battle/mission/campaign seams.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-hpa-637-missions-2-3-flanker-design.md`
 
-## Constraints
+## Task 1 — Closed objectives
 
-- One HPA-637 PR, one Rust 2024 / Bevy 0.19 crate, no new dependency/framework/neutral faction/scripting/save layer.
-- M2: Gunner survives completed Round3 OR all attackers cleared.
-- M3: Courier `(0,6)` → `(8,0)`, Move4, deadline5; player Round4 exists; open move4 extracts; Round5 is blocked/stalled fallback.
-- One bonus bit. Save shape unchanged.
-- Existing glTF gains scene10. No new asset file/pipeline; no `unit_scale`/under-ring workaround.
-
-## Task 1 — Objective rules
-
-- [ ] Add closed primary/optional objective enums, `EnemyOpening`, `MissionRules`; store on BattleState.
+- [ ] Add closed primary/optional objective enums, `EnemyOpening`, `MissionRules`; store rules on BattleState.
 - [ ] Rename active Turnabout-specific progress/result bit to `optional_complete`.
-- [ ] Add/test one helper:
-
-```rust
-fn completed_enemy_round(&self, round: u16) -> bool {
-    self.phase == BattlePhase::EnemyPlanning && self.round >= round
-}
-```
-
-- [ ] Protect: Gunner KO fail; no attackers win; otherwise completed Round3 win.
-- [ ] Intercept: Courier KO win; exact exit fail; completed Round5 fail; escort clear non-win.
-- [ ] Keep Turnabout event trigger special; terminal bonuses use one bit and correct event ordering.
-- [ ] Campaign reward uses only optional_complete.
-- [ ] fmt/domain/all-target tests; commit objective rules.
+- [ ] Add/test single boundary helper `completed_enemy_round(n) = EnemyPlanning && round >= n`.
+- [ ] M2 protect: target KO fail; no attackers win immediately; otherwise completed Round3 win.
+- [ ] M3 intercept: Courier KO win; exact exit fail; completed Round5 fail; escort clear non-win.
+- [ ] One bonus bit; terminal bonus event precedes MissionCompleted; campaign optional reward checks only bit.
+- [ ] fmt/domain/all-target tests; commit.
 
 ## Task 2 — Openings/enemies/Flanker/initiative
 
-- [ ] Strengthen M1 opening positions/order/intended-occupant regression before refactor.
-- [ ] Create enemy factories: Rifleman 9/1/2/72/5, Striker 12/2/2/78/10, Artillery 10/1/1/90/0, Flanker 8/0/4/82/30; Skirmish Carbine range1–2 damage4 hit+5 crit10 EN0 no push/counter.
-- [ ] Move M1 opening to four authored `EnemyOpening` rows; remove archetype/x-position opening hardcodes.
-- [ ] Flanker tests: protected-target movement/intent, Courier distance reduction, non-objective attack-band fallback, open-neighbor tie-break.
-- [ ] Extract local attack-band helper; no policy objects/RNG.
-- [ ] Initiative becomes Striker30 / Flanker25 / Rifleman20 / Artillery10; remove positional Rifleman hack; keep M1 order regression.
+- [ ] Strengthen Mission1 exact opening/order/intended-occupant regression.
+- [ ] Create shared Rifleman/Striker/Artillery/Flanker factories; Flanker HP8 Armor0 Move4 Acc82 Eva30 + Skirmish Carbine range1–2 damage4 hit+5 crit10 EN0.
+- [ ] Replace Mission1 opening hardcodes with four authored rows.
+- [ ] Flanker planner tests: protect movement/target; Courier distance; fallback attack-band; open-neighbor tie-break.
+- [ ] Reuse local attack-band helper; no policy objects/RNG.
+- [ ] Initiative Striker30/Flanker25/Rifleman20/Artillery10; remove x-position hack; retain M1 order regression.
 - [ ] enemy/M1/all-target tests; commit.
 
 ## Task 3 — Mission2 + MissionId growth once
 
-- [ ] Pin 9×9 M2 board, deployment, terrain, enemy IDs21–24/openings from spec.
-- [ ] Authoring tests validate protected target, opening refs/factions/destinations; Gunner HP1 -> maxHP15.
-- [ ] Copy: `Protect Gunner through the end of Round 3, or eliminate all attackers.` / Hold Fast / 400+100 / unlock3.
-- [ ] Immediate-clear test: last enemy KO Round1 wins immediately.
-- [ ] Durable survival test: Round1→2 no result, Round2→3 no result, enemy alive, Round3 resolution wins.
-- [ ] Gunner KO and half-HP bonus boundaries.
-- [ ] Add `MissionId { One, Two, Three, Four }` once. Task3 authors One/Two; Three/Four handoff. Final routing One story / Two-Three upgrade / Four handoff; Proceed authored→story.
-- [ ] Mission2/domain/all-target tests; commit.
+- [ ] Pin 9×9 board: players V(3,7) G(4,6) I(5,7), blockers `(3,3),(5,3),(2,6),(6,6)`, hazards `(1,5),(7,5)`, explosive `(6,4)` HP4.
+- [ ] Pin openings: Rifleman21→Vanguard, Striker22→Gunner, Artillery23→Gunner, Flanker24→Interceptor.
+- [ ] Authoring tests validate target/opening IDs/factions/legal destinations; Gunner HP1 -> maxHP15.
+- [ ] Primary `Protect Gunner through the end of Round 3, or eliminate all attackers.` Bonus Hold Fast. Reward400+100, unlock3.
+- [ ] Immediate-clear lifecycle test.
+- [ ] Durable full Round3 lifecycle test with attacker alive.
+- [ ] Gunner KO / half-HP bonus tests.
+- [ ] Add `MissionId { One, Two, Three, Four }` once; final routing One story, Two/Three Upgrade, Four handoff; Proceed authored→story.
+- [ ] tests; commit.
 
 ## Task 4 — Mission3 extraction/deadline/push
 
-- [ ] Pin 9×9 board; Courier31 Flanker `(0,6)`; extraction `(8,0)`; deadline5; Manhattan14; validate authored refs/escape legality.
-- [ ] Copy: `Intercept Courier before extraction or the end of Round 5.` / Swift Intercept / 500+150 / unlock4.
-- [ ] Outcomes: escort clear non-win; Courier KO with escort alive; Round2/3 bonus boundary; exact exit fail; Round5 deadline fail.
-- [ ] Durable timing helper for player squad.
-- [ ] Round4 test: after three later moves Player4/no result/Courier not exit; no exact distance assertion.
-- [ ] Open-route test: resolve Player4 -> move4 reaches exit -> extraction defeat.
-- [ ] Blocked-exit test: occupy exit -> Player5/no result, then Round5 deadline before another move (position unchanged).
-- [ ] Push regression: Vanguard `(6,0)`, Courier `(7,0)`, resolve_push -> exit/immediate fail.
-- [ ] Author Three; Four handoff. One/Two/Three no bonus -> Four +1200; save/load Four+upgrades.
-- [ ] Mission3/progression/persistence/all-target tests; commit.
+- [ ] Pin 9×9 board: players V(4,7) G(3,8) I(5,8), blockers `(4,3),(4,4),(4,5)`, hazard `(2,5)`, explosive `(6,3)` HP4, exit `(8,0)`.
+- [ ] Courier31 Flanker `(0,6)`, Rifleman32→Vanguard, Striker33→Interceptor; deadline5; Manhattan14; authored ref/exit legality tests.
+- [ ] Primary `Intercept Courier before extraction or the end of Round 5.` Bonus Swift Intercept. Reward500+150, unlock4.
+- [ ] Escort-clear non-win / Courier-KO win / bonus boundary / exact-exit fail / Round5 fail.
+- [ ] Durable timing tests: after three later moves Player4 exists and Courier not exit; open fourth move after Player4 extracts/fails; blocked exit reaches Player5 then deadline before another move.
+- [ ] Push-to-exit regression using `resolve_push`.
+- [ ] Author Three; progression to Four=1200 base credits; save/load Four+upgrades.
+- [ ] tests; commit.
 
-## Task 5 — Flanker scene + objective UI
+## Task 5 — Flanker scene + objective presentation
 
-- [ ] JSON red test: glTF 11 scenes; scene10 Flanker nodes49–55; mesh10/material10 `Flanker Magenta`.
-- [ ] Add scene10 using existing cuboid accessors/buffer. Node transforms and magenta material are pinned in spec.
-- [ ] `MISSION_ONE_SCENE_COUNT=11`, Flanker scene index10, root scale0.72. No unit_scale/under-ring/inverse compensation.
-- [ ] HUD tests: M2 Round n/3 + Gunner HP; M3 Round n/5 + extraction distance.
-- [ ] Generic result/event/reward copy (`BONUS OBJECTIVE COMPLETE`, `Bonus +...`).
-- [ ] Extraction ring uses existing white ring material at rule escape.
-- [ ] UI/campaign_flow/presentation/all-target tests; commit.
+- [ ] JSON test: existing glTF has 11 scenes after change, scene10 `Flanker`, nodes49–55, mesh/material10 `Flanker Magenta`.
+- [ ] Append scene10 using existing buffer/accessors; magenta material and slim node transforms from spec.
+- [ ] `MISSION_ONE_SCENE_COUNT=11`; `scene_index(Flanker)=10`; root scale0.72. No `unit_scale`, under-ring, inverse compensation.
+- [ ] M2 HUD Round n/3 + GunnerHP; M3 HUD Round n/5 + distance.
+- [ ] Generic bonus/result/event/reward copy; extraction white ring at rule escape.
+- [ ] tests; commit.
 
 ## Task 6 — Campaign/restart/save integration
 
-- [ ] M2 entry with GunnerHP1 -> ActiveMission2/protect rules/round1/maxHP15.
-- [ ] M3 entry/restart -> ActiveMission3/CourierHP8/escape(8,0)/deadline5; definition-driven restart.
-- [ ] Continue One story; Two/Three upgrade; Four handoff. Proceed Two/Three story; Four handoff.
-- [ ] Save continuity: M1 no bonus + VanguardHP1; M2 no bonus + GunnerHP1; M3 no bonus; reload Four/800 credits/both upgrades.
-- [ ] Run integration/all-target tests. Stage only files actually changed; commit.
+- [ ] M2 entry with upgrades; M3 entry/restart with escape/deadline5; definition-driven restart.
+- [ ] Routing: Continue One story, Two/Three Upgrade, Four handoff; Proceed Two/Three story, Four handoff.
+- [ ] Save continuity after M1/M2 purchases + M3 no bonus -> Four, 800 credits, upgrades retained.
+- [ ] Run integration/all-target tests; stage only files actually changed; commit.
 
-## Task 7 — Docs/validation
+## Task 7 — Docs/final validation
 
-- [ ] README current three-mission flow/rewards, M2 protect-or-clear, M3 extraction/Round5, distinct Flanker.
-- [ ] CLAUDE.md current rules/helper/shared enemies/initiative/glTF scene/intent invariant.
-- [ ] Run fmt, strict Clippy, all-target tests, release build.
-- [ ] Manual M2: competing threats, immediate clear win, full Round3 win, Gunner KO, bonus.
-- [ ] Manual M3: magenta Courier, extraction ring, Player4, open extraction, blocked Round5 fallback, Courier-only win, bonus.
+- [ ] README/CLAUDE current.
+- [ ] fmt/strict Clippy/all-target/release.
+- [ ] Manual M2: competing threats, immediate clear, Round3 survival, KO fail, bonus.
+- [ ] Manual M3: magenta Courier, exit ring, Player4, open extraction, blocked Round5 fallback, Courier-only win, bonus.
 - [ ] Save/Continue/upgrades/M4 handoff.
-- [ ] Validation ledger with exact SHA/gate counts/named lifecycle+push tests/glTF evidence/manual/save verdict, no placeholders.
-- [ ] Rerun gates and commit validation.
+- [ ] Validation ledger with exact SHA, gate counts, lifecycle/push/glTF evidence, manual results; no placeholders.
+- [ ] rerun gates; commit.
 
 ## Final Gate
 
-- [ ] One small HPA-637 PR; no framework/dependency/runtime pipeline.
-- [ ] M1 opening/order unchanged; one named boundary helper.
-- [ ] M2 KO fail + immediate clear win + real Round3 win with attacker alive.
-- [ ] M3 14-step route + Player4 + live move4 extraction + blocked Round5 fallback + push-to-exit fail.
-- [ ] Courier/escort semantics correct.
-- [ ] Flanker fallback and 30/25/20/10 initiative; no x-position hack.
-- [ ] Authored refs/extraction legal.
-- [ ] glTF scene10/count11; no runtime scale workaround.
-- [ ] M2 HUD n/3; M3 HUD n/5; generic bonus/result copy.
+- [ ] M1 regression green; one round-boundary helper.
+- [ ] M2 immediate clear + Round3 path both correct.
+- [ ] M3 Player4 + live extraction + Round5 fallback + push loss correct.
+- [ ] Flanker fallback + 30/25/20/10 initiative; no x-position hack.
+- [ ] Authoring legality tests; glTF scene10/count11; no runtime scale workaround.
+- [ ] M2 HUD n/3, M3 HUD n/5, generic bonus/result copy.
 - [ ] One→Two→Three→Four, 1200 base credits, save/upgrades intact.
-- [ ] Docs current; fmt/Clippy/tests/release green.
-
-## Self-review
-
-Every accepted review finding is a concrete implementation/test requirement; no placeholder or extra abstraction remains.
+- [ ] No new framework/dependency/runtime pipeline; docs and all gates green.
