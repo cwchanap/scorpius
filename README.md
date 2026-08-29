@@ -1,8 +1,8 @@
 # Scorpius
 
-Scorpius is a retained desktop turn-based tactics game built with Rust 2024 and Bevy 0.19. HPA-635 wraps the validated Mission 1 combat slice in one linear campaign loop:
+Scorpius is a retained desktop turn-based tactics game built with Rust 2024 and Bevy 0.19. HPA-635 wraps the validated Mission 1 combat slice in one linear campaign loop, and HPA-637 authors Missions 2–3 plus the Flanker enemy so the loop runs:
 
-**Title → pre-mission VN → briefing → Mission 1 → result/reward → aftermath → mech upgrades → Mission 2 unlocked.**
+**Title → pre-mission VN → briefing → Mission 1 → result/reward → aftermath → mech upgrades → Mission 2 → … → Mission 3 → … → Mission 4 handoff.**
 
 ## Run
 
@@ -15,7 +15,7 @@ cargo run
 The game starts at the **Title** screen.
 
 - **NEW GAME** starts a fresh campaign at Mission 1 and immediately overwrites any existing pre-release progress.
-- **CONTINUE** loads the saved campaign. It is disabled when no save exists (and shows the same error shape for an unreadable/corrupted one). With progress at Mission 1 it resumes at the pre-mission story; after Mission 1 has been completed it resumes at the upgrade screen. It never replays a reward: mission completion is granted exactly once, and a repeated victory Continue fails the advancement guard instead of paying twice.
+- **CONTINUE** loads the saved campaign. It is disabled when no save exists (and shows the same error shape for an unreadable/corrupted one). Progress at Mission 1 resumes at the pre-mission story; progress at Mission 2 or 3 resumes at the upgrade screen; progress at Mission 4 resumes at the handoff screen. It never replays a reward: mission completion is granted exactly once, and a repeated victory Continue fails the advancement guard instead of paying twice.
 
 ### Save data
 
@@ -42,11 +42,17 @@ After victory, the **Aftermath** screen shows the exact persisted receipt (base,
 
 Purchases are validated before mutation: unaffordable or already-maxed purchases are no-ops and never write the save. A valid purchase is serialized to the save file before the in-memory session state is replaced, so a failed write never advances in-memory state ahead of disk; a crash mid-write surfaces as a save-file error on the next load. Upgrade effects apply the next time the mission is built.
 
-The final **MISSION 2 UNLOCKED** screen is a saved handoff state only; Mission 2 content belongs to HPA-637 and is not in this build.
+The final **MISSION 4 UNLOCKED** screen is a saved handoff state only; Mission 4 content is not authored in this build.
 
 ## Mission flow
 
-The primary objective is to eliminate all four enemies. The optional **Turnabout** objective is achieved when an enemy takes damage from a committed enemy attack, collision, hazard, or explosion. The mission fails when all three player mechs are knocked out.
+**Mission 1 — Turnabout at Relay Nine.** The primary objective is to eliminate all four enemies. The optional **Turnabout** objective is achieved when an enemy takes damage from a committed enemy attack, collision, hazard, or explosion. The mission fails when all three player mechs are knocked out.
+
+**Mission 2 — Hold Relay Nine** (400 base + 100 bonus credits, unlocks Mission 3). Protect the Gunner: the mission fails if the Gunner is knocked out, and is won immediately when every attacker is eliminated or when Round 3 completes with the Gunner alive. The optional **Hold Fast** bonus requires finishing with the Gunner at or above 50% HP.
+
+**Mission 3 — Intercept Courier** (500 base + 150 bonus credits, unlocks Mission 4). Kill the Flanker-piloted Courier before it extracts at the marked exit cell or Round 5 completes with the Courier alive. The optional **Swift Intercept** bonus requires victory by the end of Round 2.
+
+Missions 2–3 also field the **Flanker** (HP 8, Move 4, Skirmish Carbine) alongside Riflemen, Strikers, and Artillery; the Flanker acts on its own planner initiative between Strikers and Riflemen.
 
 Objectives are labeled `PRIMARY` / `BONUS`; `[P]` is reserved for the pilot command.
 
@@ -96,4 +102,4 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Detailed evidence is recorded in `docs/validation/hpa-632.md` and `docs/validation/hpa-635.md`.
+Detailed evidence is recorded in `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, and `docs/validation/hpa-637.md`.
