@@ -420,6 +420,66 @@ mod tests {
     }
 
     #[test]
+    fn extraction_ends_the_movement_pass_before_escorts_move() {
+        // Regression: the Courier must terminal-check the moment it lands on
+        // the extraction point, so the movement pass breaks before the escorts
+        // (which iterate after the Courier in unit-id order) can move. The
+        // escorts are left alive and parked far from the squad so they would
+        // otherwise emit `UnitMoved` events after the Courier extracts.
+        let mut battle = mission_three(7);
+        battle.begin_round().unwrap();
+
+        // One move (manhattan 4) from extraction.
+        battle
+            .unit_mut_for_test(ids::COURIER)
+            .expect("courier must exist")
+            .position = GridPos::new(4, 0);
+        // Escorts alive and far from the squad so their planner must move them.
+        battle
+            .unit_mut_for_test(ids::RIFLEMAN)
+            .expect("rifleman must exist")
+            .position = GridPos::new(0, 0);
+        battle
+            .unit_mut_for_test(ids::STRIKER)
+            .expect("striker must exist")
+            .position = GridPos::new(8, 8);
+        battle.set_phase_for_test(BattlePhase::EnemyPlanning);
+
+        let events = battle.begin_round().unwrap();
+
+        assert_eq!(battle.unit(ids::COURIER).unwrap().position, EXTRACTION);
+        assert_eq!(battle.phase(), BattlePhase::Defeat);
+        assert!(battle.result().is_some_and(|result| !result.victory));
+
+        let courier_move = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    BattleEvent::UnitMoved { unit, to, .. }
+                        if *unit == ids::COURIER && *to == EXTRACTION
+                )
+            })
+            .expect("the courier must move onto extraction");
+        // No escort may move after the Courier extracts.
+        assert!(
+            !events[courier_move + 1..]
+                .iter()
+                .any(|event| matches!(event, BattleEvent::UnitMoved { .. })),
+            "no UnitMoved events after extraction: {events:?}"
+        );
+        assert!(
+            events[courier_move + 1..]
+                .iter()
+                .any(|event| matches!(event, BattleEvent::MissionFailed { .. })),
+            "MissionFailed must follow extraction: {events:?}"
+        );
+        // Sanity: the escorts were alive and would have moved without the fix.
+        assert!(!battle.unit(ids::RIFLEMAN).unwrap().is_knocked_out());
+        assert!(!battle.unit(ids::STRIKER).unwrap().is_knocked_out());
+    }
+
+    #[test]
     fn an_occupied_exit_stalls_to_the_round_five_deadline() {
         let mut battle = courier_race_after_opening();
         for _ in 1..=3 {
