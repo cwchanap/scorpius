@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extend Scorpius from the completed Mission 1 campaign loop to three continuously playable missions, adding a Gunner-defense encounter, a real Courier chase with reachable extraction, and a distinct Flanker enemy without introducing a generic objective or AI framework.
+**Goal:** Extend Scorpius through Missions 2–3 with a Gunner-defense mission, a real Courier chase, and a distinct Flanker enemy while keeping one small typed mission/combat architecture.
 
-**Architecture:** `BattleState` gains one closed `MissionRules` row covering only the objective/opening shapes Missions 1–3 use. `mission` remains the typed authoring layer with a small shared regular-enemy catalog and separate Mission 2/3 modules. Flanker stays explicit in the existing deterministic planner; the existing campaign/save/UI composition remains intact. The checked-in glTF is extended by one authored scene rather than adding runtime scale/marker compensation.
+**Architecture:** `BattleState` receives one closed `MissionRules` row. Mission modules author board/roster/openings/copy/rewards. A small shared enemy catalog mirrors `squad.rs`. Flanker is one explicit branch in the existing deterministic planner. Existing campaign/save/UI composition remains unchanged. Flanker gets one new scene in the existing checked-in glTF rather than runtime scale/marker compensation.
 
-**Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, existing headless Rust tests, existing checked-in `assets/models/mission_one.gltf` and VN PNGs.
+**Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, headless Rust tests, checked-in glTF/VN assets.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-hpa-637-missions-2-3-flanker-design.md`
 
@@ -79,8 +79,8 @@ Skirmish Carbine range1-2 damage4 hit+5 crit10 EN0 no push/counter
 
 - [ ] Red JSON test: 11 scenes; scene10 Flanker nodes49–55; mesh10/material10 Flanker Magenta.
 - [ ] Append scene10 with exact node transforms from spec; mesh10 reuses POSITION0/NORMAL1/indices2; material magenta `[0.78,0.08,0.46,1]`, metallic.25, roughness.62, emissive `[0.08,0,0.04]`; buffer/accessors unchanged.
-- [ ] Set scene count11 and `scene_index(Flanker)=10`; keep root scale0.72. No `unit_scale`, under-ring, inverse-scale math.
-- [ ] HUD tests: M2 primary + Round1/3 + GunnerHP; M3 Round1/5 + cells-to-extraction; bonus labels.
+- [ ] Set scene count11 and Flanker scene index10. Keep root scale0.72; no `unit_scale`, under-ring, inverse-scale math.
+- [ ] HUD tests: M2 primary + Round1/3 + GunnerHP; M3 Round1/5 + cells-to-extraction; bonus state.
 - [ ] Generic result/event/reward copy; extraction ring uses existing white ring material at rule escape.
 - [ ] Genericize touched presentation root name.
 - [ ] Run UI/campaign_flow/presentation/all-target tests; commit `feat: add flanker presentation and mission objective UI`.
@@ -110,11 +110,12 @@ Skirmish Carbine range1-2 damage4 hit+5 crit10 EN0 no push/counter
 - [ ] One small HPA-637 PR; no framework/dependency/runtime pipeline.
 - [ ] Mission1 regression green; one named round-boundary helper.
 - [ ] M2: target KO fail, immediate clear win, real Round3 win with enemy alive, exact opening locks.
-- [ ] M3: 14-step route, Player4, live fourth-move extraction, blocked Round5 fallback, push-to-exit loss, Courier/escort semantics.
+- [ ] M3: 14-step route, Player4, live fourth-move extraction, blocked Round5 fallback, push-to-exit loss.
+- [ ] Courier KO with escort alive win; escort clear non-win.
 - [ ] Flanker fallback + 30/25/20/10 initiative; no x-position Rifleman hack.
-- [ ] Authored references/extraction legal.
+- [ ] Authored reference/extraction legality tests.
 - [ ] glTF scene10/count11; no runtime scale workaround.
-- [ ] M2 HUD n/3, M3 HUD n/5, generic bonus/result copy.
+- [ ] M2 HUD n/3; M3 HUD n/5; generic bonus/result copy.
 - [ ] One→Two→Three→Four, 1200 base credits, save/upgrades intact.
 - [ ] Docs current; fmt/Clippy/tests/release green.
 
