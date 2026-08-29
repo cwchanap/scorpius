@@ -124,6 +124,33 @@ fn save_at_four_round_trips_purchased_upgrades() {
 }
 
 #[test]
+fn base_only_run_to_four_with_two_purchases_round_trips_800_credits() {
+    let path = temp_path();
+    let mut session = CampaignSession::new(SaveFile::new(path.clone()));
+    start_new_game(&mut session).unwrap();
+    // Base rewards only: 300 + 400 + 500 = 1200.
+    for id in [MissionId::One, MissionId::Two, MissionId::Three] {
+        complete_current_mission(
+            &mut session,
+            mission_definition(id).unwrap(),
+            mission_result(true, false),
+        )
+        .unwrap();
+    }
+    persist_purchase(&mut session, PlayerMech::Gunner, UpgradeTrack::Hp).unwrap();
+    persist_purchase(&mut session, PlayerMech::Vanguard, UpgradeTrack::Weapon).unwrap();
+
+    let mut resumed = CampaignSession::new(SaveFile::new(path));
+    assert_eq!(continue_game(&mut resumed).unwrap(), MissionId::Four);
+    let state = resumed.state.as_ref().unwrap();
+    assert_eq!(state.next_mission, MissionId::Four);
+    // 1200 base credits minus two 200-credit level-1 purchases.
+    assert_eq!(state.credits, 800);
+    assert_eq!(state.upgrades.gunner.hp, 1);
+    assert_eq!(state.upgrades.vanguard.weapon, 1);
+}
+
+#[test]
 fn missing_save_loads_none() {
     let save = SaveFile::new(temp_path());
     assert_eq!(save.load().unwrap(), None);
