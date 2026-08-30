@@ -28,7 +28,7 @@ There is no displacement-resistance rule on `main`. HPA-523 must therefore not i
 
 Add only `PrimaryObjective::EliminateTarget { target }`, then implement Bulwark and Controller as explicit additions to the current closed enemy roster. Mission 4 uses the target objective to make its environmental puzzle end when the Gate Bulwark falls; Mission 5 remains `EliminateAllEnemies` and makes locked artillery footprints the puzzle.
 
-This gives Mission 4 a distinct objective without introducing callbacks, traits, registries, or generic objective composition.
+This gives Mission 4 a distinct objective without introducing callbacks, traits, registries, generic objective composition, or a reusable AI policy layer.
 
 ### B — Reuse `EliminateAllEnemies` for both missions — rejected
 
@@ -65,7 +65,7 @@ all player units knocked out while target lives -> defeat
 otherwise -> continue
 ```
 
-No objective callback, trait, registry, runtime validation layer, or serialized objective payload is added.
+No objective callback, trait, registry, runtime objective validation layer, or serialized objective payload is added.
 
 ### Optional objectives
 
@@ -76,7 +76,65 @@ Do not add another optional shape. Reuse:
 
 Turnabout keeps its current trigger definition: enemy damage caused by enemy fire, collision, hazard, or explosion completes it. Mission 4's copy presents that existing rule as an environmental challenge.
 
-### Regular enemy roster
+### Shared weapon reach/alignment rule
+
+The crate already has one exact reach rule in `domain::combat::weapon_reaches`:
+
+```text
+min_range <= Manhattan distance <= max_range
+and, when weapon.push, attacker/target share x or y
+```
+
+Make that helper crate-visible and reuse it for enemy target generation, authored-opening validation, and forced opening intent validation. Do not add a second `push_target_aligned` helper.
+
+### Committed push semantics after attacker displacement
+
+Controller is the first enemy with `push: true`. The player can displace it after its intent is committed, so commit-time alignment cannot be the only invariant.
+
+Locked rule:
+
+> A committed enemy push attack keeps its committed footprint. If it hits the current occupant after the attacker has been displaced so the live attacker/target positions are no longer aligned, the attack still deals its normal damage but skips the push.
+
+This preserves the game's locked-intent model: moving the attacker does not retarget or cancel the footprint, but an impossible live displacement does not become a domain error.
+
+Implementation stays local to enemy attack resolution: after a hit, call `resolve_push` only when the live attacker and current target still satisfy `weapon_reaches` for the push weapon. A lost-alignment push produces damage events only; it must not return `PushTargetNotAligned` from normal gameplay.
+
+Do **not** add the proposed generic `phase = Player` recovery on every enemy-resolution error. Enemy resolution mutates incrementally; resetting only the phase after a later intent fails would let a retry replay already-applied intents. HPA-523 fixes the concrete expected Controller path so it is non-erroring. Unexpected programmer/data errors remain errors rather than introducing partial-replay semantics or a transactional battle framework.
+
+### Authored opening legality
+
+Mission 1, 2, and 3 already duplicate the same opening-legality test. HPA-523 is the point to extract it because Missions 4 and 5 would otherwise be copies four and five.
+
+Add one test-only helper in `src/mission/mod.rs`:
+
+```rust
+#[cfg(test)]
+pub(crate) fn assert_opening_plan_is_legal(battle: &BattleState)
+```
+
+It checks every authored opening row:
+
+- opening count equals the number of enemy units;
+- opener exists and is `Faction::Enemy`;
+- destination is within the opener's authored movement allowance, in bounds, non-blocking, non-hazard, and not initially occupied by another unit;
+- optional target, when present, exists and is `Faction::Player`;
+- opener has a first weapon and `weapon_reaches(weapon, opening.destination, target.position)` is true for every targeted opening, including push alignment.
+
+Mission-specific tests still pin exact IDs/destinations/targets, but call this shared helper for legality. Replace the existing Mission 1/2/3 copied legality bodies in the same task.
+
+### Exhaustive enemy planning matches
+
+When Bulwark and Controller are added, `choose_enemy_destination` and `initiative` must no longer hide future archetypes behind `_` fallbacks.
+
+Use explicit player-only fallbacks:
+
+```text
+Vanguard | Gunner | Interceptor -> stay put / initiative 0
+```
+
+Every enemy archetype is named explicitly. A future seventh regular/boss archetype then creates a compiler error until its movement/initiative behavior is consciously chosen. Keep a Bulwark later-round movement regression as behavior coverage even with the exhaustive match.
+
+## Regular enemy roster
 
 Extend `UnitArchetype` to the final six regular enemies:
 
@@ -120,7 +178,7 @@ No counter
 Behavior:
 
 - use the existing attack-band movement used by Rifleman/Striker;
-- Move 1 plus authored blocking cells/placement creates the route pressure;
+- Move 1 plus authored blocking cells/placement creates route pressure;
 - use normal target selection;
 - remain pushable under the existing one-cell displacement rule;
 - no resistance flag, mass value, ZOC, guard aura, taunt, or shield subsystem.
@@ -142,7 +200,7 @@ Evasion   15
 EN         0
 
 Weapon ID 206
-Vector Projector
+Impulse Projector
 Range 2–4
 Single target
 Base damage 3
@@ -153,18 +211,20 @@ Push 1 through existing resolve_push
 No counter
 ```
 
+The enemy weapon is named **Impulse Projector**, not Vector Projector, to avoid confusion with the Interceptor's existing **Vector Pulse** push weapon.
+
 Behavior:
 
-- later-round movement considers the current reachable cells plus origin;
-- first prefer candidates from which at least one living player is both inside range 2–4 and aligned on the same row or column;
+- later-round movement considers current reachable cells plus origin;
+- first prefer candidates from which at least one living player is inside range 2–4 and aligned on the same row or column;
 - among legal push-lane candidates, minimize distance to the normal attack band, then nearest player distance, then `(y, x)` for deterministic tie-breaking;
 - if no push lane is reachable, fall back to the current attack-band destination logic;
-- runtime target-center generation for any enemy push weapon filters out diagonal centers, so a committed push can never reach `resolve_push` with an invalid alignment;
-- authored opening rows are separately tested for alignment and range.
+- dynamic target generation and authored forced targets both reuse `weapon_reaches`, so no diagonal push intent can be committed;
+- if player displacement breaks alignment after commitment, resolution becomes damage-only as specified above.
 
 No pull direction, persistent displacement status, stun, silence, slow, root, generic crowd-control descriptor, or behavior policy object is added.
 
-Initiative: **35** so a committed Controller displacement resolves before the ordinary regular attackers when its footprint still contains a unit.
+Initiative: **35** so Controller resolves before the ordinary regular attackers when its footprint still contains a unit.
 
 Final initiative table:
 
@@ -216,6 +276,8 @@ Opening legality is intentional:
 - Controller `(1,7)` to Vanguard `(4,7)` is range 3 and row-aligned;
 - Rifleman `(6,6)` to Interceptor `(5,8)` is range 3.
 
+The shared opening validator proves these constraints in addition to each mission's exact authoring assertions.
+
 ### Rules and rewards
 
 ```text
@@ -232,12 +294,12 @@ Unlocks: Mission 5
 
 ### Authored environmental solutions
 
-The board must preserve both of these concrete opening-round opportunities:
+The board preserves both concrete opening-round opportunities:
 
 1. **Explosion:** Gunner at `(3,8)` can Rail Rifle the explosive at `(3,4)` at Manhattan range 4. Its existing cross explosion includes the Bulwark at `(4,4)`.
-2. **Push into hazard:** Vanguard can move `(4,7) -> (4,6) -> (4,5)`, then use Repulsor Ram on the Bulwark at `(4,4)`. Existing push sends the Bulwark to hazard `(4,3)`, applying the normal weapon hit followed by hazard damage.
+2. **Push into hazard:** Vanguard can move `(4,7) -> (4,6) -> (4,5)`, then use Repulsor Ram on the Bulwark at `(4,4)`. Existing push sends the Bulwark to hazard `(4,3)`, applying normal weapon damage followed by hazard damage.
 
-The mission does not require a bespoke “environment kill” counter. `Turnabout` supplies the optional proof that the player used enemy/environment damage, while the target objective ends the battle whenever the Bulwark is destroyed by any legal method.
+The mission does not require a bespoke environment-kill counter. `Turnabout` supplies the optional proof that enemy/environment damage was used, while the target objective ends the battle whenever the Bulwark is destroyed by any legal method.
 
 ### Dialogue
 
@@ -258,7 +320,7 @@ Aftermath:
 
 ### Product intent
 
-Mission 5 makes locked artillery intents both the main threat and a weapon the player can redirect by moving units and displacing an enemy into the already-committed footprints.
+Mission 5 makes locked artillery intents both the main threat and a meaningful weapon the player can redirect by moving units and displacing an enemy into already-committed footprints.
 
 ### Board
 
@@ -279,12 +341,18 @@ No new hazard or prop type.
 Enemies / opening
 Artillery 51  start/stay (3,0), target Gunner
 Artillery 52  start/stay (7,2), target Vanguard
-Bulwark 53    start (3,5) -> (3,6), target Vanguard
-Controller 54 start (0,7) -> (1,7), target Vanguard
+Bulwark 53    start (0,7) -> (1,7), target Vanguard
+Controller 54 start (3,5) -> (3,6), target Gunner
 Flanker 55    start (8,7) -> (6,7), target Interceptor
 ```
 
-Opening references are all legal under the existing ranges. Controller is row-aligned with Vanguard.
+Opening legality is intentional:
+
+- Artillery 51 to Gunner is range 8;
+- Artillery 52 to Vanguard is range 8;
+- Bulwark `(1,7)` to Vanguard `(4,7)` is range 3;
+- Controller `(3,6)` to Gunner `(3,8)` is range 2 and column-aligned;
+- Flanker `(6,7)` to Interceptor `(5,8)` is range 2.
 
 ### Rules and rewards
 
@@ -306,19 +374,30 @@ At the first player phase:
 
 - Artillery 51 has committed a Cross1 footprint centered on Gunner `(3,8)`, including `(3,7)`.
 - Artillery 52 has committed a Cross1 footprint centered on Vanguard `(4,7)`, also including `(3,7)`.
-- Bulwark 53 stands at `(3,6)`.
-- Controller 54 has a Single footprint on Vanguard's original `(4,7)` cell.
+- Controller 54 stands at `(3,6)` and has committed its Single push footprint on Gunner's original `(3,8)` cell.
+- Bulwark 53 holds the left lane at `(1,7)`.
 
-A deterministic player line exists without any new rule:
+The deterministic player line remains the same exact-fit movement puzzle:
 
 1. move Gunner from `(3,8)` to safe cell `(2,7)`;
 2. move Vanguard `(4,7) -> (4,6) -> (4,5) -> (3,5)`;
-3. Repulsor Ram the Bulwark from `(3,6)` to `(3,7)`;
+3. Repulsor Ram Controller 54 from `(3,6)` to `(3,7)`;
 4. resolve the already-locked enemy intents.
 
-The Controller's committed `(4,7)` hit now lands on empty space, while both Artillery Cross1 footprints contain the displaced Bulwark at `(3,7)`. Because enemy intents already resolve against the current occupants of their committed cells, both batteries can damage their own Bulwark without retargeting.
+Controller resolves first at initiative 35, but its committed `(3,8)` cell is now empty, so that attack lands harmlessly. Both Artillery Cross1 footprints still contain the displaced Controller at `(3,7)` and can hit it without retargeting.
 
-Tests pin this geometry and the real committed footprints. They do not add an “artillery friendly fire” special case.
+The payoff is explicit and falsifiable:
+
+```text
+Controller HP 9 / Armor 1
+Repulsor Ram normal damage: 5 - 1 = 4
+Each Siege Mortar normal damage: 6 - 1 = 5
+Each mortar hit chance: 90 + 5 - 15 = 80%
+```
+
+After the Ram, **one** mortar hit is enough to KO the Controller (4 + 5 = 9). Both mortar hits total 14 damage including the Ram. The setup also vacates two dangerous artillery targets, so even a miss still rewards manipulating committed fire rather than simple damage optimization.
+
+Tests pin the real committed footprints, the public movement paths, the Controller displacement, the 4/5 damage previews, and Artillery attack rolls targeting Controller at `(3,7)`. They do not add an artillery-friendly-fire special case.
 
 ### Dialogue
 
@@ -385,9 +464,17 @@ Target {
 }
 ```
 
-Mission 4 shows Gate Bulwark HP. `EliminateAllEnemies` remains the only primary whose HUD copy appends “N remaining”; target/protect/intercept objectives use their own tracking copy and must not imply the player needs to clear escorts.
+Pin the rendered tracker copy so it cannot read like a protect objective:
 
-No new mission-specific HUD system is introduced.
+```text
+TARGET {name} HP {hp}/{max_hp}
+```
+
+Mission 4 therefore renders `TARGET Gate Bulwark HP 16/16` at full health.
+
+`EliminateAllEnemies` becomes the only primary whose main HUD line appends `· N remaining`. This intentionally corrects the existing Mission 2/3 copy: Protect/Intercept keep their own HP/distance tracker and no longer imply that clearing every enemy is the win condition. Add explicit Mission 2 and Mission 3 snapshot/string regressions for the new copy.
+
+No mission-specific HUD system is introduced.
 
 ### Unit visuals
 
@@ -431,38 +518,61 @@ buffers 1
 
 - `EliminateTarget`: target KO wins with escorts alive; player wipe loses while target lives.
 - Bulwark factory and Bastion Cannon exact stats.
-- Controller factory and Vector Projector exact stats.
+- Controller factory and Impulse Projector exact stats/name.
 - Controller later movement chooses a legal aligned push lane when one exists and falls back deterministically when none exists.
-- Enemy push target generation never commits a diagonal push center.
+- Dynamic and authored push intents reuse `weapon_reaches`; no diagonal push center can be committed.
+- Commit a Controller push intent, displace Controller perpendicular to its committed lane during the player phase, then resolve: resolution returns `Ok`, the committed attack still rolls/deals damage on a hit, no `UnitPushed` occurs when live alignment is lost, and the battle advances normally instead of remaining in `EnemyResolution`.
+- Bulwark has a later-round regression proving its attack-band branch leaves origin when a better Move-1 cell exists.
+- `choose_enemy_destination` and `initiative` have no wildcard archetype fallback; only the three player archetypes explicitly stay/return initiative 0.
 - Initiative table includes Controller 35 and Bulwark 15 while preserving 30/25/20/10 existing order.
 - Existing push/collision/hazard/explosion regressions remain green.
+
+### Authored openings
+
+- one shared `assert_opening_plan_is_legal` is called by Mission 1–5 tests;
+- existing Mission 1/2/3 copied legality bodies are removed;
+- exact mission-specific opening rows remain separately pinned;
+- every targeted opening is in weapon range and every push opening is aligned.
 
 ### Mission 4
 
 - exact 9×9 board, deployment, terrain, props, enemy IDs, rules, rewards, dialogue, and opening rows;
-- opening rows reference real enemies and legal destinations/targets; Controller opening is aligned and in range;
-- Gunner can preview/attack the `(3,4)` explosive and the explosion footprint contains the Bulwark;
-- Vanguard can reach `(4,5)` and the existing push path sends the Bulwark `(4,4) -> (4,3)` onto the hazard;
-- destroying only the Bulwark wins with escorts alive;
-- environmental/enemy damage completes the Turnabout bonus.
+- Gunner can preview/attack the `(3,4)` explosive and the explosion footprint contains Bulwark;
+- Vanguard can reach `(4,5)` and existing push sends Bulwark `(4,4) -> (4,3)` onto hazard;
+- destroying only Bulwark wins with escorts alive;
+- environmental/enemy damage completes Turnabout.
 
 ### Mission 5
 
-- exact 9×9 board, deployment, enemy IDs, rules, rewards, dialogue, and opening rows;
+- exact 9×9 board, deployment, enemy IDs, rules, rewards, dialogue, and revised opening rows;
 - both opening Artillery intents contain `(3,7)` after `begin_round`;
-- Gunner can vacate to `(2,7)` and Vanguard can reach `(3,5)`;
-- existing push geometry sends Bulwark `(3,6) -> (3,7)`;
-- resolving the two committed artillery intents can damage the Bulwark at `(3,7)` while their original player cells are vacated;
+- Gunner can vacate to `(2,7)` and Vanguard can reach `(3,5)` through public movement;
+- existing push geometry sends Controller `(3,6) -> (3,7)`;
+- Repulsor Ram previews 4 normal damage against Controller; Siege Mortar previews 5 normal damage against Controller;
+- Controller's committed `(3,8)` hit lands on empty space after Gunner vacates;
+- resolving both committed Artillery intents rolls against Controller at `(3,7)` without retargeting;
 - victory by Round 4 earns Rapid Break; later victory does not.
 
 ### Campaign/presentation
 
-- Mission 4 target HUD shows Bulwark HP and does not append total remaining enemies as a win requirement;
+- inline `src/presentation/ui.rs` tests cover `EliminateTarget` projection/formatting before Mission 4 exists;
+- Mission 2/3 HUD regressions confirm their main objective lines no longer append enemy count;
+- Task 5 integration coverage uses real Mission 4 to pin `TARGET Gate Bulwark HP ...`;
 - Bulwark/Controller scene indices and glTF structure/counts are pinned;
 - One -> Two -> Three -> Four -> Five -> Six progression is continuous;
 - base rewards through Mission 5 total 2500;
 - upgrade purchases remain persisted across Mission 4/5 entry and Mission 6 handoff;
 - Continue routes Four/Five to Upgrade and Six to the handoff screen.
+
+## Risks
+
+### Displaced committed pusher
+
+This is the highest-risk new rule because Controller is the first enemy push weapon while the player already has three ways to displace enemies. A perpendicular player push after commitment must not turn enemy resolution into `PushTargetNotAligned` or strand the phase. The damage-only-on-lost-alignment rule and full resolve regression are mandatory Task 2 coverage.
+
+### Mission 5 load-bearing geometry
+
+Both Artillery `Cross1` footprints must include `(3,7)`, Gunner `(3,8) -> (2,7)` and Vanguard `(4,7) -> (3,5)` must remain legal public movement paths, and Controller `(3,6) -> (3,7)` must remain a legal push. The real `begin_round` + public movement/displacement regression must not be replaced with direct position mutation.
 
 ## Manual validation
 
@@ -470,25 +580,27 @@ Mission 4:
 
 - Bulwark visually reads heavier than the other regular units;
 - opening telegraphs remain readable with the Controller push threat;
-- both the explosive splash and push-into-hazard solutions are discoverable in normal play;
-- killing the Bulwark ends the mission without escort cleanup;
+- both explosive splash and push-into-hazard solutions are discoverable in normal play;
+- killing Bulwark ends the mission without escort cleanup;
 - session length remains a short tactical encounter.
 
 Mission 5:
 
-- two artillery telegraphs remain readable alongside Controller/Flanker threats;
-- the shared `(3,7)` artillery footprint is visually understandable;
-- vacating the original player cells and pushing Bulwark into `(3,7)` turns the committed artillery fire against it;
+- two Artillery telegraphs remain readable alongside Controller/Flanker threats;
+- the shared `(3,7)` Artillery footprint is visually understandable;
+- vacating the original player cells and pushing Controller into `(3,7)` makes committed crossfire materially useful;
+- Controller's own vacated `(3,8)` push threat lands harmlessly;
+- the Ram + at least one Mortar hit payoff is apparent in normal play;
 - Rapid Break creates useful pressure without making the main objective a hard deadline;
 - session length remains a short tactical encounter.
 
 Campaign:
 
 - complete Mission 3 save -> upgrade -> Mission 4 -> results -> upgrade -> Mission 5 -> results -> upgrade -> Mission 6 handoff;
-- Continue and restart preserve the existing save/upgrades behavior.
+- Continue and restart preserve existing save/upgrades behavior.
 
 ## Scope guardrails
 
-No new dependency, crate, objective framework, AI policy framework, generic status/crowd-control system, displacement resistance model, zone of control, aura, pull mechanic, new hazard type, new regular enemy beyond Bulwark/Controller, boss behavior, branching route, mission select, difficulty mode, save migration, new VN art, new glTF file, runtime asset pipeline, or second PR.
+No new dependency, crate, objective framework, AI policy framework, generic status/crowd-control system, displacement resistance model, zone of control, aura, pull mechanic, new hazard type, new regular enemy beyond Bulwark/Controller, boss behavior, branching route, mission select, difficulty mode, save migration, new VN art, new glTF file, runtime asset pipeline, transactional battle framework, or second PR.
 
 HPA-523 ends with exactly six regular enemy archetypes and a Mission 6 handoff. Boss-specific behavior belongs to HPA-524.
