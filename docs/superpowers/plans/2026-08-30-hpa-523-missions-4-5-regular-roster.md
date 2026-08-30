@@ -51,7 +51,7 @@ fn eliminate_target_wins_when_target_falls_with_escorts_alive() {
     battle.set_rules_for_test(MissionRules {
         primary: PrimaryObjective::EliminateTarget { target: ids::STRIKER },
         optional: OptionalObjective::Turnabout,
-        opening_plan: battle.rules().opening_plan,
+        opening_plan: &[],
     });
 
     battle.apply_direct_damage(
@@ -70,10 +70,10 @@ fn eliminate_target_loses_when_players_are_wiped_while_target_lives() {
     battle.set_rules_for_test(MissionRules {
         primary: PrimaryObjective::EliminateTarget { target: ids::STRIKER },
         optional: OptionalObjective::Turnabout,
-        opening_plan: battle.rules().opening_plan,
+        opening_plan: &[],
     });
     for player in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
-        battle.apply_direct_damage(player, 99, DamageSource::EnemyWeapon(ids::ARTILLERY, ids::SIEGE_MORTAR));
+        battle.apply_direct_damage(player, 99, DamageSource::Collision);
     }
 
     assert!(battle.result().is_some_and(|result| !result.victory));
@@ -266,7 +266,7 @@ B. no aligned lane reachable -> Controller falls back to attack-band movement
 C. push weapon target selection never commits a diagonal intended center
 ```
 
-For C, place Controller diagonally from the nearest player with another legal row/column center inside range, call `begin_round`, and assert every Controller intent center/footprint is aligned with the intended player's current cell when `intended_occupant` is present.
+For C, place Controller diagonally from the nearest player with another legal row/column center inside range, call `begin_round`, then use the Controller's Single-shape `intent.footprint[0]` as the committed center. When `intended_occupant` is present, assert that center shares `x` or `y` with the intended player's current cell.
 
 Also pin initiative values:
 
@@ -397,6 +397,8 @@ assert_eq!(preview.target, GridPos::new(3, 4));
 
 // In a separate fixture, Vanguard can occupy (4,5) and push Bulwark to hazard (4,3).
 ```
+
+For the explosion fixture, resolve the shot with a deterministic seed (or call `damage_explosive` directly after the range preview) and assert `ExplosionTriggered.footprint` contains `(4,4)` plus Bulwark receives `DamageSource::Explosion` damage.
 
 For the push fixture use public movement then `resolve_push` directly to remove RNG from the geometry assertion:
 
@@ -869,7 +871,7 @@ Stage only files that actually changed.
 
 **Interfaces:**
 - Consumes: final implementation SHA, automated test output, manual playthrough observations.
-- Produces: reviewable HPA-523 acceptance evidence with no placeholders.
+- Produces: reviewable HPA-523 acceptance evidence with concrete results.
 
 - [ ] **Step 1: Update product/developer docs to the current campaign**
 
@@ -965,7 +967,7 @@ Confirm Continue/restart preserve credits and upgrades across the new missions.
 - any accepted tuning changes with their final authored values.
 ```
 
-Do not leave `TBD`, pending checklist items, or speculative follow-ups in the ledger.
+The ledger should contain only observed final values and results.
 
 - [ ] **Step 7: Run final gates after documentation edits**
 
