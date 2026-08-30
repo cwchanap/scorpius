@@ -4,7 +4,7 @@
 
 **Goal:** Ship Missions 4–5, Bulwark, and Controller as one player-visible HPA-523 slice, completing the six-enemy regular roster and advancing the campaign to the Mission 6 handoff.
 
-**Architecture:** Extend the existing closed Rust domain model with one exact target-elimination objective and two explicit enemy archetypes. Keep mission geometry/content in `mission_four.rs` / `mission_five.rs`, reuse current push/environment/intent/campaign/UI seams, and append two scenes to the existing checked-in glTF rather than creating new frameworks or asset paths.
+**Architecture:** Extend the existing closed Rust domain model with one exact target-elimination objective and two explicit enemy archetypes. Reuse the existing weapon reach/alignment rule, one-cell displacement, authored mission openings, campaign flow, Bevy UI, and checked-in glTF. Keep all HPA-523 work in one PR and fix the first enemy-push lifecycle locally instead of adding generic objective, AI, status, resistance, or battle-transaction frameworks.
 
 **Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, checked-in glTF, ordinary Cargo tests plus the existing Bevy `App` integration tests.
 
@@ -14,11 +14,15 @@
 
 - One HPA-523 ticket = one PR. Continue implementation on this planning branch/PR.
 - Seven task commits stay in this PR; do not split the ticket into prerequisite or follow-up PRs.
-- No new dependencies, crates, objective framework, AI policy framework, generic statuses, displacement-resistance model, physics, scripting/data format, save migration, VN art, or asset pipeline.
+- No new dependencies, crates, objective framework, AI policy framework, generic statuses, displacement-resistance model, physics, scripting/data format, save migration, VN art, asset pipeline, or transactional battle framework.
 - Add exactly two regular enemies: Bulwark and Controller. The final regular roster is exactly six.
 - Add exactly one primary objective shape: `EliminateTarget { target: UnitId }`.
-- Bulwark remains pushable through the existing `resolve_push`; there is no resistance system on `main`.
-- Controller uses existing one-cell push and never commits a diagonal push target, whether the center came from normal targeting or an authored opening.
+- Bulwark remains pushable through existing displacement; there is no resistance system on `main`.
+- Controller uses existing one-cell push. Dynamic and authored push centers reuse `weapon_reaches` and cannot commit an illegal diagonal/out-of-range target.
+- If player displacement breaks a committed enemy push's live alignment/range, the locked attack still resolves damage against the current footprint occupant but skips the push.
+- Do not add generic `phase = Player` error recovery: resetting only phase after partial enemy-resolution mutations would permit replay/double damage.
+- Mission 1–5 opening legality is checked by one shared `#[cfg(test)]` helper; mission-specific tests still pin exact rows.
+- `choose_enemy_destination` and `initiative` use explicit archetype matches; no wildcard may silently idle a future enemy.
 - Mission 4 uses only existing blocking, hazard, explosive, collision, and push rules.
 - Mission 5 exploits already-locked Artillery footprints; do not special-case friendly fire.
 - Mission IDs become One–Six; One–Five are authored and Six is the HPA-523 terminal handoff.
@@ -28,26 +32,27 @@
 
 ## Risks
 
-- **Mission 5 opening geometry is load-bearing.** Both Artillery `Cross1` footprints must include `(3,7)`, Gunner `(3,8) -> (2,7)` and Vanguard `(4,7) -> (3,5)` must remain legal public movement paths, and Bulwark `(3,6) -> (3,7)` must remain a legal push. Task 4's real `begin_round` + public movement/displacement test is required coverage and must not be replaced with `move_unit_direct_for_test` or treated as an optional authoring assertion.
+- **Displaced committed pusher — highest risk.** Controller is the first enemy push weapon while the player already has multiple push weapons. A perpendicular player displacement after intent commitment must not make `resolve_enemy_phase` return `PushTargetNotAligned` or leave the battle in `EnemyResolution`. Task 2 must drive the real commit -> player displacement -> enemy resolution sequence and prove damage-only fallback plus normal phase advancement.
+- **Mission 5 opening geometry is load-bearing.** Both Artillery `Cross1` footprints must include `(3,7)`, Gunner `(3,8) -> (2,7)` and Vanguard `(4,7) -> (3,5)` must remain legal public movement paths, and Controller `(3,6) -> (3,7)` must remain a legal push. Task 4's real `begin_round` + public movement/displacement test is required coverage and must not be replaced with `move_unit_direct_for_test`.
 
 ---
 
-### Task 1: Add the closed target-elimination objective and target HUD
+### Task 1: Add the closed target-elimination objective and correct objective HUD copy
 
 **Files:**
 - Modify: `src/domain/model.rs`
 - Modify: `src/domain/battle.rs`
 - Modify: `src/presentation/ui.rs`
 - Test: `src/domain/battle.rs`
-- Test: `tests/presentation_app.rs`
+- Test: `src/presentation/ui.rs`
 
 **Interfaces:**
-- Consumes: current `PrimaryObjective`, `BattleState::check_terminal_state`, `HudSnapshot::from_battle`.
-- Produces: `PrimaryObjective::EliminateTarget { target: UnitId }`; `ObjectiveTrackSnapshot::Target { name, hp, max_hp }`.
+- Consumes: current `PrimaryObjective`, `BattleState::check_terminal_state`, `HudSnapshot::from_battle`, `format_track`.
+- Produces: `PrimaryObjective::EliminateTarget { target: UnitId }`; `ObjectiveTrackSnapshot::Target { name, hp, max_hp }`; exact `TARGET ... HP ...` tracker copy; corrected Mission 2/3 primary lines.
 
-- [ ] **Step 1: Write the failing domain tests for target-only victory/failure**
+- [ ] **Step 1: Write failing domain tests for target-only victory/failure**
 
-Add focused `battle.rs` tests using a Mission 1 fixture with overridden rules:
+Add to `src/domain/battle.rs` tests:
 
 ```rust
 #[test]
@@ -86,7 +91,7 @@ fn eliminate_target_loses_when_players_are_wiped_while_target_lives() {
 }
 ```
 
-- [ ] **Step 2: Run the domain tests and confirm the red state**
+- [ ] **Step 2: Run the domain tests and confirm red**
 
 ```bash
 cargo test --lib eliminate_target -- --nocapture
@@ -96,13 +101,13 @@ Expected: compile failure because `PrimaryObjective::EliminateTarget` does not e
 
 - [ ] **Step 3: Add the minimal objective variant and terminal rule**
 
-In `model.rs` add:
+In `src/domain/model.rs`:
 
 ```rust
 EliminateTarget { target: UnitId },
 ```
 
-In `check_terminal_state` add:
+In `BattleState::check_terminal_state`:
 
 ```rust
 PrimaryObjective::EliminateTarget { target } => {
@@ -119,25 +124,59 @@ PrimaryObjective::EliminateTarget { target } => {
 
 Do not change `ObjectiveProgress`, persistence, or add an objective abstraction.
 
-- [ ] **Step 4: Add the failing HUD projection test**
+- [ ] **Step 4: Put the pre-Mission-4 HUD tests in the inline `ui.rs` test module**
 
-Construct an `EliminateTarget` fixture and pin:
+`set_rules_for_test` is `#[cfg(test)] pub(crate)`, so do **not** try to construct this fixture from `tests/presentation_app.rs` yet.
+
+Add an inline target fixture:
 
 ```rust
-assert_eq!(
-    hud.objective_track,
-    Some(ObjectiveTrackSnapshot::Target {
-        name: "Striker",
-        hp: 12,
-        max_hp: 12,
-    })
-);
-assert!(!hud.primary.contains("remaining"));
+#[test]
+fn target_objective_tracks_target_without_enemy_count_and_formats_as_target() {
+    let mut battle = mission_one(7);
+    battle.set_rules_for_test(MissionRules {
+        primary: PrimaryObjective::EliminateTarget { target: ids::STRIKER },
+        optional: OptionalObjective::Turnabout,
+        opening_plan: &[],
+    });
+    let base = *mission_definition(MissionId::One).unwrap();
+    let definition = MissionDefinition {
+        primary_objective: "Destroy the Striker.",
+        ..base
+    };
+
+    let hud = HudSnapshot::from_battle(&battle, None, &definition);
+    assert_eq!(
+        hud.objective_track,
+        Some(ObjectiveTrackSnapshot::Target {
+            name: "Striker",
+            hp: 12,
+            max_hp: 12,
+        })
+    );
+    assert_eq!(hud.primary, "Destroy the Striker.");
+    assert_eq!(
+        format_track(hud.objective_track.as_ref().unwrap()),
+        "TARGET Striker HP 12/12"
+    );
+}
+```
+
+Also add explicit Mission 2/3 regressions using their real definitions:
+
+```rust
+let m2 = mission_two(7);
+let m2_hud = HudSnapshot::from_battle(&m2, None, mission_definition(MissionId::Two).unwrap());
+assert!(!m2_hud.primary.contains("remaining"));
+
+let m3 = mission_three(7);
+let m3_hud = HudSnapshot::from_battle(&m3, None, mission_definition(MissionId::Three).unwrap());
+assert!(!m3_hud.primary.contains("remaining"));
 ```
 
 Keep an `EliminateAllEnemies` assertion that still includes the remaining-enemy count.
 
-- [ ] **Step 5: Implement target tracking and objective-specific primary copy**
+- [ ] **Step 5: Implement target projection, exact tracker copy, and objective-specific main copy**
 
 Extend `ObjectiveTrackSnapshot`:
 
@@ -149,7 +188,7 @@ Target {
 },
 ```
 
-Map `EliminateTarget` to target HP. Change primary copy construction to:
+Map `EliminateTarget` to target HP. Build the primary line as:
 
 ```rust
 let primary = match battle.rules().primary {
@@ -160,6 +199,14 @@ let primary = match battle.rules().primary {
 };
 ```
 
+Add the formatting arm:
+
+```rust
+ObjectiveTrackSnapshot::Target { name, hp, max_hp } => {
+    format!("TARGET {name} HP {hp}/{max_hp}")
+}
+```
+
 `round_cap` remains only Protect/Intercept; `EliminateTarget` has no round cap.
 
 - [ ] **Step 6: Run focused and full tests**
@@ -167,40 +214,48 @@ let primary = match battle.rules().primary {
 ```bash
 cargo fmt --check
 cargo test --lib eliminate_target
-cargo test --test presentation_app
+cargo test --lib presentation::ui::tests
 cargo test --all-targets
 ```
 
-Expected: all pass.
+Expected: target tests pass; Mission 2/3 intentionally lose the misleading enemy-count suffix; elimination missions retain it.
 
-- [ ] **Step 7: Commit the objective slice**
+- [ ] **Step 7: Commit the objective/HUD slice**
 
 ```bash
-git add src/domain/model.rs src/domain/battle.rs src/presentation/ui.rs tests/presentation_app.rs
+git add src/domain/model.rs src/domain/battle.rs src/presentation/ui.rs
 git commit -m "feat: add target elimination objective"
 ```
 
 ---
 
-### Task 2: Complete the regular enemy roster and Controller push planning
+### Task 2: Complete the regular roster, reuse reach validation, and make enemy push resolution safe
 
 **Files:**
 - Modify: `src/domain/model.rs`
+- Modify: `src/domain/combat.rs`
 - Modify: `src/domain/enemy.rs`
 - Modify: `src/mission/enemies.rs`
+- Modify: `src/mission/mod.rs`
+- Modify: `src/mission/mission_one.rs`
+- Modify: `src/mission/mission_two.rs`
+- Modify: `src/mission/mission_three.rs`
 - Modify: `src/presentation/battlefield.rs`
 - Modify: `src/presentation/ui.rs`
 - Modify: `src/presentation/interaction.rs`
 - Test: `src/domain/enemy.rs`
 - Test: `src/mission/enemies.rs`
+- Test: `src/mission/mission_one.rs`
+- Test: `src/mission/mission_two.rs`
+- Test: `src/mission/mission_three.rs`
 
 **Interfaces:**
-- Consumes: `attack_band_destination`, `distance_to_band`, `choose_target`, `WeaponSpec.push`, `BattleState::resolve_push`, and the existing exhaustive `UnitArchetype` presentation matches.
-- Produces: `UnitArchetype::{Bulwark, Controller}`, `enemies::bulwark`, `enemies::controller`, `enemies::bastion_cannon`, `enemies::vector_projector`, compiling temporary scene mappings until Task 5, and a shared enemy-side push-alignment predicate.
+- Consumes: existing `weapon_reaches`, `attack_band_destination`, `distance_to_band`, `choose_target`, `BattleState::resolve_push`, authored `EnemyOpening`, and exhaustive presentation matches.
+- Produces: `UnitArchetype::{Bulwark, Controller}`, `enemies::{bulwark, controller, bastion_cannon, impulse_projector}`, crate-visible `weapon_reaches`, shared opening validator, safe damage-only fallback after lost push alignment, exhaustive movement/initiative matches, and temporary scene mappings until Task 5.
 
-- [ ] **Step 1: Write exact factory/weapon tests before adding the variants**
+- [ ] **Step 1: Write exact factory/weapon tests with the non-colliding enemy weapon name**
 
-Pin:
+In `src/mission/enemies.rs` tests pin:
 
 ```rust
 let bulwark = bulwark(UnitId(41), "Gate Bulwark", GridPos::new(4, 5));
@@ -217,20 +272,11 @@ assert_eq!(controller.stats.armor, 1);
 assert_eq!(controller.stats.movement, 2);
 assert_eq!(controller.stats.accuracy, 82);
 assert_eq!(controller.stats.evasion, 15);
-assert_eq!(controller.weapons, vec![ids::VECTOR_PROJECTOR]);
-```
+assert_eq!(controller.weapons, vec![ids::IMPULSE_PROJECTOR]);
 
-Weapon assertions:
-
-```rust
-let cannon = bastion_cannon();
-assert_eq!(cannon.id, ids::BASTION_CANNON);
-assert_eq!((cannon.min_range, cannon.max_range), (1, 3));
-assert_eq!(cannon.base_damage, 6);
-assert!(!cannon.push);
-
-let projector = vector_projector();
-assert_eq!(projector.id, ids::VECTOR_PROJECTOR);
+let projector = impulse_projector();
+assert_eq!(projector.id, ids::IMPULSE_PROJECTOR);
+assert_eq!(projector.name, "Impulse Projector");
 assert_eq!((projector.min_range, projector.max_range), (2, 4));
 assert_eq!(projector.base_damage, 3);
 assert_eq!(projector.hit_modifier, 10);
@@ -238,35 +284,44 @@ assert_eq!(projector.crit_chance, 0);
 assert!(projector.push);
 ```
 
-- [ ] **Step 2: Run factory tests and confirm the red state**
+Keep Bastion Cannon pinned at range 1–3, damage 6, no push.
+
+- [ ] **Step 2: Run factory tests and confirm red**
 
 ```bash
 cargo test --lib mission::enemies::tests -- --nocapture
 ```
 
-Expected: compile failures for the new archetypes/factories/weapon IDs.
+Expected: compile failures for new archetypes/factories/weapon IDs.
 
-- [ ] **Step 3: Add the archetypes/factories and immediately keep every exhaustive match compiling**
+- [ ] **Step 3: Add the archetypes/factories and immediately keep exhaustive presentation matches compiling**
 
-Add to `UnitArchetype`:
+Add:
 
 ```rust
-Bulwark,
-Controller,
+pub enum UnitArchetype {
+    Vanguard,
+    Gunner,
+    Interceptor,
+    Rifleman,
+    Striker,
+    Artillery,
+    Flanker,
+    Bulwark,
+    Controller,
+}
 ```
 
-Add IDs:
+Enemy weapon IDs:
 
 ```rust
 pub const BASTION_CANNON: WeaponId = WeaponId(205);
-pub const VECTOR_PROJECTOR: WeaponId = WeaponId(206);
+pub const IMPULSE_PROJECTOR: WeaponId = WeaponId(206);
 ```
 
-Construct the exact stats/weapons using the existing `unit`, `stats`, and `weapon` helpers. Do not add fields to `UnitStats` or `WeaponSpec`.
+Construct exact stats/weapons using existing `unit`, `stats`, and `weapon` helpers. Do not add fields to `UnitStats` or `WeaponSpec`.
 
-In the same step, update the exhaustive matches that otherwise make `--all-targets` fail before Task 5:
-
-`src/presentation/ui.rs`:
+Update `ui.rs` enemy-only pilot matches:
 
 ```rust
 UnitArchetype::Rifleman
@@ -277,22 +332,9 @@ UnitArchetype::Rifleman
 | UnitArchetype::Controller => false,
 ```
 
-and the same enemy set returns `"[P] PILOT"` in `pilot_label`.
+Use the same enemy set for `"[P] PILOT"` labels and `PilotSkillWrongUnit` in `interaction.rs`.
 
-`src/presentation/interaction.rs`:
-
-```rust
-UnitArchetype::Rifleman
-| UnitArchetype::Striker
-| UnitArchetype::Artillery
-| UnitArchetype::Flanker
-| UnitArchetype::Bulwark
-| UnitArchetype::Controller => {
-    return Err(BattleError::PilotSkillWrongUnit(unit_id));
-}
-```
-
-`src/presentation/battlefield.rs` uses the existing Flanker scene as a temporary compile-safe stand-in until Task 5 appends real scenes:
+Use a temporary compile-safe visual mapping until Task 5:
 
 ```rust
 UnitArchetype::Flanker
@@ -302,129 +344,218 @@ UnitArchetype::Flanker
 
 Do not change the glTF or scene count in Task 2.
 
-- [ ] **Step 4: Write enemy-planning tests for Controller, authored push safety, Bulwark movement, and initiative**
+- [ ] **Step 4: Reuse `weapon_reaches` instead of adding another alignment helper**
 
-Keep all fixtures inside `src/domain/enemy.rs` tests so private planner functions can be exercised without new public seams.
-
-Pin five behaviors:
-
-```text
-A. Controller: aligned lane exists -> choose_enemy_destination picks a reachable aligned range-2..4 cell.
-B. Controller: no aligned lane exists -> falls back to attack_band_destination deterministically.
-C. Dynamic Controller intent -> a push weapon never chooses a diagonal committed center.
-D. Authored/forced Controller intent -> a diagonal forced target is rejected before any AttackIntent is committed.
-E. Bulwark -> with a reachable attack-band cell, choose_enemy_destination leaves origin instead of idling.
-```
-
-For C, call private `build_intent(&battle, controller_id, None)` in the module test and assert the Single-shape committed center shares `x` or `y` with its intended occupant when one exists.
-
-For D, place Controller at `(0,0)` and a player at `(2,2)`, then call:
+Change `src/domain/combat.rs`:
 
 ```rust
-let error = build_intent(&battle, controller_id, Some(GridPos::new(2, 2))).unwrap_err();
-assert_eq!(
-    error,
-    BattleError::PushTargetNotAligned {
-        attacker: GridPos::new(0, 0),
-        target: GridPos::new(2, 2),
-    }
-);
-assert!(battle.intents().is_empty());
-```
-
-For E, use a Bulwark fixture where one Move-1 reachable cell improves distance to its range 1–3 attack band:
-
-```rust
-let destination = choose_enemy_destination(&battle, bulwark_id).unwrap();
-assert_ne!(destination, battle.unit(bulwark_id).unwrap().position);
-```
-
-Pin initiative:
-
-```rust
-assert_eq!(initiative(&controller), 35);
-assert_eq!(initiative(&striker), 30);
-assert_eq!(initiative(&flanker), 25);
-assert_eq!(initiative(&rifleman), 20);
-assert_eq!(initiative(&bulwark), 15);
-assert_eq!(initiative(&artillery), 10);
-```
-
-- [ ] **Step 5: Implement the smallest Bulwark/Controller movement branches**
-
-In `choose_enemy_destination`:
-
-```text
-Rifleman | Striker | Bulwark -> existing attack-band path
-Controller -> controller_destination
-Flanker -> existing explicit Flanker branch
-Artillery -> existing artillery branch
-```
-
-Add `controller_destination` over the existing candidate list. A candidate is preferred when at least one living player is aligned and inside the Vector Projector's range:
-
-```rust
-let aligned_in_band = players.iter().any(|player| {
-    let distance = position.manhattan(player.position);
-    let aligned = position.x == player.position.x || position.y == player.position.y;
-    aligned && distance >= weapon.min_range && distance <= weapon.max_range
-});
-```
-
-If any candidate satisfies it, restrict to those and choose by:
-
-```text
-(distance_to_band to nearest player, nearest Manhattan distance, y, x)
-```
-
-Otherwise reuse `attack_band_destination`. No policy object or RNG.
-
-- [ ] **Step 6: Enforce push alignment for both dynamic targeting and authored openings**
-
-Add one local helper beside targeting code:
-
-```rust
-fn push_target_aligned(attacker: GridPos, target: GridPos) -> bool {
-    attacker.x == target.x || attacker.y == target.y
+pub(crate) fn weapon_reaches(
+    weapon: &WeaponSpec,
+    attacker: GridPos,
+    target: GridPos,
+) -> bool {
+    let distance = attacker.manhattan(target);
+    distance >= weapon.min_range
+        && distance <= weapon.max_range
+        && (!weapon.push || attacker.x == target.x || attacker.y == target.y)
 }
 ```
 
-In `choose_target`, keep the range filter and reject diagonal centers for push weapons:
+Import it in `enemy.rs` alongside `attack_footprint`/`preview_for_profile`.
+
+Use it as the dynamic target filter:
 
 ```rust
-let in_range = distance >= weapon.min_range && distance <= weapon.max_range;
-in_range && (!weapon.push || push_target_aligned(attacker.position, *target))
+.filter(|target| weapon_reaches(weapon, attacker.position, *target))
 ```
 
-Then enforce the invariant again in `build_intent` after the final `choice` is selected, which covers authored `forced_target` values that bypass `choose_target`:
+After `build_intent` chooses either dynamic or forced center, reject an authored/forced target that cannot be reached:
 
 ```rust
-if weapon.push && !push_target_aligned(attacker.position, choice.center) {
-    return Err(BattleError::PushTargetNotAligned {
-        attacker: attacker.position,
-        target: choice.center,
+if !weapon_reaches(weapon, attacker.position, choice.center) {
+    let distance = attacker.position.manhattan(choice.center);
+    return Err(if distance < weapon.min_range || distance > weapon.max_range {
+        BattleError::TargetOutOfRange {
+            attacker: attacker_id,
+            weapon: weapon_id,
+            target: choice.center,
+        }
+    } else {
+        BattleError::PushTargetNotAligned {
+            attacker: attacker.position,
+            target: choice.center,
+        }
     });
 }
 ```
 
-This copies the existing player-side alignment rule conceptually; do not create a new combat-rule type. A bad authored opening fails before commitment instead of reaching `resolve_push` during enemy resolution.
+No `push_target_aligned` helper is added.
 
-- [ ] **Step 7: Run roster/planning/presentation compile regressions**
+- [ ] **Step 5: Extract one shared opening-legality assertion and delete three copies**
+
+Add to `src/mission/mod.rs`:
+
+```rust
+#[cfg(test)]
+pub(crate) fn assert_opening_plan_is_legal(battle: &BattleState) {
+    let enemies: Vec<_> = battle
+        .units()
+        .filter(|unit| unit.faction == Faction::Enemy)
+        .map(|unit| unit.id)
+        .collect();
+    assert_eq!(battle.rules().opening_plan.len(), enemies.len());
+
+    for opening in battle.rules().opening_plan {
+        let unit = battle.unit(opening.unit).expect("opening refs a real unit");
+        assert_eq!(unit.faction, Faction::Enemy);
+        assert!(opening.destination.manhattan(unit.position) <= unit.stats.movement);
+        assert!(battle.board().contains(opening.destination));
+        assert!(!battle.board().is_blocking(opening.destination));
+        assert!(!battle.board().is_hazard(opening.destination));
+        assert!(battle.units().all(|other| {
+            other.id == opening.unit || other.position != opening.destination
+        }));
+
+        if let Some(target_id) = opening.target {
+            let target = battle.unit(target_id).expect("opening target exists");
+            assert_eq!(target.faction, Faction::Player);
+            let weapon = unit
+                .weapons
+                .first()
+                .and_then(|weapon| battle.weapon(*weapon))
+                .expect("opening unit has first weapon");
+            assert!(
+                weapon_reaches(weapon, opening.destination, target.position),
+                "opening target must be in range and push-aligned"
+            );
+        }
+    }
+}
+```
+
+Import the minimum test-only types/functions needed under `#[cfg(test)]`.
+
+Replace the copied legality loops in Mission 1, 2, and 3 tests with:
+
+```rust
+assert_opening_plan_is_legal(&battle);
+```
+
+Keep each mission's separate exact opening-row assertions; only the duplicated generic legality body is removed.
+
+- [ ] **Step 6: Write Controller/Bulwark planning tests and remove wildcard safety holes**
+
+Inside `src/domain/enemy.rs` tests pin:
+
+```text
+A. Controller aligned lane exists -> chooses reachable aligned range-2..4 cell.
+B. Controller no aligned lane -> deterministic attack-band fallback.
+C. Dynamic push intent center satisfies weapon_reaches.
+D. Forced diagonal push target is rejected before commitment.
+E. Bulwark with a better Move-1 attack-band cell leaves origin.
+F. Initiative is Controller35 / Striker30 / Flanker25 / Rifleman20 / Bulwark15 / Artillery10.
+```
+
+For the forced-target case:
+
+```rust
+let error = build_intent(&battle, controller_id, Some(GridPos::new(2, 2))).unwrap_err();
+assert!(matches!(error, BattleError::PushTargetNotAligned { .. }));
+```
+
+Replace `choose_enemy_destination`'s wildcard with explicit arms:
+
+```text
+Flanker -> existing flanker_destination
+Rifleman | Striker | Bulwark -> existing attack_band_destination
+Artillery -> existing Artillery branch
+Controller -> controller_destination
+Vanguard | Gunner | Interceptor -> origin
+```
+
+Replace `initiative` wildcard with:
+
+```rust
+match unit.archetype {
+    UnitArchetype::Controller => 35,
+    UnitArchetype::Striker => 30,
+    UnitArchetype::Flanker => 25,
+    UnitArchetype::Rifleman => 20,
+    UnitArchetype::Bulwark => 15,
+    UnitArchetype::Artillery => 10,
+    UnitArchetype::Vanguard | UnitArchetype::Gunner | UnitArchetype::Interceptor => 0,
+}
+```
+
+- [ ] **Step 7: Add the displaced-Controller regression before changing resolution**
+
+Build a small enemy-domain fixture with the player Vanguard on the Controller's committed vertical lane and Interceptor positioned to push the Controller horizontally. Use an authored opening so `begin_round()` commits the Controller intent first.
+
+The test sequence must be:
+
+```text
+1. begin_round -> Controller commits push center on Vanguard.
+2. player uses existing resolve_push test seam to move Controller perpendicular to the committed lane.
+3. finish every living player activation with Guard so resolve_enemy_phase is legal.
+4. call resolve_enemy_phase.
+5. assert Ok, normal next Player phase, AttackRolled still targets Vanguard, and no enemy UnitPushed event occurs.
+```
+
+Use the same bounded seed-sweep pattern already used by the Aegis regression to choose one deterministic seed where the Controller hit lands, then assert the returned events contain enemy `DamageApplied` to Vanguard. The purpose is to prove damage-only fallback, not RNG behavior.
+
+Before the fix, this test must fail with `PushTargetNotAligned` and leave the phase in `EnemyResolution`.
+
+- [ ] **Step 8: Implement damage-only fallback when live push reach is lost**
+
+In `resolve_enemy_profile_against`, leave hit/damage resolution unchanged. Gate only the push:
+
+```rust
+let live_push_reaches = self
+    .unit(attacker)
+    .zip(self.unit(target))
+    .and_then(|(attacker_state, target_state)| {
+        self.weapon(profile.weapon).map(|weapon| {
+            weapon_reaches(
+                weapon,
+                attacker_state.position,
+                target_state.position,
+            )
+        })
+    })
+    .unwrap_or(false);
+
+if profile.push
+    && self.unit(attacker).is_some_and(|unit| !unit.is_knocked_out())
+    && self.unit(target).is_some_and(|unit| !unit.is_knocked_out())
+    && live_push_reaches
+{
+    events.extend(self.resolve_push(attacker, target)?);
+}
+```
+
+Do not reset `BattlePhase` on arbitrary errors. The expected displaced-pusher path is now non-erroring; a generic phase reset after partial mutations is explicitly out of scope.
+
+- [ ] **Step 9: Run roster, authoring, displacement, and all-target regressions**
 
 ```bash
 cargo fmt --check
 cargo test --lib mission::enemies::tests
+cargo test --lib mission_one_opening_rows_reference_legal_units_and_destinations
+cargo test --lib mission_two_opening_rows_reference_legal_units_and_destinations
+cargo test --lib mission_three_opening_rows_reference_legal_units_and_destinations
 cargo test --lib domain::enemy::tests
 cargo test --lib domain::environment::tests
 cargo test --all-targets
 ```
 
-Expected: existing Rifleman/Striker/Artillery/Flanker behavior remains green; the new Bulwark movement and both Controller push-alignment paths pass; `--all-targets` compiles with the temporary scene-10 mapping.
+Expected: all pass, including the displaced Controller resolve path and Task 2's temporary scene-10 mapping.
 
-- [ ] **Step 8: Commit the roster slice**
+- [ ] **Step 10: Commit the roster/domain slice**
 
 ```bash
-git add src/domain/model.rs src/domain/enemy.rs src/mission/enemies.rs \
+git add src/domain/model.rs src/domain/combat.rs src/domain/enemy.rs \
+  src/mission/enemies.rs src/mission/mod.rs src/mission/mission_one.rs \
+  src/mission/mission_two.rs src/mission/mission_three.rs \
   src/presentation/battlefield.rs src/presentation/ui.rs src/presentation/interaction.rs
 git commit -m "feat: add Bulwark and Controller enemies"
 ```
@@ -442,12 +573,12 @@ git commit -m "feat: add Bulwark and Controller enemies"
 - Test: `tests/campaign_model.rs`
 
 **Interfaces:**
-- Consumes: `build_player_squad`, shared enemy factories, `MissionDefinition`, `EliminateTarget`, `Turnabout`.
+- Consumes: `build_player_squad`, shared enemy factories, `assert_opening_plan_is_legal`, `MissionDefinition`, `EliminateTarget`, `Turnabout`.
 - Produces: `MISSION_FOUR_DEFINITION`, `mission_four_for_campaign`, `MissionId::{Five, Six}` with Six still a handoff.
 
 - [ ] **Step 1: Add failing Mission 4 authoring tests**
 
-Pin:
+Pin exact authored data:
 
 ```text
 Board 9×9
@@ -464,18 +595,24 @@ Reward 600+150
 Unlock Five
 ```
 
-For every opening row assert enemy faction, movement reachability, in-bounds/open destination, and a real player target when present. For Controller also assert destination-to-Vanguard is row/column aligned and inside Vector Projector range 2–4.
+After the exact row assertions, call:
+
+```rust
+assert_opening_plan_is_legal(&battle);
+```
+
+Do not add another hand-written legality loop.
 
 - [ ] **Step 2: Add failing environmental geometry tests**
 
-Drive the real opening first:
+Drive the real opening:
 
 ```rust
 let mut battle = mission_four(7);
 battle.begin_round().unwrap();
 ```
 
-Pin the explosive line:
+Explosive path:
 
 ```rust
 battle.begin_activation(ids::GUNNER).unwrap();
@@ -485,9 +622,9 @@ let preview = battle
 assert_eq!(preview.target, GridPos::new(3, 4));
 ```
 
-Resolve the explosive deterministically or call `damage_explosive` after the legal range preview; assert `ExplosionTriggered.footprint` contains `(4,4)` and Bulwark receives `DamageSource::Explosion`.
+After proving the shot is legal, call `damage_explosive` directly to remove RNG from the environment assertion and verify `ExplosionTriggered.footprint` contains `(4,4)` plus Bulwark receives `DamageSource::Explosion`.
 
-In a separate fixture, use public movement then the existing displacement seam:
+Separate push geometry fixture:
 
 ```rust
 battle.begin_activation(ids::VANGUARD).unwrap();
@@ -549,7 +686,7 @@ Reward: 600 + 150
 Four -> Five
 ```
 
-Use only existing VN file paths and the exact dialogue from the spec.
+Use only existing VN file paths and exact dialogue from the spec.
 
 - [ ] **Step 6: Move Continue's temporary handoff forward**
 
@@ -560,7 +697,7 @@ Ok(MissionId::Two | MissionId::Three | MissionId::Four) => {
 Ok(MissionId::Five | MissionId::Six) => next_state.set(GameScreen::NextMission),
 ```
 
-Update comments that still call Four terminal. Task 4 authors Five and leaves only Six in the handoff branch.
+Update stale comments that still call Four terminal. Task 4 authors Five and leaves only Six in the handoff branch.
 
 - [ ] **Step 7: Add campaign tests through Mission 4**
 
@@ -592,7 +729,7 @@ git commit -m "feat: add Mission 4 environmental breach"
 
 ---
 
-### Task 4: Author Mission 5 and pin the load-bearing artillery crossfire geometry
+### Task 4: Author Mission 5 and pin the load-bearing Controller crossfire setup
 
 **Files:**
 - Create: `src/mission/mission_five.rs`
@@ -604,10 +741,10 @@ git commit -m "feat: add Mission 4 environmental breach"
 - Test: `tests/campaign_persistence.rs`
 
 **Interfaces:**
-- Consumes: locked `AttackIntent` footprints, public movement, current `resolve_push`, `EliminateAllEnemies`, `VictoryByRound`.
-- Produces: `MISSION_FIVE_DEFINITION`, `mission_five_for_campaign`, Five -> Six handoff, and durable evidence for the `(3,7)` crossfire line.
+- Consumes: locked `AttackIntent` footprints, public movement, current `resolve_push`, `EliminateAllEnemies`, `VictoryByRound`, shared opening validator.
+- Produces: `MISSION_FIVE_DEFINITION`, `mission_five_for_campaign`, Five -> Six handoff, and durable evidence for the `(3,7)` crossfire line and 4/5 damage payoff.
 
-- [ ] **Step 1: Add failing Mission 5 authoring tests**
+- [ ] **Step 1: Add failing Mission 5 authoring tests for the revised formation**
 
 Pin:
 
@@ -617,8 +754,8 @@ Players V(4,7) G(3,8) I(5,8)
 Blocking (1,4),(7,4),(1,5),(7,5)
 Artillery51 (3,0) stays, target Gunner
 Artillery52 (7,2) stays, target Vanguard
-Bulwark53 (3,5)->(3,6), target Vanguard
-Controller54 (0,7)->(1,7), target Vanguard
+Bulwark53 (0,7)->(1,7), target Vanguard
+Controller54 (3,5)->(3,6), target Gunner
 Flanker55 (8,7)->(6,7), target Interceptor
 Primary EliminateAllEnemies
 Optional VictoryByRound 4
@@ -626,11 +763,17 @@ Reward 700+200
 Unlock Six
 ```
 
-Validate every opening destination/target and Controller alignment/range.
+Pin exact opening rows, then call:
+
+```rust
+assert_opening_plan_is_legal(&battle);
+```
+
+The shared validator must prove Controller `(3,6)` -> Gunner `(3,8)` is range 2 and aligned, and Bulwark `(1,7)` -> Vanguard `(4,7)` is range 3.
 
 - [ ] **Step 2: Write the required real-opening/public-movement crossfire regression**
 
-Do not use `move_unit_direct_for_test` in this test.
+Do not use `move_unit_direct_for_test`.
 
 ```rust
 let mut battle = mission_five(7);
@@ -640,10 +783,10 @@ let artillery_a = battle.intent_for(ids::ARTILLERY_A).unwrap();
 let artillery_b = battle.intent_for(ids::ARTILLERY_B).unwrap();
 assert!(artillery_a.footprint.contains(&GridPos::new(3, 7)));
 assert!(artillery_b.footprint.contains(&GridPos::new(3, 7)));
-assert_eq!(battle.unit(ids::BULWARK).unwrap().position, GridPos::new(3, 6));
+assert_eq!(battle.unit(ids::CONTROLLER).unwrap().position, GridPos::new(3, 6));
 ```
 
-Prove both exact-fit player paths on the public movement API:
+Prove the exact public movement paths:
 
 ```rust
 battle.begin_activation(ids::GUNNER).unwrap();
@@ -653,20 +796,54 @@ battle.finish_activation(ids::GUNNER).unwrap();
 
 battle.begin_activation(ids::VANGUARD).unwrap();
 battle.move_unit(ids::VANGUARD, GridPos::new(3, 5)).unwrap();
-let events = battle.resolve_push(ids::VANGUARD, ids::BULWARK).unwrap();
-assert_eq!(battle.unit(ids::BULWARK).unwrap().position, GridPos::new(3, 7));
-assert!(events.iter().any(|event| matches!(event, BattleEvent::UnitPushed { .. })));
+let ram = battle
+    .preview_attack(ids::VANGUARD, squad::ids::REPULSOR_RAM, GridPos::new(3, 6))
+    .unwrap();
+assert_eq!(ram.normal_damage, 4);
+assert_eq!(ram.push_destination, Some(GridPos::new(3, 7)));
+
+let push_events = battle.resolve_push(ids::VANGUARD, ids::CONTROLLER).unwrap();
+assert_eq!(battle.unit(ids::CONTROLLER).unwrap().position, GridPos::new(3, 7));
+assert!(push_events.iter().any(|event| matches!(event, BattleEvent::UnitPushed { .. })));
 ```
 
-Use existing `resolve_intent_for_test` for Artillery A then B and assert each event list contains:
+The geometry test uses direct `resolve_push` after the real preview so RNG cannot make the authoring assertion flaky.
+
+- [ ] **Step 3: Pin the Controller's vacated push intent and Mortar payoff**
+
+After Gunner vacates `(3,8)` and Controller is at `(3,7)`:
 
 ```rust
-BattleEvent::AttackRolled { target, .. } if *target == ids::BULWARK
+let controller_events = battle.resolve_intent_for_test(ids::CONTROLLER).unwrap();
+assert!(controller_events.iter().any(|event| matches!(
+    event,
+    BattleEvent::AttackHitEmpty { attacker, cell, .. }
+        if *attacker == ids::CONTROLLER && *cell == GridPos::new(3, 8)
+)));
 ```
 
-Also assert the Controller's already-committed `(4,7)` footprint has no occupant after Vanguard vacates it. This test is the regression for the risk named above; keep the real `begin_round`, public `move_unit`, and real committed footprints.
+Resolve Artillery A/B with deterministic seeds chosen by a bounded sweep when needed. For each battery assert `AttackRolled` targets Controller at the committed shared cell. On a hit assert:
 
-- [ ] **Step 3: Add Round-4 bonus boundary tests**
+```rust
+BattleEvent::DamageApplied {
+    target: ids::CONTROLLER,
+    amount: 5,
+    source: DamageSource::EnemyWeapon(_, _),
+    ..
+}
+```
+
+This pins the authored payoff:
+
+```text
+Repulsor Ram preview against Armor 1 = 4
+Siege Mortar normal hit against Armor 1 = 5
+Controller HP = 9
+```
+
+One Mortar hit after the real Ram would KO Controller; the test does not add a friendly-fire special case or force hit behavior in production.
+
+- [ ] **Step 4: Add Round-4 bonus boundary tests**
 
 Using the same durable round-step style as Mission 3:
 
@@ -677,7 +854,7 @@ victory at round 5 -> optional_complete false
 
 Knock out remaining enemies through the existing damage test seam so `check_terminal_state` evaluates the actual optional rule.
 
-- [ ] **Step 4: Run Mission 5 tests and confirm red**
+- [ ] **Step 5: Run Mission 5 tests and confirm red**
 
 ```bash
 cargo test --lib mission::mission_five -- --nocapture
@@ -685,7 +862,7 @@ cargo test --lib mission::mission_five -- --nocapture
 
 Expected: module/definition is missing.
 
-- [ ] **Step 5: Implement Mission 5 exactly as authored**
+- [ ] **Step 6: Implement Mission 5 exactly as revised**
 
 IDs:
 
@@ -707,9 +884,9 @@ Reward: 700 + 200
 Five -> Six
 ```
 
-Use shared enemy factories/weapons, no new hazards/props, no artillery special case, and only existing VN assets/dialogue from the spec.
+Use shared enemy factories/weapons, no new hazards/props, no Artillery special case, and only existing VN assets/dialogue from the spec.
 
-- [ ] **Step 6: Register Five and make Six the only handoff**
+- [ ] **Step 7: Register Five and make Six the only handoff**
 
 ```rust
 MissionId::Five => Some(&mission_five::MISSION_FIVE_DEFINITION),
@@ -727,7 +904,7 @@ Ok(MissionId::Six) => next_state.set(GameScreen::NextMission),
 
 `Proceed` stays definition-driven.
 
-- [ ] **Step 7: Extend campaign/persistence tests through Six**
+- [ ] **Step 8: Extend campaign/persistence tests through Six**
 
 Pin:
 
@@ -740,7 +917,7 @@ Max total through Five = 3200
 
 Persist an upgrade before Mission 4, reload, construct Mission 4/5 with that state, finish Mission 5, save/reload Six, and assert upgrade levels plus intended credits survive.
 
-- [ ] **Step 8: Run gates**
+- [ ] **Step 9: Run gates**
 
 ```bash
 cargo fmt --check
@@ -751,7 +928,7 @@ cargo test --test campaign_persistence
 cargo test --all-targets
 ```
 
-- [ ] **Step 9: Commit Mission 5**
+- [ ] **Step 10: Commit Mission 5**
 
 ```bash
 git add src/mission/mission_five.rs src/mission/mod.rs src/presentation/campaign_ui.rs \
@@ -761,7 +938,7 @@ git commit -m "feat: add Mission 5 artillery assault"
 
 ---
 
-### Task 5: Append Bulwark/Controller glTF scenes and replace the temporary scene mappings
+### Task 5: Append Bulwark/Controller glTF scenes and replace temporary scene mappings
 
 **Files:**
 - Modify: `assets/models/mission_one.gltf`
@@ -771,8 +948,8 @@ git commit -m "feat: add Mission 5 artillery assault"
 - Test: `tests/presentation_app.rs`
 
 **Interfaces:**
-- Consumes: Task 2's temporary scene-10 mapping, `MissionAssets`, current single embedded glTF buffer/accessors.
-- Produces: scene 11 Bulwark, scene 12 Controller, scene count 13, permanent `scene_index` mappings.
+- Consumes: Task 2's temporary scene-10 mapping, `MissionAssets`, real Mission 4/5 definitions, current single embedded glTF buffer/accessors.
+- Produces: scene 11 Bulwark, scene 12 Controller, scene count 13, permanent `scene_index` mappings, real Mission 4 target-HUD integration assertion.
 
 - [ ] **Step 1: Write the glTF structure test first**
 
@@ -811,14 +988,14 @@ cargo test --lib presentation::assets::tests -- --nocapture
 
 Expected: current scene/node/mesh/material counts are still 11/56/11/11.
 
-- [ ] **Step 3: Append the two scenes without another buffer/file**
+- [ ] **Step 3: Append two scenes without another buffer/file**
 
 ```text
 Bulwark root 56 + children 57–62 -> mesh 11
 Controller root 63 + children 64–69 -> mesh 12
 ```
 
-Copy the exact Flanker child transforms 50–55, changing only mesh indices. Add meshes/materials 11 and 12 using the same cube accessors. Keep the existing single embedded buffer and accessor arrays.
+Copy exact Flanker child transforms 50–55, changing only mesh indices. Add meshes/materials 11 and 12 using the same cube accessors. Keep the existing single embedded buffer and accessor arrays.
 
 - [ ] **Step 4: Replace only the temporary visual mappings**
 
@@ -828,7 +1005,7 @@ Change:
 pub const MISSION_ONE_SCENE_COUNT: usize = 13;
 ```
 
-Replace Task 2's temporary combined scene-10 arm with:
+Replace Task 2's combined scene-10 arm with:
 
 ```rust
 UnitArchetype::Flanker => 10,
@@ -836,16 +1013,24 @@ UnitArchetype::Bulwark => 11,
 UnitArchetype::Controller => 12,
 ```
 
-The `ui.rs` and `interaction.rs` exhaustive enemy arms were already completed in Task 2 and are not Task 5 work. Do not add a per-archetype scale table.
+The `ui.rs` and `interaction.rs` exhaustive enemy arms were completed in Task 2 and are not Task 5 work. Do not add a per-archetype scale table.
 
-- [ ] **Step 5: Add presentation assertions**
+- [ ] **Step 5: Add real Mission 4/5 presentation assertions**
+
+In `tests/presentation_app.rs`, now that Mission 4 exists, pin the real target HUD:
+
+```text
+TARGET Gate Bulwark HP 16/16
+```
+
+Also assert:
 
 ```rust
 assert_eq!(scene_index(UnitArchetype::Bulwark), 11);
 assert_eq!(scene_index(UnitArchetype::Controller), 12);
 ```
 
-For Mission 4, assert Target tracker displays Gate Bulwark HP. For Mission 5, assert both Artillery intents appear in the threat list and remaining-enemy count appears because the primary is `EliminateAllEnemies`.
+For Mission 5, assert both Artillery intents appear in the threat list and the primary line includes remaining-enemy count because its primary is `EliminateAllEnemies`.
 
 - [ ] **Step 6: Run gates**
 
@@ -906,16 +1091,16 @@ cargo test --test campaign_persistence -- --nocapture
 cargo test --test presentation_app -- --nocapture
 ```
 
-Expected: definition-driven code should already handle Four/Five. If compilation exposes a remaining exhaustive MissionId match or a literal Four handoff, update only that concrete branch; do not introduce a router/registry abstraction.
+Expected: definition-driven code should already handle Four/Five. If compilation exposes a remaining exhaustive MissionId match or literal Four handoff, update only that concrete branch; do not introduce a router/registry abstraction.
 
-- [ ] **Step 3: Apply only the bounded correction named by a failing test**
+- [ ] **Step 3: Apply only bounded corrections named by failing tests**
 
 Allowed production corrections are limited to:
 
 ```text
-- an exhaustive MissionId match that lacks Five/Six;
-- stale literal Four-terminal handoff logic/copy;
-- a hard-coded mission lookup where mission_definition(next_mission) should already be used.
+- an exhaustive MissionId match that lacks Five/Six
+- stale literal Four-terminal handoff logic/copy
+- a hard-coded mission lookup where mission_definition(next_mission) should already be used
 ```
 
 Do not add a save version, migration, mission router, or state-machine framework.
@@ -939,7 +1124,7 @@ git add src/app.rs src/presentation/mod.rs 2>/dev/null || true
 git commit -m "test: cover Mission 4-5 campaign continuity"
 ```
 
-Keep the commit even when production code needs no correction; the integration tests themselves are the Task 6 deliverable.
+Keep the commit even when production code needs no correction; the integration tests are the Task 6 deliverable.
 
 ---
 
@@ -962,9 +1147,10 @@ README/CLAUDE must state:
 - campaign authored through Mission 5 with Mission 6 handoff
 - final roster: Rifleman/Striker/Artillery/Flanker/Bulwark/Controller
 - Mission 4: target breach/environment manipulation
-- Mission 5: locked-artillery crossfire exploitation
+- Mission 5: locked-artillery crossfire exploitation against the displaced Controller
 - Bulwark has no displacement immunity
-- Controller is push-only, no status system
+- Controller uses Impulse Projector push-only behavior, no status system
+- displaced committed Controller push becomes damage-only if live push reach is lost
 - save remains local JSON at stable campaign transitions
 ```
 
@@ -991,13 +1177,13 @@ cargo run
 Record:
 
 ```text
-- Bulwark reads visually heavier than regular enemies.
-- Controller push telegraph is legible.
-- Gunner can use explosive (3,4) to splash Bulwark.
-- Vanguard can push Bulwark (4,4)->(4,3) onto hazard.
-- Bulwark KO wins with escorts alive.
-- Chain Reaction reward appears for qualifying enemy/environment damage.
-- Encounter remains a short tactical session.
+- Bulwark reads visually heavier than regular enemies
+- Controller Impulse Projector telegraph is legible
+- Gunner can use explosive (3,4) to splash Bulwark
+- Vanguard can push Bulwark (4,4)->(4,3) onto hazard
+- Bulwark KO wins with escorts alive
+- Chain Reaction reward appears for qualifying enemy/environment damage
+- encounter remains a short tactical session
 ```
 
 - [ ] **Step 4: Manually validate Mission 5**
@@ -1008,12 +1194,16 @@ Record:
 - both Artillery Cross1 footprints include (3,7)
 - Gunner (3,8)->(2,7) is legal
 - Vanguard (4,7)->(3,5) is legal
-- Bulwark (3,6)->(3,7) push is legal
-- both already-committed Artillery attacks can damage Bulwark at (3,7)
-- Controller's vacated (4,7) hit is harmless
+- Controller (3,6)->(3,7) push is legal
+- Ram preview against Controller is 4 normal damage
+- each Mortar normal hit against Controller is 5 damage
+- Controller's committed (3,8) attack is harmless after Gunner vacates
+- committed Artillery crossfire materially damages/usually finishes the displaced Controller
 - Rapid Break rewards <= Round 4 but is not a failure deadline
 - mixed telegraphs remain readable and encounter stays short
 ```
+
+Also manually displace a Controller perpendicular to a committed push lane in either Mission 4 or a debug/test setup and confirm the enemy attack resolves without a stuck `EnemyResolution` phase.
 
 - [ ] **Step 5: Manually validate campaign continuity**
 
@@ -1032,8 +1222,10 @@ Confirm Continue/restart preserve credits and upgrades.
 - final implementation commit SHA
 - exact commands and pass/fail result
 - test count / coverage command result
+- displaced committed-pusher automated/manual evidence
+- shared Mission 1-5 opening-validator evidence
 - Mission 4 automated geometry + manual evidence
-- Mission 5 real begin_round `(3,7)` crossfire + public movement/displacement evidence
+- Mission 5 real begin_round `(3,7)` crossfire + public movement/displacement + 4/5 damage evidence
 - glTF 13/70/13/13/1 evidence
 - campaign One->Six / 2500 base credits / save-upgrade evidence
 - accepted tuning changes with final authored values
@@ -1063,15 +1255,22 @@ git commit -m "docs: validate HPA-523 missions 4-5"
 
 Before marking the PR ready for review:
 
-- [ ] HPA-523 is one PR with seven task commits.
+- [ ] HPA-523 is one PR with seven implementation task commits.
 - [ ] Only one new primary objective exists: `EliminateTarget`.
-- [ ] No displacement-resistance/status/AI/objective framework was added.
+- [ ] No displacement-resistance/status/AI/objective/transaction framework was added.
+- [ ] `weapon_reaches` is the shared range/push-alignment predicate for player/enemy reach validation rather than a second helper.
+- [ ] Mission 1–5 tests call one shared opening-legality validator; the copied Mission 1/2/3 generic legality bodies are removed.
 - [ ] Bulwark is HP16 / Armor4 / Move1, pushable, initiative15, and has a tested later-round attack-band movement path.
-- [ ] Controller is HP9 / Armor1 / Move2 with range2–4 damage3 Push1, initiative35.
-- [ ] Dynamic and authored Controller intents cannot commit a diagonal push target.
-- [ ] Task 2's `cargo test --all-targets` is green before the real Bulwark/Controller glTF scenes exist; temporary scene 10 mapping is replaced in Task 5.
+- [ ] Controller is HP9 / Armor1 / Move2 with `Impulse Projector` range2–4 damage3 Push1, initiative35.
+- [ ] Dynamic and authored Controller intents cannot commit an illegal push target.
+- [ ] Player displacement that breaks a committed Controller push's live reach produces damage-only resolution, no enemy push, no error, and no stuck `EnemyResolution` phase.
+- [ ] `choose_enemy_destination` and `initiative` have no wildcard archetype fallthrough; only Vanguard/Gunner/Interceptor explicitly use neutral fallback values.
+- [ ] Task 2's `cargo test --all-targets` is green before real Bulwark/Controller glTF scenes exist; temporary scene 10 mapping is replaced in Task 5.
+- [ ] Mission 2/3 main HUD lines intentionally no longer append `N remaining`; their objective trackers still communicate HP/distance.
+- [ ] Target tracker renders `TARGET {name} HP {hp}/{max_hp}` and Mission 4 uses the real Gate Bulwark value.
 - [ ] Mission 4 preserves both authored environmental solutions and wins on Bulwark KO with escorts alive.
-- [ ] Mission 5's real opening preserves the shared `(3,7)` dual-Artillery footprint, both exact-fit public movement paths, and the Bulwark displacement line.
+- [ ] Mission 5's real opening preserves shared `(3,7)` dual-Artillery footprint, exact-fit public movement paths, and Controller displacement line.
+- [ ] Mission 5 pins 4 normal Ram damage and 5 normal damage per Mortar against Controller; its own vacated `(3,8)` push intent is harmless.
 - [ ] Mission 5's Round-4 condition is optional pressure, not a primary deadline.
 - [ ] Regular roster totals exactly six archetypes.
 - [ ] glTF final structure is 13 scenes / 70 nodes / 13 meshes / 13 materials / 1 buffer.
