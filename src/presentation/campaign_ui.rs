@@ -312,7 +312,7 @@ pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
 }
 
 /// NextMission handoff copy; the heading follows the runtime's next mission —
-/// authored missions and the Mission 4 handoff alike announce the unlock.
+/// authored missions and the Mission 6 handoff alike announce the unlock.
 /// `Vanguard/Gunner/Interceptor` lines
 /// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
 pub fn next_mission_copy(state: &CampaignState) -> String {
@@ -772,9 +772,10 @@ pub fn apply_campaign_action(
         },
         CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
             Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-            Ok(MissionId::Two | MissionId::Three) => next_state.set(GameScreen::Upgrade),
-            // Four has no authored content: the handoff summary is terminal.
-            Ok(MissionId::Four) => next_state.set(GameScreen::NextMission),
+            Ok(MissionId::Two | MissionId::Three | MissionId::Four) => {
+                next_state.set(GameScreen::Upgrade)
+            }
+            Ok(MissionId::Five | MissionId::Six) => next_state.set(GameScreen::NextMission),
             Err(error) => status.0 = error.to_string(),
         },
         CampaignUiAction::AdvanceDialogue => {
@@ -809,7 +810,7 @@ pub fn apply_campaign_action(
         }
         CampaignUiAction::Proceed => {
             // Authored next mission: straight into its pre-mission story.
-            // Four is the terminal handoff state.
+            // Six is the terminal handoff state.
             let authored = runtime
                 .0
                 .state

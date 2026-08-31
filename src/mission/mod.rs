@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::{combat::weapon_reaches, model::Faction};
 
 pub mod enemies;
+pub mod mission_four;
 pub mod mission_one;
 pub mod mission_three;
 pub mod mission_two;
@@ -18,6 +19,8 @@ pub enum MissionId {
     Two,
     Three,
     Four,
+    Five,
+    Six,
 }
 
 impl std::fmt::Display for MissionId {
@@ -27,6 +30,8 @@ impl std::fmt::Display for MissionId {
             MissionId::Two => 2,
             MissionId::Three => 3,
             MissionId::Four => 4,
+            MissionId::Five => 5,
+            MissionId::Six => 6,
         };
         write!(f, "{number}")
     }
@@ -79,8 +84,8 @@ pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
         MissionId::One => Some(&mission_one::MISSION_ONE_DEFINITION),
         MissionId::Two => Some(&mission_two::MISSION_TWO_DEFINITION),
         MissionId::Three => Some(&mission_three::MISSION_THREE_DEFINITION),
-        // Four is the terminal handoff state with no battle content.
-        MissionId::Four => None,
+        MissionId::Four => Some(&mission_four::MISSION_FOUR_DEFINITION),
+        MissionId::Five | MissionId::Six => None,
     }
 }
 

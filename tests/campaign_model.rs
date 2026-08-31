@@ -31,5 +31,24 @@ fn new_game_and_mission_one_definition_are_locked() {
     let three = mission_definition(MissionId::Three).unwrap();
     assert_eq!(three.unlocks, MissionId::Four);
     assert_eq!(three.base_reward, 500);
-    assert_eq!(mission_definition(MissionId::Four), None);
+    let four = mission_definition(MissionId::Four).unwrap();
+    assert_eq!(four.id, MissionId::Four);
+    assert_eq!(four.unlocks, MissionId::Five);
+    assert_eq!(four.title, "Mission 4 — Breach the Gate");
+    assert_eq!(four.base_reward, 600);
+    assert_eq!(four.optional_reward, 150);
+    assert_eq!(mission_definition(MissionId::Five), None);
+    assert_eq!(mission_definition(MissionId::Six), None);
+
+    // Base rewards through Four: 300 + 400 + 500 + 600 = 1800.
+    let base_through_four: u32 = [
+        MissionId::One,
+        MissionId::Two,
+        MissionId::Three,
+        MissionId::Four,
+    ]
+    .iter()
+    .map(|id| mission_definition(*id).unwrap().base_reward)
+    .sum();
+    assert_eq!(base_through_four, 1800);
 }
