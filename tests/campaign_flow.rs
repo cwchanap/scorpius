@@ -9,7 +9,7 @@ use scorpius::campaign::model::{
 };
 use scorpius::campaign::progression::CompletionReceipt;
 use scorpius::campaign::save::SaveFile;
-use scorpius::campaign::session::{CampaignSession, complete_current_mission};
+use scorpius::campaign::session::{CampaignSession, complete_current_mission, persist_purchase};
 use scorpius::domain::board::GridPos;
 use scorpius::domain::model::{MissionResult, OptionalObjective, PrimaryObjective};
 use scorpius::mission::MissionId;
@@ -53,6 +53,44 @@ fn pending(next: &NextState<GameScreen>) -> Option<GameScreen> {
         NextState::Unchanged => None,
         NextState::Pending(state) | NextState::PendingIfNeq(state) => Some(*state),
     }
+}
+
+fn walk_story_to_briefing(
+    runtime: &mut CampaignRuntime,
+    cursor: &mut DialogueCursor,
+    status: &mut CampaignStatus,
+) {
+    loop {
+        let mut next = NextState::Unchanged;
+        apply_campaign_action(
+            CampaignUiAction::AdvanceDialogue,
+            runtime,
+            None,
+            cursor,
+            status,
+            &mut next,
+        );
+        if pending(&next) == Some(GameScreen::Briefing) {
+            return;
+        }
+    }
+}
+
+fn start_mission(
+    runtime: &mut CampaignRuntime,
+    cursor: &mut DialogueCursor,
+    status: &mut CampaignStatus,
+) {
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::StartMission,
+        runtime,
+        None,
+        cursor,
+        status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Battle));
 }
 
 #[test]
@@ -314,6 +352,256 @@ fn mission_five_entry_builds_through_the_shared_definition_path_with_upgrades() 
         battle.unit(mission_five::ids::CONTROLLER).unwrap().position,
         GridPos::new(3, 6),
         "the authored opening steps the Controller into the push lane"
+    );
+}
+
+#[test]
+fn four_five_campaign_continuity_from_persisted_save_to_the_six_handoff() {
+    // Seed the save: base-only One–Three (1200 credits) minus one 200-credit
+    // Vanguard HP purchase, persisted at the Mission 4 handoff.
+    let path = temp_save_path("four-five-continuity");
+    {
+        let mut session = CampaignSession {
+            state: Some(CampaignState::new_game()),
+            save: SaveFile::new(path.clone()),
+            last_completion: None,
+        };
+        for id in [MissionId::One, MissionId::Two, MissionId::Three] {
+            complete_current_mission(
+                &mut session,
+                mission_definition(id).unwrap(),
+                MissionResult {
+                    victory: true,
+                    optional_complete: false,
+                    rounds: 2,
+                },
+            )
+            .unwrap();
+        }
+        persist_purchase(&mut session, PlayerMech::Vanguard, UpgradeTrack::Hp).unwrap();
+    }
+
+    let mut cursor = DialogueCursor(0);
+    let mut status = CampaignStatus::default();
+
+    // 1–2. Continue loads the save and routes Mission 4 to the Upgrade
+    // screen with the non-zero upgrade intact.
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: None,
+        save: SaveFile::new(path.clone()),
+        last_completion: None,
+    });
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Continue,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Upgrade));
+    {
+        let state = runtime.0.state.as_ref().unwrap();
+        assert_eq!(state.next_mission, MissionId::Four);
+        assert_eq!(state.upgrades.vanguard.hp, 1);
+        assert_eq!(
+            state.credits, 1000,
+            "base One–Three rewards minus the purchase"
+        );
+    }
+
+    // 3. Four is authored: PROCEED opens its story directly.
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
+    walk_story_to_briefing(&mut runtime, &mut cursor, &mut status);
+    start_mission(&mut runtime, &mut cursor, &mut status);
+
+    // 4. Start Mission: the shared definition path builds M4 with the
+    // persisted upgrade projected.
+    let mut app = App::new();
+    init_battle_transients(&mut app);
+    app.insert_resource(runtime);
+    app.add_systems(Update, enter_battle);
+    app.update();
+
+    let m4 = app.world().resource::<ActiveMission>().0;
+    assert_eq!(m4, mission_definition(MissionId::Four).unwrap());
+    {
+        let battle = &app.world().resource::<BattleRuntime>().0;
+        assert_eq!(battle.round(), 1, "entry runs the authored opening");
+        assert_eq!(
+            battle.unit(ids::VANGUARD).unwrap().stats.max_hp,
+            23,
+            "persisted HP upgrade projects into Mission 4"
+        );
+    }
+
+    // 5. Restart rebuilds the same M4 definition; campaign state untouched.
+    {
+        let battle = &mut app.world_mut().resource_mut::<BattleRuntime>().0;
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 6)).unwrap();
+    }
+    restart_battle(app.world_mut(), 4242);
+    assert_eq!(
+        app.world().resource::<ActiveMission>().0,
+        m4,
+        "restart keeps the same Mission 4 definition"
+    );
+    {
+        let battle = &app.world().resource::<BattleRuntime>().0;
+        assert_eq!(battle.round(), 0, "rebuild waits for the opening round");
+        let vanguard = battle.unit(ids::VANGUARD).unwrap();
+        assert_eq!(
+            vanguard.position,
+            GridPos::new(4, 7),
+            "authored deployment restored"
+        );
+        assert_eq!(vanguard.stats.max_hp, 23, "upgrade survives restart");
+    }
+    {
+        let state = app
+            .world()
+            .resource::<CampaignRuntime>()
+            .0
+            .state
+            .as_ref()
+            .unwrap();
+        assert_eq!(state.next_mission, MissionId::Four);
+        assert_eq!(
+            state.upgrades.vanguard.hp, 1,
+            "restart reads, never mutates"
+        );
+        assert_eq!(state.credits, 1000);
+    }
+
+    // 6. Completing M4 (base only) banks its 600 base reward and persists
+    // the Mission 5 handoff.
+    let mut runtime = app
+        .world_mut()
+        .remove_resource::<CampaignRuntime>()
+        .unwrap();
+    let receipt = complete_current_mission(
+        &mut runtime.0,
+        m4,
+        MissionResult {
+            victory: true,
+            optional_complete: false,
+            rounds: 3,
+        },
+    )
+    .unwrap();
+    assert_eq!((receipt.base_reward, receipt.optional_reward), (600, 0));
+    assert_eq!(
+        runtime.0.state.as_ref().unwrap().next_mission,
+        MissionId::Five
+    );
+    assert_eq!(
+        runtime.0.save.load().unwrap().unwrap().next_mission,
+        MissionId::Five,
+        "completion persists the Mission 5 handoff"
+    );
+
+    // 7. Continue/Proceed route Five through Upgrade into its story; the
+    // same upgrade still projects.
+    runtime.0.state = None;
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Continue,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Upgrade));
+    {
+        let state = runtime.0.state.as_ref().unwrap();
+        assert_eq!(state.next_mission, MissionId::Five);
+        assert_eq!(state.upgrades.vanguard.hp, 1);
+        assert_eq!(state.credits, 1600, "600 base reward persisted");
+    }
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
+    cursor = DialogueCursor(0);
+    walk_story_to_briefing(&mut runtime, &mut cursor, &mut status);
+    start_mission(&mut runtime, &mut cursor, &mut status);
+    app.insert_resource(runtime);
+    app.update();
+
+    let m5 = app.world().resource::<ActiveMission>().0;
+    assert_eq!(m5, mission_definition(MissionId::Five).unwrap());
+    {
+        let battle = &app.world().resource::<BattleRuntime>().0;
+        assert_eq!(battle.round(), 1);
+        assert_eq!(
+            battle.unit(ids::VANGUARD).unwrap().stats.max_hp,
+            23,
+            "the same upgrade projects into Mission 5"
+        );
+    }
+
+    // 8. Completing M5 (base only) persists the Six handoff. Base rewards
+    // through Five: 1200 (One–Three) + 600 + 700 = 2500 before optional
+    // rewards; the one 200-credit purchase leaves 2300 banked.
+    let mut runtime = app
+        .world_mut()
+        .remove_resource::<CampaignRuntime>()
+        .unwrap();
+    let receipt = complete_current_mission(
+        &mut runtime.0,
+        m5,
+        MissionResult {
+            victory: true,
+            optional_complete: false,
+            rounds: 3,
+        },
+    )
+    .unwrap();
+    assert_eq!((receipt.base_reward, receipt.optional_reward), (700, 0));
+    assert_eq!(
+        runtime.0.state.as_ref().unwrap().next_mission,
+        MissionId::Six
+    );
+    assert_eq!(runtime.0.state.as_ref().unwrap().credits, 2500 - 200);
+    assert_eq!(
+        runtime.0.save.load().unwrap().unwrap().next_mission,
+        MissionId::Six,
+        "the Six handoff persists"
+    );
+
+    // 9. Continue at Six routes to the NextMission handoff.
+    runtime.0.state = None;
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Continue,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::NextMission));
+    assert_eq!(
+        runtime.0.state.as_ref().unwrap().next_mission,
+        MissionId::Six
     );
 }
 
