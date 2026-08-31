@@ -2,7 +2,14 @@ use crate::{campaign::model::SquadUpgrades, domain::battle::BattleState};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-use crate::domain::{combat::weapon_reaches, model::Faction};
+use crate::domain::{
+    board::GridPos,
+    combat::weapon_reaches,
+    model::{Faction, UnitId},
+};
+
+#[cfg(test)]
+use std::collections::HashSet;
 
 pub mod enemies;
 pub mod mission_five;
@@ -103,7 +110,26 @@ pub(crate) fn assert_opening_plan_is_legal(battle: &BattleState) {
         .collect();
     assert_eq!(battle.rules().opening_plan.len(), enemies.len());
 
+    // `apply_authored_opening_movement` applies rows sequentially and
+    // `move_enemy_to` writes the destination directly with no occupancy
+    // check, so two rows can stack on the same initially-empty cell at
+    // runtime. Track seen destinations and opener IDs here so malformed
+    // authored data is caught by the validator rather than the board.
+    let mut seen_openers: HashSet<UnitId> = HashSet::new();
+    let mut seen_destinations: HashSet<GridPos> = HashSet::new();
+
     for opening in battle.rules().opening_plan {
+        assert!(
+            seen_openers.insert(opening.unit),
+            "opening plan references opener {:?} more than once",
+            opening.unit
+        );
+        assert!(
+            seen_destinations.insert(opening.destination),
+            "opening plan targets destination {:?} more than once",
+            opening.destination
+        );
+
         let unit = battle.unit(opening.unit).expect("opening refs a real unit");
         assert_eq!(unit.faction, Faction::Enemy);
         assert!(opening.destination.manhattan(unit.position) <= unit.stats.movement);
