@@ -9,7 +9,7 @@ use scorpius::campaign::session::{
     start_new_game,
 };
 use scorpius::domain::model::MissionResult;
-use scorpius::mission::{MissionId, mission_definition};
+use scorpius::mission::{MissionId, mission_definition, mission_five, mission_four, squad};
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -93,8 +93,9 @@ fn campaign_progresses_through_four_on_base_rewards_alone() {
 
     assert_eq!(state.credits, 1200);
     assert_eq!(state.next_mission, MissionId::Four);
-    // Five is not authored until HPA-523 Task 4; Six is the terminal handoff.
-    assert!(mission_definition(MissionId::Five).is_none());
+    // Five is authored as of HPA-523 Task 4; Six is the terminal handoff.
+    assert!(mission_definition(MissionId::Five).is_some());
+    assert!(mission_definition(MissionId::Six).is_none());
 }
 
 #[test]
@@ -121,6 +122,73 @@ fn save_at_four_round_trips_purchased_upgrades() {
     assert_eq!(state.upgrades.gunner.hp, 1);
     // 400+500+650 all-optionals rewards minus two 200-credit level-1 purchases.
     assert_eq!(state.credits, 1150);
+}
+
+#[test]
+fn upgrades_and_credits_survive_four_five_entry_and_the_six_handoff() {
+    let path = temp_path();
+    let mut session = CampaignSession::new(SaveFile::new(path.clone()));
+    start_new_game(&mut session).unwrap();
+    // All-optionals rewards: 400 + 500 + 650 = 1550, then one 200-credit
+    // level-1 purchase leaves 1350 banked before Mission 4.
+    for id in [MissionId::One, MissionId::Two, MissionId::Three] {
+        complete_current_mission(
+            &mut session,
+            mission_definition(id).unwrap(),
+            mission_result(true, true),
+        )
+        .unwrap();
+    }
+    persist_purchase(&mut session, PlayerMech::Vanguard, UpgradeTrack::Weapon).unwrap();
+    assert_eq!(session.state.as_ref().unwrap().credits, 1350);
+
+    let mut resumed = CampaignSession::new(SaveFile::new(path.clone()));
+    assert_eq!(continue_game(&mut resumed).unwrap(), MissionId::Four);
+    let upgrades = resumed.state.as_ref().unwrap().upgrades.clone();
+
+    // Constructing Mission 4 with the reloaded state projects the purchase.
+    let battle = mission_four::mission_four_for_campaign(7, &upgrades);
+    assert_eq!(
+        battle.weapon(squad::ids::REPULSOR_RAM).unwrap().base_damage,
+        6,
+        "Weapon level 1 lifts the Ram from 5 to 6"
+    );
+
+    // 1350 + all-optionals 750 = 2100 at the Mission 5 handoff.
+    complete_current_mission(
+        &mut resumed,
+        mission_definition(MissionId::Four).unwrap(),
+        mission_result(true, true),
+    )
+    .unwrap();
+    assert_eq!(resumed.state.as_ref().unwrap().credits, 2100);
+    assert_eq!(
+        resumed.state.as_ref().unwrap().next_mission,
+        MissionId::Five
+    );
+
+    // The same state constructs Mission 5 with the upgrade still projected.
+    let battle = mission_five::mission_five_for_campaign(7, &upgrades);
+    assert_eq!(
+        battle.weapon(squad::ids::REPULSOR_RAM).unwrap().base_damage,
+        6
+    );
+
+    // 2100 + all-optionals 900 = 3000; Mission 5 unlocks the Six handoff.
+    complete_current_mission(
+        &mut resumed,
+        mission_definition(MissionId::Five).unwrap(),
+        mission_result(true, true),
+    )
+    .unwrap();
+    assert_eq!(resumed.state.as_ref().unwrap().next_mission, MissionId::Six);
+
+    let mut reloaded = CampaignSession::new(SaveFile::new(path));
+    assert_eq!(continue_game(&mut reloaded).unwrap(), MissionId::Six);
+    let state = reloaded.state.as_ref().unwrap();
+    assert_eq!(state.next_mission, MissionId::Six);
+    assert_eq!(state.credits, 3000);
+    assert_eq!(state.upgrades.vanguard.weapon, 1);
 }
 
 #[test]

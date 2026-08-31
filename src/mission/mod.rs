@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::{combat::weapon_reaches, model::Faction};
 
 pub mod enemies;
+pub mod mission_five;
 pub mod mission_four;
 pub mod mission_one;
 pub mod mission_three;
@@ -85,7 +86,8 @@ pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
         MissionId::Two => Some(&mission_two::MISSION_TWO_DEFINITION),
         MissionId::Three => Some(&mission_three::MISSION_THREE_DEFINITION),
         MissionId::Four => Some(&mission_four::MISSION_FOUR_DEFINITION),
-        MissionId::Five | MissionId::Six => None,
+        MissionId::Five => Some(&mission_five::MISSION_FIVE_DEFINITION),
+        MissionId::Six => None,
     }
 }
 

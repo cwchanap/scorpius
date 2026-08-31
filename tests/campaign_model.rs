@@ -37,18 +37,37 @@ fn new_game_and_mission_one_definition_are_locked() {
     assert_eq!(four.title, "Mission 4 — Breach the Gate");
     assert_eq!(four.base_reward, 600);
     assert_eq!(four.optional_reward, 150);
-    assert_eq!(mission_definition(MissionId::Five), None);
+    let five = mission_definition(MissionId::Five).unwrap();
+    assert_eq!(five.id, MissionId::Five);
+    assert_eq!(five.unlocks, MissionId::Six);
+    assert_eq!(five.title, "Mission 5 — Crossfire Break");
+    assert_eq!(five.base_reward, 700);
+    assert_eq!(five.optional_reward, 200);
     assert_eq!(mission_definition(MissionId::Six), None);
 
-    // Base rewards through Four: 300 + 400 + 500 + 600 = 1800.
-    let base_through_four: u32 = [
+    // Base rewards through Five: 300 + 400 + 500 + 600 + 700 = 2500.
+    let base_through_five: u32 = [
         MissionId::One,
         MissionId::Two,
         MissionId::Three,
         MissionId::Four,
+        MissionId::Five,
     ]
     .iter()
     .map(|id| mission_definition(*id).unwrap().base_reward)
     .sum();
-    assert_eq!(base_through_four, 1800);
+    assert_eq!(base_through_five, 2500);
+    // Max optional through Five: 100 + 100 + 150 + 150 + 200 = 700.
+    let optional_through_five: u32 = [
+        MissionId::One,
+        MissionId::Two,
+        MissionId::Three,
+        MissionId::Four,
+        MissionId::Five,
+    ]
+    .iter()
+    .map(|id| mission_definition(*id).unwrap().optional_reward)
+    .sum();
+    assert_eq!(optional_through_five, 700);
+    assert_eq!(base_through_five + optional_through_five, 3200);
 }

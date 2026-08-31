@@ -397,7 +397,6 @@ mod tests {
                 .map(|definition| (definition.id, definition.unlocks)),
             Some((MissionId::Four, MissionId::Five))
         );
-        assert!(mission_definition(MissionId::Five).is_none());
         assert!(mission_definition(MissionId::Six).is_none());
     }
 
