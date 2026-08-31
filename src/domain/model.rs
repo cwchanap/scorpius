@@ -105,6 +105,9 @@ pub enum BattlePhase {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PrimaryObjective {
     EliminateAllEnemies,
+    EliminateTarget {
+        target: UnitId,
+    },
     ProtectThroughRound {
         target: UnitId,
         round: u16,

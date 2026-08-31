@@ -213,9 +213,9 @@ pub fn reconcile_extraction_marker(
     }
     let expected = match battle.0.rules().primary {
         PrimaryObjective::InterceptBeforeEscape { escape, .. } => Some(escape),
-        PrimaryObjective::EliminateAllEnemies | PrimaryObjective::ProtectThroughRound { .. } => {
-            None
-        }
+        PrimaryObjective::EliminateAllEnemies
+        | PrimaryObjective::EliminateTarget { .. }
+        | PrimaryObjective::ProtectThroughRound { .. } => None,
     };
 
     for (entity, marker) in &existing {

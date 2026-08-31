@@ -465,6 +465,16 @@ impl BattleState {
                     None
                 }
             }
+            PrimaryObjective::EliminateTarget { target } => {
+                let target_alive = self.unit(target).is_some_and(|unit| !unit.is_knocked_out());
+                if !target_alive {
+                    Some(true)
+                } else if !any_living_player {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
             PrimaryObjective::ProtectThroughRound { target, round } => {
                 let target_alive = self.unit(target).is_some_and(|unit| !unit.is_knocked_out());
                 if !target_alive {
@@ -1140,6 +1150,45 @@ mod tests {
         );
         assert!(battle.result().is_none());
         assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
+    }
+
+    #[test]
+    fn eliminate_target_wins_when_target_falls_with_escorts_alive() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(MissionRules {
+            primary: PrimaryObjective::EliminateTarget {
+                target: ids::STRIKER,
+            },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        });
+
+        battle.apply_direct_damage(
+            ids::STRIKER,
+            99,
+            DamageSource::PlayerWeapon(ids::PILE_LANCE),
+        );
+
+        assert!(battle.result().is_some_and(|result| result.victory));
+        assert!(!battle.unit(ids::RIFLEMAN_LEFT).unwrap().is_knocked_out());
+    }
+
+    #[test]
+    fn eliminate_target_loses_when_players_are_wiped_while_target_lives() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(MissionRules {
+            primary: PrimaryObjective::EliminateTarget {
+                target: ids::STRIKER,
+            },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        });
+        for player in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
+            battle.apply_direct_damage(player, 99, DamageSource::Collision);
+        }
+
+        assert!(battle.result().is_some_and(|result| !result.victory));
+        assert!(!battle.unit(ids::STRIKER).unwrap().is_knocked_out());
     }
 
     #[test]
