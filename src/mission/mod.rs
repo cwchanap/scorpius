@@ -1,6 +1,9 @@
 use crate::{campaign::model::SquadUpgrades, domain::battle::BattleState};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+use crate::domain::{combat::weapon_reaches, model::Faction};
+
 pub mod enemies;
 pub mod mission_one;
 pub mod mission_three;
@@ -78,5 +81,46 @@ pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
         MissionId::Three => Some(&mission_three::MISSION_THREE_DEFINITION),
         // Four is the terminal handoff state with no battle content.
         MissionId::Four => None,
+    }
+}
+
+/// One shared opening-legality assertion for every authored mission. Each
+/// mission's own tests still pin the exact opening rows; this helper covers
+/// only the generic invariants they used to duplicate.
+#[cfg(test)]
+pub(crate) fn assert_opening_plan_is_legal(battle: &BattleState) {
+    let enemies: Vec<_> = battle
+        .units()
+        .filter(|unit| unit.faction == Faction::Enemy)
+        .map(|unit| unit.id)
+        .collect();
+    assert_eq!(battle.rules().opening_plan.len(), enemies.len());
+
+    for opening in battle.rules().opening_plan {
+        let unit = battle.unit(opening.unit).expect("opening refs a real unit");
+        assert_eq!(unit.faction, Faction::Enemy);
+        assert!(opening.destination.manhattan(unit.position) <= unit.stats.movement);
+        assert!(battle.board().contains(opening.destination));
+        assert!(!battle.board().is_blocking(opening.destination));
+        assert!(!battle.board().is_hazard(opening.destination));
+        assert!(
+            battle
+                .units()
+                .all(|other| { other.id == opening.unit || other.position != opening.destination })
+        );
+
+        if let Some(target_id) = opening.target {
+            let target = battle.unit(target_id).expect("opening target exists");
+            assert_eq!(target.faction, Faction::Player);
+            let weapon = unit
+                .weapons
+                .first()
+                .and_then(|weapon| battle.weapon(*weapon))
+                .expect("opening unit has first weapon");
+            assert!(
+                weapon_reaches(weapon, opening.destination, target.position),
+                "opening target must be in range and push-aligned"
+            );
+        }
     }
 }

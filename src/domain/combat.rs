@@ -207,11 +207,24 @@ impl BattleState {
             damage,
             DamageSource::EnemyWeapon(attacker, profile.weapon),
         )?);
+        // Damage-only fallback: player movement may have displaced the pusher
+        // after commitment, breaking the lane. The locked attack still lands,
+        // but the push only fires while the live positions still reach it.
+        let live_push_reaches = self
+            .unit(attacker)
+            .zip(self.unit(target))
+            .and_then(|(attacker_state, target_state)| {
+                self.weapon(profile.weapon).map(|weapon| {
+                    weapon_reaches(weapon, attacker_state.position, target_state.position)
+                })
+            })
+            .unwrap_or(false);
         if profile.push
             && self
                 .unit(attacker)
                 .is_some_and(|unit| !unit.is_knocked_out())
             && self.unit(target).is_some_and(|unit| !unit.is_knocked_out())
+            && live_push_reaches
         {
             events.extend(self.resolve_push(attacker, target)?);
         }
@@ -552,7 +565,7 @@ fn push_destination(battle: &BattleState, attacker: GridPos, target: GridPos) ->
     battle.board().contains(destination).then_some(destination)
 }
 
-fn weapon_reaches(weapon: &WeaponSpec, attacker: GridPos, target: GridPos) -> bool {
+pub(crate) fn weapon_reaches(weapon: &WeaponSpec, attacker: GridPos, target: GridPos) -> bool {
     let distance = attacker.manhattan(target);
     distance >= weapon.min_range
         && distance <= weapon.max_range

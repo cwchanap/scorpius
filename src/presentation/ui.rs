@@ -251,7 +251,9 @@ impl HudSnapshot {
                 UnitArchetype::Rifleman
                 | UnitArchetype::Striker
                 | UnitArchetype::Artillery
-                | UnitArchetype::Flanker => false,
+                | UnitArchetype::Flanker
+                | UnitArchetype::Bulwark
+                | UnitArchetype::Controller => false,
             }),
             can_choose_reaction: active.is_some_and(|unit| !unit.activation.finished),
             can_finish: active.is_some_and(|unit| unit.reaction.is_some()),
@@ -265,7 +267,9 @@ impl HudSnapshot {
                 UnitArchetype::Rifleman
                 | UnitArchetype::Striker
                 | UnitArchetype::Artillery
-                | UnitArchetype::Flanker => "[P] PILOT",
+                | UnitArchetype::Flanker
+                | UnitArchetype::Bulwark
+                | UnitArchetype::Controller => "[P] PILOT",
             }),
             pilot_aegis: pilot_status(pilot.aegis_used, pilot.aegis_target.is_some()),
             pilot_focus: pilot_status(pilot.focus_used, pilot.focus_pending),
