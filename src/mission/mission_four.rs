@@ -291,20 +291,13 @@ mod tests {
         battle.begin_round().unwrap();
 
         battle.begin_activation(ids::GUNNER).unwrap();
-        let preview = battle
-            .preview_attack(ids::GUNNER, RAIL_RIFLE, GridPos::new(3, 4))
-            .unwrap();
-        assert_eq!(preview.target, GridPos::new(3, 4));
-
-        // The shot is proven legal; detonate the fuel cell directly to remove
-        // RNG from the environment assertion.
+        // Drive the authored solution through the public attack path. The
+        // west fuel cell is a prop with a 100% hit profile, so this stays
+        // deterministic and pins `BattleState::attack()` against explosive
+        // props rather than only the lower-level explosive primitive.
         let events = battle
-            .damage_explosive(
-                GridPos::new(3, 4),
-                4,
-                DamageSource::PlayerWeapon(RAIL_RIFLE),
-            )
-            .unwrap();
+            .attack(ids::GUNNER, RAIL_RIFLE, GridPos::new(3, 4))
+            .expect("Gunner must reach and detonate the west fuel cell");
         let explosion = events
             .iter()
             .find(|event| matches!(event, BattleEvent::ExplosionTriggered { .. }))
@@ -324,6 +317,11 @@ mod tests {
                 ..
             } if *target == ids::BULWARK
         )));
+        assert_eq!(
+            battle.unit(ids::BULWARK).unwrap().hp,
+            12,
+            "the Bulwark must take 4 explosion damage from the detonation"
+        );
     }
 
     #[test]
