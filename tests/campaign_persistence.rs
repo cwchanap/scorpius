@@ -93,8 +93,8 @@ fn campaign_progresses_through_four_on_base_rewards_alone() {
 
     assert_eq!(state.credits, 1200);
     assert_eq!(state.next_mission, MissionId::Four);
-    // Four is the terminal handoff: authored content ends at Three.
-    assert!(mission_definition(MissionId::Four).is_none());
+    // Five is not authored until HPA-523 Task 4; Six is the terminal handoff.
+    assert!(mission_definition(MissionId::Five).is_none());
 }
 
 #[test]
