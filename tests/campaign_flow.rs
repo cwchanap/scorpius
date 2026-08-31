@@ -14,6 +14,7 @@ use scorpius::domain::board::GridPos;
 use scorpius::domain::model::{MissionResult, OptionalObjective, PrimaryObjective};
 use scorpius::mission::MissionId;
 use scorpius::mission::mission_definition;
+use scorpius::mission::mission_five;
 use scorpius::mission::mission_four;
 use scorpius::mission::mission_one::ids;
 use scorpius::mission::mission_three;
@@ -262,7 +263,62 @@ fn mission_four_entry_builds_through_the_shared_definition_path_with_upgrades() 
 }
 
 #[test]
-fn completing_three_then_four_advances_to_five_with_base_rewards_through_four_at_1800() {
+fn mission_five_entry_builds_through_the_shared_definition_path_with_upgrades() {
+    let mut app = App::new();
+    app.insert_resource(CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Five,
+            credits: 2000,
+            upgrades: SquadUpgrades {
+                vanguard: UpgradeLevels {
+                    hp: 1,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        }),
+        save: SaveFile::new(temp_save_path("entry-five")),
+        last_completion: None,
+    }));
+    init_battle_transients(&mut app);
+    app.add_systems(Update, enter_battle);
+
+    app.update();
+
+    let active = app.world().resource::<ActiveMission>().0;
+    assert_eq!(active, mission_definition(MissionId::Five).unwrap());
+    let battle = &app.world().resource::<BattleRuntime>().0;
+    assert_eq!(battle.round(), 1, "entry must run the authored opening");
+    assert_eq!(
+        battle.rules().primary,
+        PrimaryObjective::EliminateAllEnemies
+    );
+    assert_eq!(
+        battle.rules().optional,
+        OptionalObjective::VictoryByRound { round: 4 }
+    );
+    assert_eq!(
+        battle.unit(ids::VANGUARD).unwrap().stats.max_hp,
+        23,
+        "campaign HP upgrade must project into Mission 5"
+    );
+    assert_eq!(
+        battle
+            .unit(mission_five::ids::ARTILLERY_A)
+            .unwrap()
+            .position,
+        GridPos::new(3, 0),
+        "the first battery stays put on its firing solution"
+    );
+    assert_eq!(
+        battle.unit(mission_five::ids::CONTROLLER).unwrap().position,
+        GridPos::new(3, 6),
+        "the authored opening steps the Controller into the push lane"
+    );
+}
+
+#[test]
+fn completing_three_four_and_five_advances_to_six_with_base_rewards_through_five_at_2500() {
     let mut session = CampaignSession {
         state: Some(CampaignState {
             next_mission: MissionId::Three,
@@ -302,8 +358,17 @@ fn completing_three_then_four_advances_to_five_with_base_rewards_through_four_at
         MissionId::Five
     );
 
-    // Base rewards through Four: 300 + 400 + 500 + 600 = 1800.
-    assert_eq!(session.state.as_ref().unwrap().credits, 1800);
+    let receipt = complete_current_mission(
+        &mut session,
+        mission_definition(MissionId::Five).unwrap(),
+        victory(false),
+    )
+    .unwrap();
+    assert_eq!((receipt.base_reward, receipt.optional_reward), (700, 0));
+    assert_eq!(session.state.as_ref().unwrap().next_mission, MissionId::Six);
+
+    // Base rewards through Five: 300 + 400 + 500 + 600 + 700 = 2500.
+    assert_eq!(session.state.as_ref().unwrap().credits, 2500);
 }
 
 #[test]
@@ -822,7 +887,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
 }
 
 #[test]
-fn continue_and_proceed_route_four_to_upgrade_and_six_to_the_handoff() {
+fn continue_and_proceed_route_four_and_five_to_upgrade_and_six_to_the_handoff() {
     let route_continue = |next_mission| {
         let mut runtime = CampaignRuntime(CampaignSession {
             state: None,
@@ -851,10 +916,7 @@ fn continue_and_proceed_route_four_to_upgrade_and_six_to_the_handoff() {
     };
     assert_eq!(route_continue(MissionId::Three), Some(GameScreen::Upgrade));
     assert_eq!(route_continue(MissionId::Four), Some(GameScreen::Upgrade));
-    assert_eq!(
-        route_continue(MissionId::Five),
-        Some(GameScreen::NextMission)
-    );
+    assert_eq!(route_continue(MissionId::Five), Some(GameScreen::Upgrade));
     assert_eq!(
         route_continue(MissionId::Six),
         Some(GameScreen::NextMission)
@@ -889,6 +951,27 @@ fn continue_and_proceed_route_four_to_upgrade_and_six_to_the_handoff() {
             upgrades: SquadUpgrades::default(),
         }),
         save: SaveFile::new(temp_save_path("proceed-four")),
+        last_completion: None,
+    });
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut DialogueCursor(0),
+        &mut CampaignStatus::default(),
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
+
+    // PROCEED at the Five handoff opens Mission 5's story — Five is authored.
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Five,
+            credits: 2000,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("proceed-five")),
         last_completion: None,
     });
     let mut next = NextState::Unchanged;
@@ -937,8 +1020,8 @@ fn next_mission_copy_announces_each_authored_mission() {
         "unlock heading must follow the runtime's next mission"
     );
 
-    // Five has no authored definition yet (Task 4 authors it): the handoff
-    // still announces the unlock — the campaign continues toward Mission 5.
+    // The handoff heading follows the runtime's next mission generically —
+    // definition-independent copy, exercised here with Five.
     let five = CampaignState {
         next_mission: MissionId::Five,
         ..CampaignState::new_game()
