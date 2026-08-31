@@ -99,7 +99,7 @@ pub const fn bastion_cannon() -> WeaponSpec {
         3,
         WeaponShape::Single,
         6,
-        5,
+        0,
         5,
         0,
         false,
@@ -276,7 +276,7 @@ mod tests {
         assert_eq!((cannon.min_range, cannon.max_range), (1, 3));
         assert_eq!(cannon.shape, WeaponShape::Single);
         assert_eq!(cannon.base_damage, 6);
-        assert_eq!(cannon.hit_modifier, 5);
+        assert_eq!(cannon.hit_modifier, 0);
         assert_eq!(cannon.crit_chance, 5);
         assert_eq!(cannon.en_cost, 0);
         assert!(!cannon.push);
