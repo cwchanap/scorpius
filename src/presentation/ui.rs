@@ -31,7 +31,8 @@ pub struct ThreatSnapshot {
 
 /// Live tracker derived from the mission's primary objective: the protected
 /// unit's HP in protect missions, the hunted unit's Manhattan distance to the
-/// exit in intercept missions. `None` when nothing is tracked (elimination).
+/// exit in intercept missions, the marked target's HP in target-elimination
+/// missions. `None` when nothing is tracked (full elimination).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ObjectiveTrackSnapshot {
     Protect {
@@ -42,6 +43,11 @@ pub enum ObjectiveTrackSnapshot {
     Intercept {
         name: &'static str,
         distance: u8,
+    },
+    Target {
+        name: &'static str,
+        hp: i16,
+        max_hp: i16,
     },
 }
 
@@ -154,12 +160,23 @@ impl HudSnapshot {
                     name: unit.name,
                     distance: unit.position.manhattan(escape),
                 }),
+            PrimaryObjective::EliminateTarget { target } => {
+                battle
+                    .unit(target)
+                    .map(|unit| ObjectiveTrackSnapshot::Target {
+                        name: unit.name,
+                        hp: unit.hp,
+                        max_hp: unit.stats.max_hp,
+                    })
+            }
             PrimaryObjective::EliminateAllEnemies => None,
         };
         let round_cap = match battle.rules().primary {
             PrimaryObjective::ProtectThroughRound { round, .. } => Some(round),
             PrimaryObjective::InterceptBeforeEscape { deadline_round, .. } => Some(deadline_round),
-            PrimaryObjective::EliminateAllEnemies => None,
+            PrimaryObjective::EliminateAllEnemies | PrimaryObjective::EliminateTarget { .. } => {
+                None
+            }
         };
 
         Self {
@@ -172,7 +189,12 @@ impl HudSnapshot {
                 ),
                 None => format!("Round {} · {}", battle.round(), phase_label(battle.phase())),
             },
-            primary: format!("{} · {remaining} remaining", definition.primary_objective),
+            primary: match battle.rules().primary {
+                PrimaryObjective::EliminateAllEnemies => {
+                    format!("{} · {remaining} remaining", definition.primary_objective)
+                }
+                _ => definition.primary_objective.to_owned(),
+            },
             optional: format!(
                 "{} · {}",
                 definition.optional_objective,
@@ -837,7 +859,9 @@ pub fn result_overlay_copy(
         )
     } else {
         let reason = match primary {
-            PrimaryObjective::EliminateAllEnemies => "Squad knocked out",
+            PrimaryObjective::EliminateAllEnemies | PrimaryObjective::EliminateTarget { .. } => {
+                "Squad knocked out"
+            }
             PrimaryObjective::ProtectThroughRound { .. } => "Protect target lost",
             PrimaryObjective::InterceptBeforeEscape { .. } => "Courier not stopped in time",
         };
@@ -979,6 +1003,9 @@ fn format_track(track: &ObjectiveTrackSnapshot) -> String {
         ObjectiveTrackSnapshot::Intercept { name, distance } => {
             format!("{name} {distance} FROM EXIT")
         }
+        ObjectiveTrackSnapshot::Target { name, hp, max_hp } => {
+            format!("TARGET {name} HP {hp}/{max_hp}")
+        }
     }
 }
 
@@ -1008,7 +1035,9 @@ fn panel_background() -> BackgroundColor {
 mod tests {
     use super::*;
     use crate::domain::combat::DamageSource;
+    use crate::domain::model::{MissionRules, OptionalObjective};
     use crate::mission::mission_one::{ids, mission_one};
+    use crate::mission::mission_three::mission_three;
     use crate::mission::mission_two::mission_two;
     use crate::mission::{MissionId, mission_definition};
 
@@ -1094,6 +1123,73 @@ mod tests {
             text.0.contains("TRACK    Gunner HP 15/15"),
             "objective text: {}",
             text.0
+        );
+    }
+
+    #[test]
+    fn target_objective_tracks_target_without_enemy_count_and_formats_as_target() {
+        let mut battle = mission_one(7);
+        battle.set_rules_for_test(MissionRules {
+            primary: PrimaryObjective::EliminateTarget {
+                target: ids::STRIKER,
+            },
+            optional: OptionalObjective::Turnabout,
+            opening_plan: &[],
+        });
+        let base = *mission_definition(MissionId::One).unwrap();
+        let definition = MissionDefinition {
+            primary_objective: "Destroy the Striker.",
+            ..base
+        };
+
+        let hud = HudSnapshot::from_battle(&battle, None, &definition);
+        assert_eq!(
+            hud.objective_track,
+            Some(ObjectiveTrackSnapshot::Target {
+                name: "Striker",
+                hp: 12,
+                max_hp: 12,
+            })
+        );
+        assert_eq!(hud.primary, "Destroy the Striker.");
+        assert_eq!(
+            format_track(hud.objective_track.as_ref().unwrap()),
+            "TARGET Striker HP 12/12"
+        );
+    }
+
+    #[test]
+    fn elimination_objective_keeps_the_remaining_enemy_count() {
+        let battle = mission_one(7);
+        let hud =
+            HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::One).unwrap());
+
+        assert!(
+            hud.primary.contains("remaining"),
+            "primary: {}",
+            hud.primary
+        );
+        assert!(hud.objective_track.is_none());
+    }
+
+    #[test]
+    fn mission_two_and_three_primaries_lose_the_remaining_enemy_count() {
+        let m2 = mission_two(7);
+        let m2_hud =
+            HudSnapshot::from_battle(&m2, None, mission_definition(MissionId::Two).unwrap());
+        assert!(
+            !m2_hud.primary.contains("remaining"),
+            "m2: {}",
+            m2_hud.primary
+        );
+
+        let m3 = mission_three(7);
+        let m3_hud =
+            HudSnapshot::from_battle(&m3, None, mission_definition(MissionId::Three).unwrap());
+        assert!(
+            !m3_hud.primary.contains("remaining"),
+            "m3: {}",
+            m3_hud.primary
         );
     }
 
