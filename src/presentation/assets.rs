@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 pub const MISSION_ONE_GLTF: &str = "models/mission_one.gltf";
 pub const MISSION_ONE_GLTF_DISPLAY_PATH: &str = "assets/models/mission_one.gltf";
-pub const MISSION_ONE_SCENE_COUNT: usize = 11;
+pub const MISSION_ONE_SCENE_COUNT: usize = 13;
 
 #[derive(Resource)]
 pub struct MissionAssets {
@@ -89,11 +89,11 @@ mod tests {
         let gltf = mission_gltf();
 
         let scenes = gltf["scenes"].as_array().unwrap();
-        assert_eq!(scenes.len(), 11);
+        assert_eq!(scenes.len(), 13);
         assert_eq!(scenes[10]["name"], "Flanker");
 
         let nodes = gltf["nodes"].as_array().unwrap();
-        assert_eq!(nodes.len(), 56);
+        assert_eq!(nodes.len(), 70);
         // Node 49 is the Flanker root carrying the authored 0.72 scale; the
         // part nodes 50-55 hang beneath it and all reuse the shared mesh.
         assert_eq!(scenes[10]["nodes"], serde_json::json!([49]));
@@ -103,12 +103,12 @@ mod tests {
             root["children"],
             serde_json::json!([50, 51, 52, 53, 54, 55])
         );
-        for (index, part) in nodes.iter().enumerate().skip(50) {
+        for (index, part) in nodes.iter().enumerate().skip(50).take(6) {
             assert_eq!(part["mesh"], 10, "node {index} must use mesh 10");
         }
 
         let meshes = gltf["meshes"].as_array().unwrap();
-        assert_eq!(meshes.len(), 11);
+        assert_eq!(meshes.len(), 13);
         assert_eq!(meshes[10]["name"], "Flanker Magenta");
         let primitive = &meshes[10]["primitives"][0];
         assert_eq!(primitive["material"], 10);
@@ -117,8 +117,67 @@ mod tests {
         assert_eq!(primitive["attributes"]["NORMAL"], 1);
 
         let materials = gltf["materials"].as_array().unwrap();
-        assert_eq!(materials.len(), 11);
+        assert_eq!(materials.len(), 13);
         assert_eq!(materials[10]["name"], "Flanker Magenta");
+
+        assert_eq!(gltf["buffers"].as_array().unwrap().len(), 1);
+    }
+
+    /// Bulwark and Controller scenes are appended to the same single-buffer
+    /// glTF: each gains its own root (with an authored scale), six part
+    /// children, mesh, and material, reusing the shared cube accessors.
+    #[test]
+    fn bulwark_and_controller_scenes_are_authored_with_own_meshes_and_roots() {
+        let gltf = mission_gltf();
+
+        let scenes = gltf["scenes"].as_array().unwrap();
+        assert_eq!(scenes.len(), 13);
+        assert_eq!(scenes[11]["name"], "Bulwark");
+        assert_eq!(scenes[11]["nodes"], serde_json::json!([56]));
+
+        let nodes = gltf["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 70);
+        assert_eq!(nodes[56]["scale"], serde_json::json!([0.88, 0.88, 0.88]));
+        assert_eq!(
+            nodes[56]["children"],
+            serde_json::json!([57, 58, 59, 60, 61, 62])
+        );
+        for (index, part) in nodes.iter().enumerate().skip(57).take(6) {
+            assert_eq!(part["mesh"], 11, "node {index} must use mesh 11");
+        }
+
+        assert_eq!(scenes[12]["name"], "Controller");
+        assert_eq!(scenes[12]["nodes"], serde_json::json!([63]));
+        assert_eq!(nodes[63]["scale"], serde_json::json!([0.72, 0.72, 0.72]));
+        assert_eq!(
+            nodes[63]["children"],
+            serde_json::json!([64, 65, 66, 67, 68, 69])
+        );
+        for (index, part) in nodes.iter().enumerate().skip(64) {
+            assert_eq!(part["mesh"], 12, "node {index} must use mesh 12");
+        }
+
+        let meshes = gltf["meshes"].as_array().unwrap();
+        assert_eq!(meshes.len(), 13);
+        for mesh_index in [11, 12] {
+            let primitive = &meshes[mesh_index]["primitives"][0];
+            // Existing shared cube accessors, exactly like every other mesh.
+            assert_eq!(primitive["attributes"]["POSITION"], 0);
+            assert_eq!(primitive["attributes"]["NORMAL"], 1);
+        }
+
+        let materials = gltf["materials"].as_array().unwrap();
+        assert_eq!(materials.len(), 13);
+        assert_eq!(materials[11]["name"], "Bulwark Ochre");
+        assert_eq!(
+            materials[11]["pbrMetallicRoughness"]["baseColorFactor"],
+            serde_json::json!([0.78, 0.38, 0.08, 1.0])
+        );
+        assert_eq!(materials[12]["name"], "Controller Cyan");
+        assert_eq!(
+            materials[12]["pbrMetallicRoughness"]["baseColorFactor"],
+            serde_json::json!([0.08, 0.72, 0.86, 1.0])
+        );
 
         assert_eq!(gltf["buffers"].as_array().unwrap().len(), 1);
     }

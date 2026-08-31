@@ -8,8 +8,10 @@ use scorpius::{
     domain::{
         battle::BattleState,
         board::GridPos,
-        model::{BattlePhase, MissionResult, Reaction, UnitId},
+        model::{BattlePhase, MissionResult, Reaction, UnitArchetype, UnitId},
     },
+    mission::mission_five::mission_five,
+    mission::mission_four::mission_four,
     mission::mission_one::{ids, mission_one},
     mission::mission_three::{self, mission_three},
     mission::mission_two::mission_two,
@@ -18,7 +20,7 @@ use scorpius::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
         EventPlayback, ExtractionVisual, PresentationRoot, SelectedCell, TelegraphVisual,
         UnitVisual,
-        battlefield::{create_visual_assets, mission_grid_cells},
+        battlefield::{create_visual_assets, mission_grid_cells, scene_index},
         grid_to_world,
         interaction::{
             CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
@@ -277,6 +279,45 @@ fn hud_tracks_intercept_mission_round_cap_and_courier_distance_to_exit() {
             name: "Courier",
             distance: 14
         })
+    );
+}
+
+#[test]
+fn mission_four_target_hud_pins_the_gate_bulwark() {
+    let mut battle = mission_four(7);
+    battle.begin_round().unwrap();
+    let hud = HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::Four).unwrap());
+
+    assert_eq!(
+        hud.objective_track,
+        Some(ObjectiveTrackSnapshot::Target {
+            name: "Gate Bulwark",
+            hp: 16,
+            max_hp: 16
+        })
+    );
+}
+
+#[test]
+fn bulwark_and_controller_use_permanent_scene_indices() {
+    assert_eq!(scene_index(UnitArchetype::Flanker), 10);
+    assert_eq!(scene_index(UnitArchetype::Bulwark), 11);
+    assert_eq!(scene_index(UnitArchetype::Controller), 12);
+}
+
+#[test]
+fn mission_five_hud_lists_both_artillery_threats_and_remaining_count() {
+    let mut battle = mission_five(7);
+    battle.begin_round().unwrap();
+    let hud = HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::Five).unwrap());
+
+    let attackers: BTreeSet<_> = hud.threats.iter().map(|threat| threat.attacker).collect();
+    assert!(attackers.contains(&"Siege Artillery A"));
+    assert!(attackers.contains(&"Siege Artillery B"));
+    assert!(
+        hud.primary.contains("remaining"),
+        "EliminateAllEnemies primary carries the remaining count: {}",
+        hud.primary
     );
 }
 
