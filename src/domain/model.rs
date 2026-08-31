@@ -23,6 +23,8 @@ pub enum UnitArchetype {
     Striker,
     Artillery,
     Flanker,
+    Bulwark,
+    Controller,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

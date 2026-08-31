@@ -178,6 +178,7 @@ mod tests {
     use crate::campaign::model::UpgradeLevels;
     use crate::domain::combat::DamageSource;
     use crate::domain::model::{BattleEvent, BattlePhase, Faction, Reaction};
+    use crate::mission::assert_opening_plan_is_legal;
     use crate::mission::mission_definition;
     use crate::mission::squad::ids::RAIL_RIFLE;
 
@@ -301,32 +302,11 @@ mod tests {
     #[test]
     fn mission_two_opening_rows_reference_legal_units_and_destinations() {
         let battle = mission_two(7);
-        let rules = battle.rules();
-        let enemies: Vec<_> = battle
-            .units()
-            .filter(|unit| unit.faction == Faction::Enemy)
-            .map(|unit| unit.id)
-            .collect();
+        assert_opening_plan_is_legal(&battle);
 
-        assert_eq!(rules.opening_plan.len(), enemies.len());
-        for opening in rules.opening_plan {
-            let unit = battle.unit(opening.unit).expect("opening refs a real unit");
-            assert_eq!(unit.faction, Faction::Enemy);
-            assert!(
-                opening.destination.manhattan(unit.position) <= unit.stats.movement,
-                "opening must be reachable by the opener's own movement"
-            );
-            assert!(battle.board().contains(opening.destination));
-            assert!(!battle.board().is_blocking(opening.destination));
-            assert!(!battle.board().is_hazard(opening.destination));
-            // No unit other than the opener itself may occupy the destination.
-            assert!(
-                battle
-                    .units()
-                    .all(|other| other.id == opening.unit || other.position != opening.destination)
-            );
-            let target = opening.target.expect("M2 opening rows lock a target");
-            assert_eq!(battle.unit(target).unwrap().faction, Faction::Player);
+        // Mission-specific: every Mission 2 opening row locks a target.
+        for opening in battle.rules().opening_plan {
+            assert!(opening.target.is_some(), "M2 opening rows lock a target");
         }
     }
 

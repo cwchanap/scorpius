@@ -161,6 +161,7 @@ mod tests {
     use super::*;
     use crate::domain::combat::DamageSource;
     use crate::domain::model::{BattleEvent, BattlePhase, Faction, Reaction};
+    use crate::mission::assert_opening_plan_is_legal;
     use crate::mission::mission_definition;
     use crate::mission::squad::ids::RAIL_RIFLE;
 
@@ -255,33 +256,7 @@ mod tests {
     #[test]
     fn mission_three_opening_rows_reference_legal_units_and_destinations() {
         let battle = mission_three(7);
-        let rules = battle.rules();
-        let enemies: Vec<_> = battle
-            .units()
-            .filter(|unit| unit.faction == Faction::Enemy)
-            .map(|unit| unit.id)
-            .collect();
-
-        assert_eq!(rules.opening_plan.len(), enemies.len());
-        for opening in rules.opening_plan {
-            let unit = battle.unit(opening.unit).expect("opening refs a real unit");
-            assert_eq!(unit.faction, Faction::Enemy);
-            assert!(
-                opening.destination.manhattan(unit.position) <= unit.stats.movement,
-                "opening must be reachable by the opener's own movement"
-            );
-            assert!(battle.board().contains(opening.destination));
-            assert!(!battle.board().is_blocking(opening.destination));
-            assert!(!battle.board().is_hazard(opening.destination));
-            assert!(
-                battle
-                    .units()
-                    .all(|other| other.id == opening.unit || other.position != opening.destination)
-            );
-            if let Some(target) = opening.target {
-                assert_eq!(battle.unit(target).unwrap().faction, Faction::Player);
-            }
-        }
+        assert_opening_plan_is_legal(&battle);
     }
 
     #[test]

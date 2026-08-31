@@ -167,6 +167,7 @@ mod tests {
     use super::*;
     use crate::campaign::model::UpgradeLevels;
     use crate::domain::model::{Faction, PilotSkillState, WeaponShape};
+    use crate::mission::assert_opening_plan_is_legal;
 
     #[test]
     fn mission_one_constructors_start_with_default_pilot_skills() {
@@ -192,22 +193,11 @@ mod tests {
     #[test]
     fn mission_one_opening_rows_reference_legal_units_and_destinations() {
         let battle = mission_one(7);
-        let rules = battle.rules();
-        let enemies: Vec<_> = battle
-            .units()
-            .filter(|unit| unit.faction == Faction::Enemy)
-            .map(|unit| unit.id)
-            .collect();
+        assert_opening_plan_is_legal(&battle);
 
-        assert_eq!(rules.opening_plan.len(), enemies.len());
-        for opening in rules.opening_plan {
-            let unit = battle.unit(opening.unit).expect("opening refs a real unit");
-            assert_eq!(unit.faction, Faction::Enemy);
-            assert!(battle.board().contains(opening.destination));
-            assert!(!battle.board().is_blocking(opening.destination));
-            assert!(!battle.board().is_hazard(opening.destination));
-            let target = opening.target.expect("M1 opening rows lock a target");
-            assert_eq!(battle.unit(target).unwrap().faction, Faction::Player);
+        // Mission-specific: every Mission 1 opening row locks a target.
+        for opening in battle.rules().opening_plan {
+            assert!(opening.target.is_some(), "M1 opening rows lock a target");
         }
     }
 

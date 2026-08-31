@@ -176,7 +176,9 @@ pub fn execute_command(
                 UnitArchetype::Rifleman
                 | UnitArchetype::Striker
                 | UnitArchetype::Artillery
-                | UnitArchetype::Flanker => {
+                | UnitArchetype::Flanker
+                | UnitArchetype::Bulwark
+                | UnitArchetype::Controller => {
                     return Err(BattleError::PilotSkillWrongUnit(unit_id));
                 }
             }

@@ -3,7 +3,7 @@ use std::{cmp::Reverse, collections::BTreeSet};
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
-    combat::{AttackPreview, attack_footprint, preview_for_profile},
+    combat::{AttackPreview, attack_footprint, preview_for_profile, weapon_reaches},
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, PrimaryObjective,
         UnitArchetype, UnitId, UnitState, WeaponId, WeaponSpec,
@@ -326,9 +326,13 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
                 weapon,
             ))
         }
-        UnitArchetype::Rifleman | UnitArchetype::Striker => {
+        UnitArchetype::Rifleman | UnitArchetype::Striker | UnitArchetype::Bulwark => {
             let weapon = unit_weapon(battle, unit)?;
             Ok(attack_band_destination(&candidates, &players, weapon))
+        }
+        UnitArchetype::Controller => {
+            let weapon = unit_weapon(battle, unit)?;
+            Ok(controller_destination(&candidates, &players, weapon))
         }
         UnitArchetype::Artillery => {
             let weapon = unit_weapon(battle, unit)?;
@@ -356,8 +360,36 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
                 })
                 .expect("origin is always a movement candidate"))
         }
-        _ => Ok(unit.position),
+        UnitArchetype::Vanguard | UnitArchetype::Gunner | UnitArchetype::Interceptor => {
+            Ok(unit.position)
+        }
     }
+}
+
+/// Controller pressure: hug a reachable push lane — some living player in the
+/// weapon's range band AND on the projector's row/column — when one exists,
+/// else fall back to the shared attack-band hug.
+fn controller_destination(
+    candidates: &[GridPos],
+    players: &[UnitState],
+    weapon: &WeaponSpec,
+) -> GridPos {
+    let lane: Vec<_> = candidates
+        .iter()
+        .copied()
+        .filter(|position| {
+            players
+                .iter()
+                .any(|player| weapon_reaches(weapon, *position, player.position))
+        })
+        .collect();
+    if lane.is_empty() {
+        return attack_band_destination(candidates, players, weapon);
+    }
+    *lane
+        .iter()
+        .min_by_key(|position| attack_band_key(**position, players, weapon))
+        .expect("the lane filter is non-empty")
 }
 
 fn unit_weapon<'a>(
@@ -466,6 +498,25 @@ fn build_intent(
         Some(target) => choice_for_center(battle, weapon.shape, target, None),
         None => choose_target(battle, attacker, weapon)?,
     };
+    // Authored/forced centers never passed the dynamic legality filter, so
+    // range and push alignment are enforced here before anything commits.
+    if !weapon_reaches(weapon, attacker.position, choice.center) {
+        let distance = attacker.position.manhattan(choice.center);
+        return Err(
+            if distance < weapon.min_range || distance > weapon.max_range {
+                BattleError::TargetOutOfRange {
+                    attacker: attacker_id,
+                    weapon: weapon_id,
+                    target: choice.center,
+                }
+            } else {
+                BattleError::PushTargetNotAligned {
+                    attacker: attacker.position,
+                    target: choice.center,
+                }
+            },
+        );
+    }
     let profile = AttackProfile {
         weapon: weapon_id,
         base_damage: weapon.base_damage,
@@ -516,10 +567,7 @@ fn choose_target(
     };
     let mut choices: Vec<_> = (0..battle.board().height())
         .flat_map(|y| (0..battle.board().width()).map(move |x| GridPos::new(x, y)))
-        .filter(|target| {
-            let distance = attacker.position.manhattan(*target);
-            distance >= weapon.min_range && distance <= weapon.max_range
-        })
+        .filter(|target| weapon_reaches(weapon, attacker.position, *target))
         .map(|target| choice_for_center(battle, weapon.shape, target, preferred))
         .collect();
     if choices.is_empty() {
@@ -626,11 +674,13 @@ fn player_priority(unit: &UnitState) -> u8 {
 
 fn initiative(unit: &UnitState) -> i16 {
     match unit.archetype {
+        UnitArchetype::Controller => 35,
         UnitArchetype::Striker => 30,
         UnitArchetype::Flanker => 25,
         UnitArchetype::Rifleman => 20,
+        UnitArchetype::Bulwark => 15,
         UnitArchetype::Artillery => 10,
-        _ => 0,
+        UnitArchetype::Vanguard | UnitArchetype::Gunner | UnitArchetype::Interceptor => 0,
     }
 }
 
@@ -648,11 +698,11 @@ mod tests {
         domain::{
             battle::BattleState,
             board::{BoardState, GridPos},
-            combat::DamageSource,
+            combat::{DamageSource, weapon_reaches},
             model::{
-                BattleEvent, BattlePhase, Faction, MissionRules, OptionalObjective,
-                PrimaryObjective, Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
-                WeaponSpec,
+                BattleError, BattleEvent, BattlePhase, EnemyOpening, Faction, MissionRules,
+                OptionalObjective, PrimaryObjective, Reaction, UnitArchetype, UnitId, WeaponId,
+                WeaponShape, WeaponSpec,
             },
         },
         mission::{
@@ -662,13 +712,16 @@ mod tests {
         },
     };
 
-    use super::initiative;
+    use super::{build_intent, initiative};
 
     const FLANKER_COURIER: UnitId = UnitId(21);
     const PROTECTED: UnitId = UnitId(2);
     const DECOY: UnitId = UnitId(3);
     const SHARED_VANGUARD: UnitId = UnitId(2);
     const PROTECT_GUNNER: UnitId = UnitId(3);
+    const CONTROLLER: UnitId = UnitId(42);
+    const BULWARK: UnitId = UnitId(41);
+    const PUSHER: UnitId = UnitId(4);
 
     #[test]
     fn authored_opening_places_four_locked_threats() {
@@ -1030,6 +1083,248 @@ mod tests {
             )),
             10
         );
+        assert_eq!(
+            initiative(&enemies::controller(
+                CONTROLLER,
+                "Controller",
+                GridPos::new(0, 7)
+            )),
+            35
+        );
+        assert_eq!(
+            initiative(&enemies::bulwark(
+                BULWARK,
+                "Gate Bulwark",
+                GridPos::new(4, 5)
+            )),
+            15
+        );
+    }
+
+    #[test]
+    fn controller_steps_onto_a_reachable_aligned_push_lane() {
+        // Vanguard at (4,2) puts the shared x=4 column at aligned range 2..4;
+        // the Move-2 Controller hugs the closest lane cell (4,4).
+        let mut battle = planning_fixture(
+            enemies::controller(CONTROLLER, "Controller", GridPos::new(4, 6)),
+            enemies::impulse_projector(),
+            [(SHARED_VANGUARD, GridPos::new(4, 2))],
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle.unit(CONTROLLER).unwrap().position,
+            GridPos::new(4, 4)
+        );
+    }
+
+    #[test]
+    fn controller_without_an_aligned_lane_falls_back_to_the_attack_band() {
+        // No reachable cell shares a row or column with the distant player, so
+        // the plain band fallback picks the closest Move-2 candidate (2,0).
+        let mut battle = planning_fixture(
+            enemies::controller(CONTROLLER, "Controller", GridPos::new(0, 0)),
+            enemies::impulse_projector(),
+            [(SHARED_VANGUARD, GridPos::new(8, 8))],
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle.unit(CONTROLLER).unwrap().position,
+            GridPos::new(2, 0)
+        );
+    }
+
+    #[test]
+    fn controller_dynamic_intent_center_satisfies_weapon_reaches() {
+        let mut battle = planning_fixture(
+            enemies::controller(CONTROLLER, "Controller", GridPos::new(4, 6)),
+            enemies::impulse_projector(),
+            [(SHARED_VANGUARD, GridPos::new(4, 2))],
+        );
+        advance_a_later_round(&mut battle);
+
+        let intent = battle.intent_for(CONTROLLER).unwrap();
+        let attacker = battle.unit(CONTROLLER).unwrap().position;
+        assert!(weapon_reaches(
+            &enemies::impulse_projector(),
+            attacker,
+            intent.footprint[0]
+        ));
+    }
+
+    #[test]
+    fn forced_diagonal_push_target_is_rejected_before_commitment() {
+        let battle = planning_fixture(
+            enemies::controller(CONTROLLER, "Controller", GridPos::new(4, 4)),
+            enemies::impulse_projector(),
+            [(SHARED_VANGUARD, GridPos::new(8, 8))],
+        );
+
+        // (2,2) is inside the projector's range 2..4 but off-lane from (4,4).
+        let error = build_intent(&battle, CONTROLLER, Some(GridPos::new(2, 2))).unwrap_err();
+        assert!(matches!(error, BattleError::PushTargetNotAligned { .. }));
+    }
+
+    #[test]
+    fn bulwark_steps_to_a_better_move_one_attack_band_cell() {
+        // Bastion Cannon band 1..3: standing at (4,4) is band 1 from the
+        // Vanguard at (4,8); the Move-1 step to (4,5) reaches band 0.
+        let mut battle = planning_fixture(
+            enemies::bulwark(BULWARK, "Gate Bulwark", GridPos::new(4, 4)),
+            enemies::bastion_cannon(),
+            [(SHARED_VANGUARD, GridPos::new(4, 8))],
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(battle.unit(BULWARK).unwrap().position, GridPos::new(4, 5));
+    }
+
+    fn planning_fixture(
+        enemy: crate::domain::model::UnitState,
+        weapon: WeaponSpec,
+        players: impl IntoIterator<Item = (UnitId, GridPos)>,
+    ) -> BattleState {
+        let board = BoardState::new(9, 9, [], [], []);
+        let mut units = vec![enemy];
+        units.extend(players.into_iter().map(|(id, position)| {
+            squad::unit(
+                id,
+                "Player",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                squad::stats(20, 3, 3, 78, 5, 7),
+                position,
+                vec![],
+            )
+        }));
+        BattleState::new(board, units, vec![weapon], eliminate_rules(), 7)
+    }
+
+    static DISPLACED_OPENING: [EnemyOpening; 1] = [EnemyOpening {
+        unit: CONTROLLER,
+        destination: GridPos::new(4, 2),
+        target: Some(SHARED_VANGUARD),
+    }];
+
+    /// Authored opening pins the Controller on a vertical push lane over the
+    /// Vanguard at (4,5); the Pusher at (2,2) can shove the Controller onto
+    /// (5,2), breaking that lane perpendicular to the committed footprint.
+    fn displaced_controller_fixture(seed: u64) -> BattleState {
+        let board = BoardState::new(9, 9, [], [], []);
+        let units = vec![
+            enemies::controller(CONTROLLER, "Controller", GridPos::new(4, 2)),
+            squad::unit(
+                SHARED_VANGUARD,
+                "Vanguard",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                // Zero armor/evasion keep the projector's 3 base damage
+                // observable; Guard's flat 3 reduction would zero it out.
+                squad::stats(20, 0, 3, 78, 0, 7),
+                GridPos::new(4, 5),
+                vec![],
+            ),
+            squad::unit(
+                PUSHER,
+                "Pusher",
+                UnitArchetype::Interceptor,
+                Faction::Player,
+                squad::stats(15, 1, 4, 82, 20, 8),
+                GridPos::new(2, 2),
+                vec![],
+            ),
+        ];
+        BattleState::new(
+            board,
+            units,
+            vec![enemies::impulse_projector()],
+            MissionRules {
+                primary: PrimaryObjective::EliminateAllEnemies,
+                optional: OptionalObjective::Turnabout,
+                opening_plan: &DISPLACED_OPENING,
+            },
+            seed,
+        )
+    }
+
+    fn resolve_displaced_controller_round(seed: u64) -> (BattleState, Vec<BattleEvent>) {
+        let mut battle = displaced_controller_fixture(seed);
+        battle.begin_round().unwrap();
+        let intent = battle.intent_for(CONTROLLER).unwrap();
+        assert_eq!(intent.footprint[0], GridPos::new(4, 5));
+        assert_eq!(intent.intended_occupant, Some(SHARED_VANGUARD));
+
+        battle.resolve_push(PUSHER, CONTROLLER).unwrap();
+        assert_eq!(
+            battle.unit(CONTROLLER).unwrap().position,
+            GridPos::new(5, 2)
+        );
+
+        for player in [SHARED_VANGUARD, PUSHER] {
+            battle.begin_activation(player).unwrap();
+            battle.choose_reaction(player, Reaction::Evade).unwrap();
+            battle.finish_activation(player).unwrap();
+        }
+        let events = battle.resolve_enemy_phase().unwrap();
+        (battle, events)
+    }
+
+    fn displaced_controller_hit_seed() -> Option<u64> {
+        (0..64).find(|&seed| {
+            let (_, events) = resolve_displaced_controller_round(seed);
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    BattleEvent::DamageApplied {
+                        target,
+                        source: DamageSource::EnemyWeapon(attacker, _),
+                        ..
+                    } if *target == SHARED_VANGUARD && *attacker == CONTROLLER
+                )
+            })
+        })
+    }
+
+    #[test]
+    fn displaced_controller_resolves_damage_without_its_lost_push() {
+        // Bounded sweep for one deterministic seed where the displaced
+        // Controller's hit still lands (same pattern as the Aegis sweep).
+        let seed = displaced_controller_hit_seed()
+            .unwrap_or_else(|| panic!("no seed in 0..64 lands the displaced Controller hit"));
+        let (battle, events) = resolve_displaced_controller_round(seed);
+
+        // Normal round completion, not a resolution-phase error.
+        assert_eq!(battle.phase(), BattlePhase::Player);
+        assert!(battle.result().is_none());
+
+        // The locked attack still rolled against and damaged the Vanguard.
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::AttackRolled {
+                attacker,
+                target,
+                hit: true,
+                ..
+            } if *attacker == CONTROLLER && *target == SHARED_VANGUARD
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::DamageApplied {
+                target,
+                source: DamageSource::EnemyWeapon(attacker, weapon),
+                ..
+            } if *target == SHARED_VANGUARD
+                && *attacker == CONTROLLER
+                && *weapon == enemies::ids::IMPULSE_PROJECTOR
+        )));
+        assert_eq!(battle.unit(SHARED_VANGUARD).unwrap().hp, 17);
+
+        // The lost lane means no enemy push of the Vanguard ever occurs.
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            BattleEvent::UnitPushed { unit, .. } if *unit == SHARED_VANGUARD
+        )));
     }
 
     #[test]

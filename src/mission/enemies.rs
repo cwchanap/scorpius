@@ -15,6 +15,8 @@ pub mod ids {
     pub const SHOCK_CLAW: WeaponId = WeaponId(202);
     pub const SIEGE_MORTAR: WeaponId = WeaponId(203);
     pub const SKIRMISH_CARBINE: WeaponId = WeaponId(204);
+    pub const BASTION_CANNON: WeaponId = WeaponId(205);
+    pub const IMPULSE_PROJECTOR: WeaponId = WeaponId(206);
 }
 
 pub fn rifleman(id: UnitId, name: &'static str, position: GridPos) -> UnitState {
@@ -62,6 +64,62 @@ pub fn flanker(id: UnitId, name: &'static str, position: GridPos) -> UnitState {
         stats(8, 0, 4, 82, 30, 0),
         position,
         vec![ids::SKIRMISH_CARBINE],
+    )
+}
+
+pub fn bulwark(id: UnitId, name: &'static str, position: GridPos) -> UnitState {
+    unit(
+        id,
+        name,
+        UnitArchetype::Bulwark,
+        Faction::Enemy,
+        stats(16, 4, 1, 76, 0, 0),
+        position,
+        vec![ids::BASTION_CANNON],
+    )
+}
+
+pub fn controller(id: UnitId, name: &'static str, position: GridPos) -> UnitState {
+    unit(
+        id,
+        name,
+        UnitArchetype::Controller,
+        Faction::Enemy,
+        stats(9, 1, 2, 82, 15, 0),
+        position,
+        vec![ids::IMPULSE_PROJECTOR],
+    )
+}
+
+pub const fn bastion_cannon() -> WeaponSpec {
+    weapon(
+        ids::BASTION_CANNON,
+        "Bastion Cannon",
+        1,
+        3,
+        WeaponShape::Single,
+        6,
+        5,
+        5,
+        0,
+        false,
+        false,
+    )
+}
+
+pub const fn impulse_projector() -> WeaponSpec {
+    weapon(
+        ids::IMPULSE_PROJECTOR,
+        "Impulse Projector",
+        2,
+        4,
+        WeaponShape::Single,
+        3,
+        10,
+        0,
+        0,
+        true,
+        false,
     )
 }
 
@@ -161,6 +219,68 @@ mod tests {
         assert_eq!(carbine.en_cost, 0);
         assert!(!carbine.push);
         assert!(!carbine.counter_weapon);
+    }
+
+    #[test]
+    fn bulwark_matches_the_hpa523_locked_stats() {
+        let bulwark = bulwark(UnitId(41), "Gate Bulwark", GridPos::new(4, 5));
+
+        assert_eq!(bulwark.archetype, UnitArchetype::Bulwark);
+        assert_eq!(bulwark.faction, Faction::Enemy);
+        assert_eq!(bulwark.stats.max_hp, 16);
+        assert_eq!(bulwark.stats.armor, 4);
+        assert_eq!(bulwark.stats.movement, 1);
+        assert_eq!(bulwark.stats.accuracy, 76);
+        assert_eq!(bulwark.stats.evasion, 0);
+        assert_eq!(bulwark.hp, 16);
+        assert_eq!(bulwark.weapons, vec![ids::BASTION_CANNON]);
+    }
+
+    #[test]
+    fn controller_matches_the_hpa523_locked_stats() {
+        let controller = controller(UnitId(42), "Controller", GridPos::new(0, 7));
+
+        assert_eq!(controller.archetype, UnitArchetype::Controller);
+        assert_eq!(controller.faction, Faction::Enemy);
+        assert_eq!(controller.stats.max_hp, 9);
+        assert_eq!(controller.stats.armor, 1);
+        assert_eq!(controller.stats.movement, 2);
+        assert_eq!(controller.stats.accuracy, 82);
+        assert_eq!(controller.stats.evasion, 15);
+        assert_eq!(controller.hp, 9);
+        assert_eq!(controller.weapons, vec![ids::IMPULSE_PROJECTOR]);
+    }
+
+    #[test]
+    fn impulse_projector_matches_the_hpa523_locked_values() {
+        let projector = impulse_projector();
+
+        assert_eq!(projector.id, ids::IMPULSE_PROJECTOR);
+        assert_eq!(projector.name, "Impulse Projector");
+        assert_eq!((projector.min_range, projector.max_range), (2, 4));
+        assert_eq!(projector.shape, WeaponShape::Single);
+        assert_eq!(projector.base_damage, 3);
+        assert_eq!(projector.hit_modifier, 10);
+        assert_eq!(projector.crit_chance, 0);
+        assert_eq!(projector.en_cost, 0);
+        assert!(projector.push);
+        assert!(!projector.counter_weapon);
+    }
+
+    #[test]
+    fn bastion_cannon_matches_the_hpa523_locked_values() {
+        let cannon = bastion_cannon();
+
+        assert_eq!(cannon.id, ids::BASTION_CANNON);
+        assert_eq!(cannon.name, "Bastion Cannon");
+        assert_eq!((cannon.min_range, cannon.max_range), (1, 3));
+        assert_eq!(cannon.shape, WeaponShape::Single);
+        assert_eq!(cannon.base_damage, 6);
+        assert_eq!(cannon.hit_modifier, 5);
+        assert_eq!(cannon.crit_chance, 5);
+        assert_eq!(cannon.en_cost, 0);
+        assert!(!cannon.push);
+        assert!(!cannon.counter_weapon);
     }
 
     #[test]
