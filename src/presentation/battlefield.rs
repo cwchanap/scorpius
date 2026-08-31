@@ -59,7 +59,9 @@ pub const fn scene_index(archetype: UnitArchetype) -> usize {
         UnitArchetype::Rifleman => 3,
         UnitArchetype::Striker => 4,
         UnitArchetype::Artillery => 5,
-        UnitArchetype::Flanker | UnitArchetype::Bulwark | UnitArchetype::Controller => 10,
+        UnitArchetype::Flanker => 10,
+        UnitArchetype::Bulwark => 11,
+        UnitArchetype::Controller => 12,
     }
 }
 
