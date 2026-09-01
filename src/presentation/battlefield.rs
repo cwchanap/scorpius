@@ -62,6 +62,8 @@ pub const fn scene_index(archetype: UnitArchetype) -> usize {
         UnitArchetype::Flanker => 10,
         UnitArchetype::Bulwark => 11,
         UnitArchetype::Controller => 12,
+        // ponytail: placeholder scene until Task 3 ships the Dreadnought glTF (index 13).
+        UnitArchetype::Dreadnought => 11,
     }
 }
 
