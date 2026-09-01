@@ -524,7 +524,12 @@ mod tests {
                 .map(|definition| (definition.id, definition.unlocks)),
             Some((MissionId::Five, MissionId::Six))
         );
-        assert!(mission_definition(MissionId::Six).is_none());
+        assert_eq!(
+            mission_definition(MissionId::Six)
+                .map(|definition| (definition.id, definition.unlocks)),
+            Some((MissionId::Six, MissionId::Seven))
+        );
+        assert!(mission_definition(MissionId::Seven).is_none());
     }
 
     #[test]

@@ -12,12 +12,12 @@ use scorpius::campaign::save::SaveFile;
 use scorpius::campaign::session::{CampaignSession, complete_current_mission, persist_purchase};
 use scorpius::domain::board::GridPos;
 use scorpius::domain::model::{MissionResult, OptionalObjective, PrimaryObjective};
-use scorpius::mission::MissionId;
 use scorpius::mission::mission_definition;
 use scorpius::mission::mission_five;
 use scorpius::mission::mission_four;
 use scorpius::mission::mission_one::ids;
 use scorpius::mission::mission_three;
+use scorpius::mission::{DialogueLine, MissionId};
 use scorpius::presentation::campaign_ui::{
     CampaignStatus, CampaignUiAction, DialogueCursor, aftermath_reward_copy, apply_campaign_action,
     briefing_copy, dialogue_snapshot, next_mission_copy, upgrade_row_copy,
@@ -587,7 +587,7 @@ fn four_five_campaign_continuity_from_persisted_save_to_the_six_handoff() {
         "the Six handoff persists"
     );
 
-    // 9. Continue at Six routes to the NextMission handoff.
+    // 9. Continue at Six routes to the Upgrade screen — Six is now authored.
     runtime.0.state = None;
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -598,7 +598,7 @@ fn four_five_campaign_continuity_from_persisted_save_to_the_six_handoff() {
         &mut status,
         &mut next,
     );
-    assert_eq!(pending(&next), Some(GameScreen::NextMission));
+    assert_eq!(pending(&next), Some(GameScreen::Upgrade));
     assert_eq!(
         runtime.0.state.as_ref().unwrap().next_mission,
         MissionId::Six
@@ -606,7 +606,7 @@ fn four_five_campaign_continuity_from_persisted_save_to_the_six_handoff() {
 }
 
 #[test]
-fn completing_three_four_and_five_advances_to_six_with_base_rewards_through_five_at_2500() {
+fn completing_three_four_and_five_advances_to_six_then_six_advances_to_seven_at_3300() {
     let mut session = CampaignSession {
         state: Some(CampaignState {
             next_mission: MissionId::Three,
@@ -657,6 +657,51 @@ fn completing_three_four_and_five_advances_to_six_with_base_rewards_through_five
 
     // Base rewards through Five: 300 + 400 + 500 + 600 + 700 = 2500.
     assert_eq!(session.state.as_ref().unwrap().credits, 2500);
+
+    // Completing Six (base only) advances to the Seven handoff at 3300.
+    let receipt = complete_current_mission(
+        &mut session,
+        mission_definition(MissionId::Six).unwrap(),
+        MissionResult {
+            victory: true,
+            optional_complete: false,
+            rounds: 4,
+        },
+    )
+    .unwrap();
+    assert_eq!((receipt.base_reward, receipt.optional_reward), (800, 0));
+    assert_eq!(
+        session.state.as_ref().unwrap().next_mission,
+        MissionId::Seven
+    );
+    assert_eq!(session.state.as_ref().unwrap().credits, 3300);
+
+    // Turnabout complete: the 250 bonus rides on top of the base reward.
+    let mut session = CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Six,
+            credits: 2500,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("completion-through-six-optional")),
+        last_completion: None,
+    };
+    let receipt = complete_current_mission(
+        &mut session,
+        mission_definition(MissionId::Six).unwrap(),
+        MissionResult {
+            victory: true,
+            optional_complete: true,
+            rounds: 4,
+        },
+    )
+    .unwrap();
+    assert_eq!((receipt.base_reward, receipt.optional_reward), (800, 250));
+    assert_eq!(session.state.as_ref().unwrap().credits, 3300 + 250);
+    assert_eq!(
+        session.state.as_ref().unwrap().next_mission,
+        MissionId::Seven
+    );
 }
 
 #[test]
@@ -1175,7 +1220,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
 }
 
 #[test]
-fn continue_and_proceed_route_four_and_five_to_upgrade_and_six_to_the_handoff() {
+fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff() {
     let route_continue = |next_mission| {
         let mut runtime = CampaignRuntime(CampaignSession {
             state: None,
@@ -1205,8 +1250,9 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_six_to_the_handoff() 
     assert_eq!(route_continue(MissionId::Three), Some(GameScreen::Upgrade));
     assert_eq!(route_continue(MissionId::Four), Some(GameScreen::Upgrade));
     assert_eq!(route_continue(MissionId::Five), Some(GameScreen::Upgrade));
+    assert_eq!(route_continue(MissionId::Six), Some(GameScreen::Upgrade));
     assert_eq!(
-        route_continue(MissionId::Six),
+        route_continue(MissionId::Seven),
         Some(GameScreen::NextMission)
     );
 
@@ -1273,7 +1319,7 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_six_to_the_handoff() 
     );
     assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
 
-    // PROCEED at the Six handoff stays on the handoff screen.
+    // PROCEED at the Six handoff opens Mission 6's story — Six is authored.
     let mut runtime = CampaignRuntime(CampaignSession {
         state: Some(CampaignState {
             next_mission: MissionId::Six,
@@ -1292,7 +1338,89 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_six_to_the_handoff() 
         &mut CampaignStatus::default(),
         &mut next,
     );
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
+
+    // PROCEED at the Seven handoff stays on the handoff screen.
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState {
+            next_mission: MissionId::Seven,
+            credits: 1200,
+            upgrades: SquadUpgrades::default(),
+        }),
+        save: SaveFile::new(temp_save_path("proceed-seven")),
+        last_completion: None,
+    });
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut DialogueCursor(0),
+        &mut CampaignStatus::default(),
+        &mut next,
+    );
     assert_eq!(pending(&next), Some(GameScreen::NextMission));
+}
+
+#[test]
+fn mission_six_briefing_and_dialogue_match_the_spec() {
+    let definition = mission_definition(MissionId::Six).unwrap();
+    let copy = briefing_copy(definition);
+
+    for expected in [
+        definition.title,
+        "PRIMARY",
+        definition.primary_objective,
+        "BONUS",
+        definition.optional_objective,
+        "800 credits",
+        "+250 credits",
+    ] {
+        assert!(copy.contains(expected), "briefing copy missing {expected}");
+    }
+
+    // Pre-mission: the spec's exact lines over existing VN portraits.
+    let scene = &definition.pre_mission;
+    assert_eq!(scene.background, "vn/relay_nine_bg.png");
+    assert_eq!(scene.lines.len(), 3);
+    assert_eq!(
+        scene.lines[0].text,
+        "A Dreadnought is anchoring the line. Its main battery commits before we move."
+    );
+    assert_eq!(scene.lines[1].text, "Then the escorts are ammunition.");
+    assert_eq!(
+        scene.lines[2].text,
+        "Exactly. Below half integrity the battery overloads and the Dreadnought will close in."
+    );
+    let opening = dialogue_snapshot(scene, DialogueCursor(0));
+    assert_eq!(opening.speaker, "Control");
+    assert_eq!(opening.portrait, "vn/control_neutral.png");
+    let middle = dialogue_snapshot(scene, DialogueCursor(1));
+    assert_eq!(middle.speaker, "Vanguard");
+    assert_eq!(middle.portrait, "vn/vanguard_neutral.png");
+    let closing = dialogue_snapshot(scene, DialogueCursor(2));
+    assert_eq!(closing.speaker, "Control");
+    assert_eq!(closing.portrait, "vn/control_alert.png");
+
+    // Aftermath: two lines, announcing the Mission 7 handoff.
+    assert_eq!(definition.aftermath.background, "vn/relay_nine_bg.png");
+    assert_eq!(definition.aftermath.lines.len(), 2);
+    assert_eq!(
+        definition.aftermath.lines[0],
+        DialogueLine {
+            speaker: "Vanguard",
+            text: "Dreadnought down. Their line is collapsing.",
+            portrait: "vn/vanguard_neutral.png",
+        }
+    );
+    assert_eq!(
+        definition.aftermath.lines[1],
+        DialogueLine {
+            speaker: "Control",
+            text: "One command unit remains. Mission 7 is the final push.",
+            portrait: "vn/control_neutral.png",
+        }
+    );
 }
 
 #[test]
