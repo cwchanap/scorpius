@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, and HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies. The campaign runs authored One→Five and stops at the Mission 6 handoff screen; Mission 6 content is deliberately out of scope.
+Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, and HPA-524 authored Mission 6 and the single-cell Dreadnought boss. The campaign runs authored One→Six and stops at the Mission 7 handoff screen; Mission 7 content is deliberately out of scope.
 
 ## Commands
 
@@ -67,12 +67,15 @@ sanctioned post-commit degradation. Preserve the invariant when touching `enemy.
 
 ### `src/mission/` — authored data
 
-Mission 1–5 boards, props, units, weapons, openings, and stable IDs (`mission::mission_one::ids`;
-`mission::mission_two` through `mission_five` define their own), all as typed Rust constants.
+Mission 1–6 boards, props, units, weapons, openings, and stable IDs (`mission::mission_one::ids`;
+`mission::mission_two` through `mission_six` define their own), all as typed Rust constants.
 `mission::enemies` mirrors `mission::squad` with fixed enemy factories for the six regular
 archetypes (Rifleman, Striker, Artillery, Flanker, Bulwark, Controller) and their weapons — the
 Bulwark is pushable with no displacement immunity, and the Controller's Impulse Projector is
-push-only (no status system). Missions 1–5 share one opening-legality validator
+push-only (no status system). Mission 6 adds the Dreadnought boss (HP 40, initiative 40): its
+planner picks Graviton Salvo (range 3–6) above half HP and Overload Salvo (range 2–4) at or below,
+a threshold that affects future planning only — committed intents stay locked. Missions 1–6 share
+one opening-legality validator
 (`assert_opening_plan_is_legal`). No RON/JSON/scripting layer exists; keep new content typed here.
 `restart_mission` rebuilds the whole state from a new seed. Mission rules carry a typed
 `PrimaryObjective` / `OptionalObjective` plus an `EnemyOpening` plan; only objective boundary
@@ -128,10 +131,10 @@ breaks seeded tests; that's intended signal, not flakiness.
 ## Reference docs
 
 - `docs/superpowers/specs/2026-08-23-hpa-632-*-design.md`, `2026-08-26-hpa-635-*.md`,
-  `2026-08-28-hpa-637-*.md`, `2026-08-30-hpa-523-*.md` — design specs and rules of record
-- `docs/superpowers/plans/2026-08-23-hpa-632-*.md` and the 635/637/523 siblings — implementation plan ledgers
+  `2026-08-28-hpa-637-*.md`, `2026-08-30-hpa-523-*.md`, `2026-08-31-hpa-524-mission-6-dreadnought-design.md` — design specs and rules of record
+- `docs/superpowers/plans/2026-08-23-hpa-632-*.md` and the 635/637/523/524 siblings — implementation plan ledgers
 - `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`,
-  `docs/validation/hpa-523.md` —
+  `docs/validation/hpa-523.md`, `docs/validation/hpa-524.md` —
   playtest and viability evidence
 
 Commits follow Conventional Commits (`feat:`, `ci:`, `docs:`, `chore:`).
