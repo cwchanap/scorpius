@@ -15,6 +15,7 @@ pub mod enemies;
 pub mod mission_five;
 pub mod mission_four;
 pub mod mission_one;
+pub mod mission_six;
 pub mod mission_three;
 pub mod mission_two;
 pub mod squad;
@@ -29,6 +30,7 @@ pub enum MissionId {
     Four,
     Five,
     Six,
+    Seven,
 }
 
 impl std::fmt::Display for MissionId {
@@ -40,6 +42,7 @@ impl std::fmt::Display for MissionId {
             MissionId::Four => 4,
             MissionId::Five => 5,
             MissionId::Six => 6,
+            MissionId::Seven => 7,
         };
         write!(f, "{number}")
     }
@@ -94,7 +97,8 @@ pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
         MissionId::Three => Some(&mission_three::MISSION_THREE_DEFINITION),
         MissionId::Four => Some(&mission_four::MISSION_FOUR_DEFINITION),
         MissionId::Five => Some(&mission_five::MISSION_FIVE_DEFINITION),
-        MissionId::Six => None,
+        MissionId::Six => Some(&mission_six::MISSION_SIX_DEFINITION),
+        MissionId::Seven => None,
     }
 }
 
@@ -145,11 +149,8 @@ pub(crate) fn assert_opening_plan_is_legal(battle: &BattleState) {
         if let Some(target_id) = opening.target {
             let target = battle.unit(target_id).expect("opening target exists");
             assert_eq!(target.faction, Faction::Player);
-            let weapon = unit
-                .weapons
-                .first()
-                .and_then(|weapon| battle.weapon(*weapon))
-                .expect("opening unit has first weapon");
+            let weapon = crate::domain::enemy::unit_weapon(battle, unit)
+                .expect("opening unit has its selected weapon");
             assert!(
                 weapon_reaches(weapon, opening.destination, target.position),
                 "opening target must be in range and push-aligned"

@@ -772,10 +772,11 @@ pub fn apply_campaign_action(
         },
         CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
             Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-            Ok(MissionId::Two | MissionId::Three | MissionId::Four | MissionId::Five) => {
-                next_state.set(GameScreen::Upgrade)
-            }
-            Ok(MissionId::Six) => next_state.set(GameScreen::NextMission),
+            Ok(id) => next_state.set(if mission_definition(id).is_some() {
+                GameScreen::Upgrade
+            } else {
+                GameScreen::NextMission
+            }),
             Err(error) => status.0 = error.to_string(),
         },
         CampaignUiAction::AdvanceDialogue => {

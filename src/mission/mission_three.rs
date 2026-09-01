@@ -520,7 +520,7 @@ mod tests {
                 .map(|definition| (definition.id, definition.unlocks)),
             Some((MissionId::Three, MissionId::Four))
         );
-        assert!(mission_definition(MissionId::Six).is_none());
+        assert!(mission_definition(MissionId::Seven).is_none());
     }
 
     #[test]

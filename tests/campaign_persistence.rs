@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use scorpius::campaign::model::{CampaignState, PlayerMech, UpgradeTrack};
+use scorpius::campaign::model::{
+    CampaignState, PlayerMech, SquadUpgrades, UpgradeLevels, UpgradeTrack,
+};
 use scorpius::campaign::progression::{CampaignError, UPGRADE_COSTS};
 use scorpius::campaign::save::SaveFile;
 use scorpius::campaign::session::{
@@ -93,9 +95,36 @@ fn campaign_progresses_through_four_on_base_rewards_alone() {
 
     assert_eq!(state.credits, 1200);
     assert_eq!(state.next_mission, MissionId::Four);
-    // Five is authored as of HPA-523 Task 4; Six is the terminal handoff.
+    // Missions One–Six are authored as of HPA-524; Seven is the terminal handoff.
     assert!(mission_definition(MissionId::Five).is_some());
-    assert!(mission_definition(MissionId::Six).is_none());
+    assert!(mission_definition(MissionId::Six).is_some());
+    assert!(mission_definition(MissionId::Seven).is_none());
+}
+
+#[test]
+fn seven_terminal_state_round_trips_with_upgrades_and_credits() {
+    let save = SaveFile::new(temp_path());
+    let state = CampaignState {
+        next_mission: MissionId::Seven,
+        credits: 1234,
+        upgrades: SquadUpgrades {
+            vanguard: UpgradeLevels {
+                hp: 1,
+                armor: 2,
+                mobility: 0,
+                weapon: 3,
+            },
+            gunner: UpgradeLevels::default(),
+            interceptor: UpgradeLevels {
+                hp: 2,
+                armor: 1,
+                mobility: 1,
+                weapon: 2,
+            },
+        },
+    };
+    save.store(&state).unwrap();
+    assert_eq!(save.load().unwrap(), Some(state));
 }
 
 #[test]
