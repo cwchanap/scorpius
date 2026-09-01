@@ -101,8 +101,8 @@ fn mission_six_enemy_units() -> Vec<UnitState> {
             vec![ids::GRAVITON_SALVO, ids::OVERLOAD_SALVO],
         ),
         enemies::bulwark(ids::BULWARK, "Bulwark", GridPos::new(0, 7)),
-        enemies::controller(ids::CONTROLLER, "Controller", GridPos::new(7, 7)),
-        enemies::rifleman(ids::RIFLEMAN, "Rifleman", GridPos::new(7, 6)),
+        enemies::controller(ids::CONTROLLER, "Controller", GridPos::new(8, 7)),
+        enemies::rifleman(ids::RIFLEMAN, "Rifleman", GridPos::new(8, 6)),
     ]
 }
 
