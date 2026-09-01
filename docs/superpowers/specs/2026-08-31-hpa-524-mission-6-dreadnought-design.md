@@ -200,7 +200,7 @@ Vector Pulse normal damage at weapon level 0: 4 - 1 = 3
 Graviton Salvo normal damage against Controller: 8 - 1 = 7
 ```
 
-The hit remains RNG-driven. The test must pin both the `AttackRolled` against Controller and, when the seeded roll deals enemy-weapon damage, the existing `OptionalObjectiveCompleted` event. The product claim is not merely that friendly-fire geometry exists; the redirected boss attack must exercise `Turnabout` through the normal objective observer.
+The hit remains RNG-driven. Tests pin the public geometry and use a deterministic seed sweep to prove one redirected Graviton hit reaches the existing `DamageSource::EnemyWeapon` observer and emits `OptionalObjectiveCompleted`. No friendly-fire special case is added.
 
 ### Rules and rewards
 
@@ -244,7 +244,7 @@ Seven   -> terminal HPA-524 handoff; mission_definition(Seven) == None
 
 `MISSION_SIX_DEFINITION.unlocks = MissionId::Seven`. `CampaignState::complete_mission` remains unchanged.
 
-Remove the leftover per-mission `Continue` list. Keep Mission 1 special because it starts before the upgrade screen; for every later ID, route from the same authored-data seam already used by `Proceed`:
+Remove the leftover per-mission `Continue` list. Keep Mission 1 special; for every later ID use the same authored-data seam as `Proceed`:
 
 ```rust
 Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
@@ -255,21 +255,21 @@ Ok(id) => next_state.set(if mission_definition(id).is_some() {
 }),
 ```
 
-This makes Six authored as soon as its definition is registered and makes Seven terminal without another list extension. Do not add a routing table/helper or new `GameScreen`.
+When Six becomes authored, the existing library tests in Missions 2–5 that pin `mission_definition(Six).is_none()` move to Seven in the same task so `cargo test --lib` stays green.
 
-When Six becomes authored, existing library tests in Missions 2–5 that pin `mission_definition(Six).is_none()` must move to Seven in the same task that registers Mission 6 so `cargo test --lib` stays green.
+Campaign integration tests then move the old Six terminal assertions to Seven, add Six as authored, and use the existing `complete_current_mission` API for Mission 6 reward/persistence coverage.
 
-Integration tests that currently pin Six as the terminal handoff move to Seven and are updated in the campaign-continuity task.
+No new routing helper/table, `GameScreen`, save field, or migration layer.
 
 ## Presentation
 
 ### Boss telegraph/HUD
 
-Do not add a boss-only HUD or phase banner. Existing intent UI already shows weapon, footprint, intended occupant, expected damage, and hit chance. Existing target-objective HUD already shows the Dreadnought's HP.
+Do not add a boss-only HUD or phase banner. Existing intent UI already shows weapon, footprint, intended occupant, expected damage, and hit chance. Existing target-objective HUD already shows Dreadnought HP.
 
 ### Dreadnought visual
 
-Append one distinct scene to the existing glTF:
+Append one distinct scene:
 
 ```text
 Scene index 13: Dreadnought
@@ -293,36 +293,38 @@ Final counts:
 
 Set `MISSION_ONE_SCENE_COUNT = 14` and map `Dreadnought -> 13`.
 
-The existing Flanker and Bulwark/Controller tests also pin the old global counts and must be updated when scene 13 is appended. Bound the current Controller part-node loop to `.skip(64).take(6)` before nodes 70–76 exist, otherwise the old assertion will walk into the new Dreadnought nodes.
+Existing Flanker and Bulwark/Controller tests also pin old global counts and must change to 14/77/14/14. Bound the current Controller part-node loop to `.skip(64).take(6)` before appending nodes 70–76, otherwise it walks into Dreadnought nodes.
 
 No second glTF, texture, animation, generator, under-ring, or inverse-scale compensation.
 
 ## Testing
 
-Focused deterministic coverage must prove:
+Focused coverage must prove:
 
-1. slot 0 at 21 HP and slot 1 at 20 HP; further damage stays on slot 1;
-2. a committed Graviton intent is unchanged by crossing the threshold, while a newly built intent uses Overload;
-3. at 20 HP and distance 5, Dreadnought's ordinary attack-band destination steps one cell closer so Overload can reach;
+1. slot 0 at 21 HP and slot 1 at 20 HP; further damage stays slot 1;
+2. committed Graviton remains unchanged across threshold crossing; a newly built intent uses Overload;
+3. at 20 HP and distance 5, attack-band movement steps one cell closer so Overload reaches;
 4. Dreadnought remains a normal push target;
-5. Mission 6 board, roster, opening rows, objective, rewards, exact stats/weapons, and opening legality match the authored values;
-6. the public opening manipulation line puts Controller on `(5,7)` inside the boss footprint, leaves `(4,7)` empty, rolls the boss attack against Controller, and completes Turnabout through normal enemy-weapon damage;
-7. knocking out Dreadnought wins immediately with escorts alive;
-8. the four existing mission-local `Six is None` pins move to Seven when Six is registered;
-9. completing Mission 6 advances once to Seven, rewards 800/250 as appropriate, persists state/upgrades, and uses `complete_current_mission` in integration coverage;
-10. `campaign_model`, Continue, and Proceed tests treat Six as authored and Seven as terminal;
-11. glTF old and new structural tests agree on 14/77/14/14/1 and the Controller loop is bounded;
-12. Missions 1–5 and full campaign/save/presentation suites remain green.
+5. Mission 6 board, roster, opening rows, objective, rewards, stats/weapons, and opening legality;
+6. public opening manipulation puts Controller on `(5,7)`, leaves `(4,7)` empty, and redirected Graviton can complete Turnabout through ordinary enemy-weapon damage;
+7. Dreadnought KO wins with escorts alive;
+8. Missions 2–5 terminal-definition pins move from Six to Seven when Six is registered;
+9. `campaign_model` treats Six as authored/Seven as terminal and base rewards through Six total 3300;
+10. `campaign_flow` Continue and Proceed treat Six as authored and Seven as terminal;
+11. Mission 6 completion uses `complete_current_mission`, advances once to Seven, and covers 800/250 rewards;
+12. Seven save round-trip preserves upgrades/credits;
+13. old/new glTF structural tests agree on 14/77/14/14/1 and Controller loop is bounded;
+14. all existing Missions 1–5 and campaign/save/presentation suites remain green.
 
 ## Manual validation
 
 Record HPA-524 evidence in `docs/validation/hpa-524.md`:
 
 - start Mission 6 from the real campaign flow after Mission 5;
-- confirm Graviton telegraph readability and escort redirection;
-- cross from 21+ HP to <=20 after commitment and confirm the current telegraph stays Graviton;
-- confirm next planning shows Overload and the boss closes when outside its shorter band;
-- confirm normal boss push still works;
+- confirm Graviton readability and escort redirection;
+- cross 21+ -> <=20 after commitment and confirm current telegraph stays Graviton;
+- confirm next planning shows Overload and closes from range 5 into range 4;
+- confirm normal boss push;
 - defeat Dreadnought with an escort alive and confirm immediate victory;
 - finish aftermath/reward/upgrade, return to title, Continue, and confirm persisted Mission 7 handoff;
 - record encounter length and tune authored values only if clearly necessary.
