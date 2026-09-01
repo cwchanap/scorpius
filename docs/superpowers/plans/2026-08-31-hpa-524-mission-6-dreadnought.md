@@ -118,9 +118,44 @@ fn crossing_threshold_does_not_rewrite_committed_dreadnought_intent() {
 }
 ```
 
-Add a second fixture with boss `(3,0)` and player `(3,5)` and the same stats/weapons, then:
+Add this second fixture to prove close pressure:
 
 ```rust
+fn dreadnought_close_pressure_fixture() -> BattleState {
+    let boss = squad::unit(
+        DREADNOUGHT,
+        "Dreadnought",
+        UnitArchetype::Dreadnought,
+        Faction::Enemy,
+        squad::stats(40, 3, 1, 90, 5, 0),
+        GridPos::new(3, 0),
+        vec![GRAVITON, OVERLOAD],
+    );
+    let player = squad::unit(
+        TEST_PLAYER,
+        "Target",
+        UnitArchetype::Vanguard,
+        Faction::Player,
+        squad::stats(20, 3, 3, 78, 5, 7),
+        GridPos::new(3, 5),
+        vec![],
+    );
+    BattleState::new(
+        BoardState::new(7, 7, [], [], []),
+        vec![boss, player],
+        vec![
+            squad::weapon(GRAVITON, "Graviton Salvo", 3, 6, WeaponShape::Cross1, 8, 10, 5, 0, false, false),
+            squad::weapon(OVERLOAD, "Overload Salvo", 1, 4, WeaponShape::Cross1, 10, 10, 10, 0, false, false),
+        ],
+        MissionRules {
+            primary: PrimaryObjective::EliminateAllEnemies,
+            optional: OptionalObjective::VictoryByRound { round: 9 },
+            opening_plan: &[],
+        },
+        7,
+    )
+}
+
 #[test]
 fn dreadnought_overload_closes_from_range_five() {
     let mut battle = dreadnought_close_pressure_fixture();
@@ -241,7 +276,16 @@ assert_eq!(battle.rules().primary, PrimaryObjective::EliminateTarget { target: i
 assert_eq!(battle.rules().optional, OptionalObjective::Turnabout);
 ```
 
-Also assert exactly four enemy IDs and the four exact opening tuples from the spec.
+Also assert exactly four enemy IDs and these rows:
+
+```rust
+[
+    (ids::DREADNOUGHT, GridPos::new(4, 2), Some(ids::VANGUARD)),
+    (ids::BULWARK, GridPos::new(1, 7), Some(ids::VANGUARD)),
+    (ids::CONTROLLER, GridPos::new(6, 7), Some(ids::VANGUARD)),
+    (ids::RIFLEMAN, GridPos::new(6, 6), Some(ids::INTERCEPTOR)),
+]
+```
 
 - [ ] **Step 2: Verify red**
 
@@ -371,7 +415,7 @@ pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
 };
 ```
 
-Use the exact dialogue from the spec.
+Use the spec's three pre-mission and two aftermath lines verbatim.
 
 - [ ] **Step 7: Pin opening legality**
 
@@ -457,7 +501,7 @@ fn dreadnought_ko_wins_with_escorts_alive() {
 }
 ```
 
-For displacement, put Vanguard and Dreadnought in one row with the existing test-only movement helper, call `resolve_push(ids::VANGUARD, ids::DREADNOUGHT)`, and assert `BattleEvent::UnitPushed` plus a one-cell position change. Do not add a resistance event/error.
+For displacement, move Vanguard to `(3,3)` and Dreadnought to `(4,3)` with `move_unit_direct_for_test`, call `resolve_push(ids::VANGUARD, ids::DREADNOUGHT)`, then assert Dreadnought is at `(5,3)` and the events contain `UnitPushed { unit: ids::DREADNOUGHT, from: (4,3), to: (5,3) }`.
 
 - [ ] **Step 11: Verify library and commit**
 
