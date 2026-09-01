@@ -326,7 +326,10 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
                 weapon,
             ))
         }
-        UnitArchetype::Rifleman | UnitArchetype::Striker | UnitArchetype::Bulwark => {
+        UnitArchetype::Rifleman
+        | UnitArchetype::Striker
+        | UnitArchetype::Bulwark
+        | UnitArchetype::Dreadnought => {
             let weapon = unit_weapon(battle, unit)?;
             Ok(attack_band_destination(&candidates, &players, weapon))
         }
@@ -392,14 +395,20 @@ fn controller_destination(
         .expect("the lane filter is non-empty")
 }
 
-fn unit_weapon<'a>(
+pub(crate) fn unit_weapon<'a>(
     battle: &'a BattleState,
     unit: &UnitState,
 ) -> Result<&'a WeaponSpec, BattleError> {
-    unit.weapons
-        .first()
-        .and_then(|weapon| battle.weapon(*weapon))
-        .ok_or(BattleError::InvalidTarget(unit.position))
+    let index = match unit.archetype {
+        UnitArchetype::Dreadnought if unit.hp * 2 <= unit.stats.max_hp => 1,
+        _ => 0,
+    };
+    let id = unit
+        .weapons
+        .get(index)
+        .copied()
+        .ok_or(BattleError::InvalidTarget(unit.position))?;
+    battle.weapon(id).ok_or(BattleError::UnknownWeapon(id))
 }
 
 fn attack_band_destination(
@@ -484,14 +493,8 @@ fn build_intent(
     let attacker = battle
         .unit(attacker_id)
         .ok_or(BattleError::UnknownUnit(attacker_id))?;
-    let weapon_id = attacker
-        .weapons
-        .first()
-        .copied()
-        .ok_or(BattleError::InvalidTarget(attacker.position))?;
-    let weapon = battle
-        .weapon(weapon_id)
-        .ok_or(BattleError::UnknownWeapon(weapon_id))?;
+    let weapon = unit_weapon(battle, attacker)?;
+    let weapon_id = weapon.id;
     let choice = match forced_target {
         // Authored openings keep shared occupant selection inside the forced
         // footprint; only the protect-preference path overrides priority.
@@ -674,6 +677,7 @@ fn player_priority(unit: &UnitState) -> u8 {
 
 fn initiative(unit: &UnitState) -> i16 {
     match unit.archetype {
+        UnitArchetype::Dreadnought => 40,
         UnitArchetype::Controller => 35,
         UnitArchetype::Striker => 30,
         UnitArchetype::Flanker => 25,
@@ -712,7 +716,7 @@ mod tests {
         },
     };
 
-    use super::{build_intent, initiative};
+    use super::{build_intent, choose_enemy_destination, initiative, unit_weapon};
 
     const FLANKER_COURIER: UnitId = UnitId(21);
     const PROTECTED: UnitId = UnitId(2);
@@ -722,6 +726,10 @@ mod tests {
     const CONTROLLER: UnitId = UnitId(42);
     const BULWARK: UnitId = UnitId(41);
     const PUSHER: UnitId = UnitId(4);
+    const DREADNOUGHT: UnitId = UnitId(90);
+    const TEST_PLAYER: UnitId = UnitId(91);
+    const GRAVITON: WeaponId = WeaponId(290);
+    const OVERLOAD: WeaponId = WeaponId(291);
 
     #[test]
     fn authored_opening_places_four_locked_threats() {
@@ -1099,6 +1107,18 @@ mod tests {
             )),
             15
         );
+        let controller = enemies::controller(CONTROLLER, "Controller", GridPos::new(0, 7));
+        let dreadnought = squad::unit(
+            DREADNOUGHT,
+            "Dreadnought",
+            UnitArchetype::Dreadnought,
+            Faction::Enemy,
+            squad::stats(40, 3, 1, 90, 5, 0),
+            GridPos::new(3, 1),
+            vec![GRAVITON, OVERLOAD],
+        );
+        assert_eq!(initiative(&dreadnought), 40);
+        assert!(initiative(&dreadnought) > initiative(&controller));
     }
 
     #[test]
@@ -1178,6 +1198,142 @@ mod tests {
         advance_a_later_round(&mut battle);
 
         assert_eq!(battle.unit(BULWARK).unwrap().position, GridPos::new(4, 5));
+    }
+
+    #[test]
+    fn dreadnought_switches_weapon_once_at_half_hp() {
+        let mut battle = dreadnought_threshold_fixture();
+        assert_eq!(
+            unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap())
+                .unwrap()
+                .id,
+            GRAVITON
+        );
+
+        battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+        assert_eq!(battle.unit(DREADNOUGHT).unwrap().hp, 20);
+        assert_eq!(
+            unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap())
+                .unwrap()
+                .id,
+            OVERLOAD
+        );
+
+        battle.apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
+        assert_eq!(
+            unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap())
+                .unwrap()
+                .id,
+            OVERLOAD
+        );
+    }
+
+    #[test]
+    fn crossing_threshold_does_not_rewrite_committed_dreadnought_intent() {
+        let mut battle = dreadnought_threshold_fixture();
+        battle.begin_round().unwrap();
+        let committed = battle.intent_for(DREADNOUGHT).unwrap().clone();
+        assert_eq!(committed.profile.weapon, GRAVITON);
+
+        battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+
+        assert_eq!(battle.intent_for(DREADNOUGHT).unwrap(), &committed);
+        let future = build_intent(&battle, DREADNOUGHT, Some(GridPos::new(3, 5))).unwrap();
+        assert_eq!(future.profile.weapon, OVERLOAD);
+    }
+
+    #[test]
+    fn overload_cross_never_contains_its_attacker() {
+        let mut battle = dreadnought_range_two_fixture();
+        battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+
+        let intent = build_intent(&battle, DREADNOUGHT, Some(GridPos::new(3, 3))).unwrap();
+        let weapon = battle.weapon(OVERLOAD).unwrap();
+
+        assert_eq!((weapon.min_range, weapon.max_range), (2, 4));
+        assert_eq!(intent.profile.weapon, OVERLOAD);
+        assert!(!intent.footprint.contains(&GridPos::new(3, 1)));
+    }
+
+    #[test]
+    fn dreadnought_overload_closes_from_range_five() {
+        let mut battle = dreadnought_close_pressure_fixture();
+        battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+
+        let destination = choose_enemy_destination(&battle, DREADNOUGHT).unwrap();
+
+        assert_eq!(destination, GridPos::new(3, 1));
+        assert_eq!(destination.manhattan(GridPos::new(3, 5)), 4);
+    }
+
+    fn dreadnought_fixture(boss_at: GridPos, player_at: GridPos) -> BattleState {
+        let board = BoardState::new(7, 7, [], [], []);
+        let units = vec![
+            squad::unit(
+                DREADNOUGHT,
+                "Dreadnought",
+                UnitArchetype::Dreadnought,
+                Faction::Enemy,
+                squad::stats(40, 3, 1, 90, 5, 0),
+                boss_at,
+                vec![GRAVITON, OVERLOAD],
+            ),
+            squad::unit(
+                TEST_PLAYER,
+                "Player",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                squad::stats(20, 3, 3, 78, 5, 7),
+                player_at,
+                vec![],
+            ),
+        ];
+        BattleState::new(
+            board,
+            units,
+            vec![
+                squad::weapon(
+                    GRAVITON,
+                    "Graviton Salvo",
+                    3,
+                    6,
+                    WeaponShape::Cross1,
+                    8,
+                    10,
+                    5,
+                    0,
+                    false,
+                    false,
+                ),
+                squad::weapon(
+                    OVERLOAD,
+                    "Overload Salvo",
+                    2,
+                    4,
+                    WeaponShape::Cross1,
+                    10,
+                    10,
+                    10,
+                    0,
+                    false,
+                    false,
+                ),
+            ],
+            eliminate_rules(),
+            7,
+        )
+    }
+
+    fn dreadnought_threshold_fixture() -> BattleState {
+        dreadnought_fixture(GridPos::new(3, 1), GridPos::new(3, 5))
+    }
+
+    fn dreadnought_range_two_fixture() -> BattleState {
+        dreadnought_fixture(GridPos::new(3, 1), GridPos::new(3, 3))
+    }
+
+    fn dreadnought_close_pressure_fixture() -> BattleState {
+        dreadnought_fixture(GridPos::new(3, 0), GridPos::new(3, 5))
     }
 
     fn planning_fixture(
