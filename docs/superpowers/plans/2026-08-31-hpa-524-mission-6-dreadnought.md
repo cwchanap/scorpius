@@ -422,41 +422,34 @@ Also assert all four `(unit, destination, target)` tuples exactly.
 
 - [ ] **Step 8: Drive the real public manipulation line and pin Turnabout**
 
-Use a small deterministic seed sweep so the test proves the redirected boss shot can actually deal qualifying enemy-weapon damage without assuming an unknown RNG seed:
+Use the same public movement/push line for both geometry and objective coverage. First pin geometry with any stable seed: committed Graviton footprint contains `(5,7)`, Vanguard moves to `(4,5)`, Interceptor moves to `(7,7)`, Vector Pulse moves Controller `(6,7)->(5,7)`, and Controller's committed `(4,7)` footprint resolves empty.
+
+For the bonus proof, use a deterministic seed sweep around that exact public line and require a run where the boss attack both rolls against Controller and emits `OptionalObjectiveCompleted` through normal `DamageSource::EnemyWeapon` handling:
 
 ```rust
 #[test]
-fn redirected_graviton_hits_controller_and_completes_turnabout() {
+fn redirected_graviton_can_complete_turnabout() {
     let mut witnessed = false;
 
     for seed in 0..256 {
         let mut battle = mission_six(seed);
         battle.begin_round().unwrap();
-        let boss_intent = battle.intent_for(ids::DREADNOUGHT).unwrap().clone();
-        assert_eq!(boss_intent.profile.weapon, ids::GRAVITON_SALVO);
-        assert!(boss_intent.footprint.contains(&GridPos::new(5, 7)));
 
-        battle.begin_activation(ids::VANGUARD).unwrap();
-        battle.move_unit(ids::VANGUARD, GridPos::new(4, 5)).unwrap();
-        battle.choose_reaction(ids::VANGUARD, Reaction::Guard).unwrap();
-        battle.finish_activation(ids::VANGUARD).unwrap();
-
-        battle.begin_activation(ids::INTERCEPTOR).unwrap();
-        battle.move_unit(ids::INTERCEPTOR, GridPos::new(7, 7)).unwrap();
-        let preview = battle
-            .preview_attack(ids::INTERCEPTOR, squad::ids::VECTOR_PULSE, GridPos::new(6, 7))
-            .unwrap();
-        assert_eq!(preview.push_destination, Some(GridPos::new(5, 7)));
-        battle.resolve_push(ids::INTERCEPTOR, ids::CONTROLLER).unwrap();
+        // Repeat the exact public Vanguard/Interceptor movement and Vector Pulse
+        // displacement pinned by the geometry test, then resolve only the
+        // already-committed Dreadnought intent.
+        // ... exact calls are identical to the geometry test above ...
 
         let events = battle.resolve_intent_for_test(ids::DREADNOUGHT).unwrap();
-        assert!(events.iter().any(|event| matches!(
+        let rolled_on_controller = events.iter().any(|event| matches!(
             event,
             BattleEvent::AttackRolled { attacker, target, .. }
                 if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
-        )));
-
-        if events.iter().any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted)) {
+        ));
+        let completed = events
+            .iter()
+            .any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted));
+        if rolled_on_controller && completed {
             witnessed = true;
             break;
         }
@@ -466,7 +459,7 @@ fn redirected_graviton_hits_controller_and_completes_turnabout() {
 }
 ```
 
-Separately assert Controller's committed `(4,7)` footprint resolves empty after Vanguard moves. Do not add friendly-fire special cases.
+When implementing the test, do not leave the comment placeholder above: inline the exact public calls from the geometry test so the test is standalone. Do not add friendly-fire special cases.
 
 - [ ] **Step 9: Prove target victory and normal boss displacement**
 
