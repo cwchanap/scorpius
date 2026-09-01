@@ -1,8 +1,8 @@
 # Scorpius
 
-Scorpius is a retained desktop turn-based tactics game built with Rust 2024 and Bevy 0.19. HPA-635 wraps the validated Mission 1 combat slice in one linear campaign loop, HPA-637 authors Missions 2–3 plus the Flanker enemy, and HPA-523 authors Missions 4–5 plus the Bulwark and Controller enemies so the loop runs:
+Scorpius is a retained desktop turn-based tactics game built with Rust 2024 and Bevy 0.19. HPA-635 wraps the validated Mission 1 combat slice in one linear campaign loop, HPA-637 authors Missions 2–3 plus the Flanker enemy, HPA-523 authors Missions 4–5 plus the Bulwark and Controller enemies, and HPA-524 authors Mission 6 plus the Dreadnought boss so the loop runs:
 
-**Title → pre-mission VN → briefing → Mission 1 → result/reward → aftermath → mech upgrades → Mission 2 → … → Mission 5 → … → Mission 6 handoff.**
+**Title → pre-mission VN → briefing → Mission 1 → result/reward → aftermath → mech upgrades → Mission 2 → … → Mission 6 → … → Mission 7 handoff.**
 
 ## Run
 
@@ -15,7 +15,7 @@ cargo run
 The game starts at the **Title** screen.
 
 - **NEW GAME** starts a fresh campaign at Mission 1 and immediately overwrites any existing pre-release progress.
-- **CONTINUE** loads the saved campaign. It is disabled when no save exists (and shows the same error shape for an unreadable/corrupted one). Progress at Mission 1 resumes at the pre-mission story; progress at Missions 2–5 resumes at the upgrade screen; progress at the Mission 6 handoff resumes at the handoff screen. It never replays a reward: mission completion is granted exactly once, and a repeated victory Continue fails the advancement guard instead of paying twice.
+- **CONTINUE** loads the saved campaign. It is disabled when no save exists (and shows the same error shape for an unreadable/corrupted one). Progress at Mission 1 resumes at the pre-mission story; progress at Missions 2–6 resumes at the upgrade screen; progress at the Mission 7 handoff resumes at the handoff screen. It never replays a reward: mission completion is granted exactly once, and a repeated victory Continue fails the advancement guard instead of paying twice.
 
 ### Save data
 
@@ -42,7 +42,7 @@ After victory, the **Aftermath** screen shows the exact persisted receipt (base,
 
 Purchases are validated before mutation: unaffordable or already-maxed purchases are no-ops and never write the save. A valid purchase is serialized to the save file before the in-memory session state is replaced, so a failed write never advances in-memory state ahead of disk; a crash mid-write surfaces as a save-file error on the next load. Upgrade effects apply the next time the mission is built.
 
-The final **MISSION 6 UNLOCKED** screen is a saved handoff state only; Mission 6 content is not authored in this build.
+The final **MISSION 7 UNLOCKED** screen is a saved handoff state only; Mission 7 content is not authored in this build.
 
 ## Mission flow
 
@@ -54,9 +54,11 @@ The final **MISSION 6 UNLOCKED** screen is a saved handoff state only; Mission 6
 
 **Mission 4 — Breach the Gate** (600 base + 150 bonus credits, unlocks Mission 5). Destroy the Gate Bulwark; its escorts may be ignored, and the battle is won the moment the Bulwark falls. The optional **Chain Reaction** bonus requires damaging an enemy with enemy fire, collision, hazard, or explosion — the authored board offers an explosive the Gunner can detonate for splash and a hazard trench the Vanguard can ram the Bulwark into.
 
-**Mission 5 — Crossfire Break** (700 base + 200 bonus credits, unlocks the Mission 6 handoff). Break the assault and destroy all enemies. The opening commits two Siege Mortar batteries whose Cross1 footprints share one cell, so pushing the displaced Controller into that shared cell walks it into both batteries' locked crossfire. The optional **Rapid Break** bonus rewards winning by the end of Round 4 but is not a failure deadline.
+**Mission 5 — Crossfire Break** (700 base + 200 bonus credits, unlocks Mission 6). Break the assault and destroy all enemies. The opening commits two Siege Mortar batteries whose Cross1 footprints share one cell, so pushing the displaced Controller into that shared cell walks it into both batteries' locked crossfire. The optional **Rapid Break** bonus rewards winning by the end of Round 4 but is not a failure deadline.
 
-Missions 2–5 draw from the six-archetype regular roster; the Flanker (HP 8, Move 4, Skirmish Carbine) appears in Missions 2, 3, and 5. The regular roster totals six archetypes: Rifleman, Striker, Artillery, Flanker, **Bulwark**, and **Controller**. The Bulwark (HP 16, Armor 4, Move 1, Bastion Cannon) is pushable — it has no displacement immunity. The Controller (HP 9, Armor 1, Move 2, initiative 35) carries the Impulse Projector (range 2–4, damage 3, Push 1): push-only behavior with no status system, and a displaced committed push whose live lane is lost resolves as the locked damage roll only. The Flanker acts on its own planner initiative between Strikers and Riflemen.
+**Mission 6 — Break the Dreadnought** (800 base + 250 bonus credits, unlocks the Mission 7 handoff). Destroy the Dreadnought; its escorts may be ignored. The boss's battery is threshold-driven: above half HP the planner commits **Graviton Salvo** (range 3–6), at or below half HP **Overload Salvo** (range 2–4) and the Dreadnought closes in. The threshold affects future planning only — an intent already committed keeps its locked footprint, and Overload's cross never contains the Dreadnought itself. The Dreadnought is pushable with the ordinary one-cell push. The optional **Turnabout** bonus rewards damaging an enemy with enemy fire, collision, hazard, or explosion.
+
+Missions 2–6 draw from the six-archetype regular roster; the Flanker (HP 8, Move 4, Skirmish Carbine) appears in Missions 2, 3, and 5. The regular roster totals six archetypes: Rifleman, Striker, Artillery, Flanker, **Bulwark**, and **Controller**. The Bulwark (HP 16, Armor 4, Move 1, Bastion Cannon) is pushable — it has no displacement immunity. The Controller (HP 9, Armor 1, Move 2, initiative 35) carries the Impulse Projector (range 2–4, damage 3, Push 1): push-only behavior with no status system, and a displaced committed push whose live lane is lost resolves as the locked damage roll only. The Flanker acts on its own planner initiative between Strikers and Riflemen.
 
 Objectives are labeled `PRIMARY` / `BONUS`; `[P]` is reserved for the pilot command.
 
@@ -106,4 +108,4 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Detailed evidence is recorded in `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`, and `docs/validation/hpa-523.md`.
+Detailed evidence is recorded in `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`, `docs/validation/hpa-523.md`, and `docs/validation/hpa-524.md`.
