@@ -415,7 +415,20 @@ pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
 };
 ```
 
-Use the spec's three pre-mission and two aftermath lines verbatim.
+Use these exact dialogue lines:
+
+```rust
+static PRE_MISSION_LINES: [DialogueLine; 3] = [
+    DialogueLine { speaker: "Control", text: "A Dreadnought is anchoring the line. Its main battery commits before we move.", portrait: "vn/control_neutral.png" },
+    DialogueLine { speaker: "Vanguard", text: "Then the escorts are ammunition.", portrait: "vn/vanguard_neutral.png" },
+    DialogueLine { speaker: "Control", text: "Exactly. Below half integrity the battery overloads and the Dreadnought will close in.", portrait: "vn/control_alert.png" },
+];
+
+static AFTERMATH_LINES: [DialogueLine; 2] = [
+    DialogueLine { speaker: "Vanguard", text: "Dreadnought down. Their line is collapsing.", portrait: "vn/vanguard_neutral.png" },
+    DialogueLine { speaker: "Control", text: "One command unit remains. Mission 7 is the final push.", portrait: "vn/control_neutral.png" },
+];
+```
 
 - [ ] **Step 7: Pin opening legality**
 
@@ -499,9 +512,23 @@ fn dreadnought_ko_wins_with_escorts_alive() {
     assert!(battle.result().is_some_and(|result| result.victory));
     assert!(!battle.unit(ids::BULWARK).unwrap().is_knocked_out());
 }
-```
 
-For displacement, move Vanguard to `(3,3)` and Dreadnought to `(4,3)` with `move_unit_direct_for_test`, call `resolve_push(ids::VANGUARD, ids::DREADNOUGHT)`, then assert Dreadnought is at `(5,3)` and the events contain `UnitPushed { unit: ids::DREADNOUGHT, from: (4,3), to: (5,3) }`.
+#[test]
+fn dreadnought_remains_a_normal_push_target() {
+    let mut battle = mission_six(7);
+    battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(3, 3));
+    battle.move_unit_direct_for_test(ids::DREADNOUGHT, GridPos::new(4, 3));
+    let events = battle.resolve_push(ids::VANGUARD, ids::DREADNOUGHT).unwrap();
+    assert_eq!(battle.unit(ids::DREADNOUGHT).unwrap().position, GridPos::new(5, 3));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        BattleEvent::UnitPushed { unit, from, to }
+            if *unit == ids::DREADNOUGHT
+                && *from == GridPos::new(4, 3)
+                && *to == GridPos::new(5, 3)
+    )));
+}
+```
 
 - [ ] **Step 11: Verify library and commit**
 
@@ -740,7 +767,7 @@ git commit -m "feat: present the Dreadnought boss"
 - Create: `docs/validation/hpa-524.md`
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
-- Modify: spec/plan only if manual tuning changes locked values.
+- Modify: spec/plan only when manual tuning changes a locked authored value.
 
 - [ ] **Step 1: Document shipped facts**
 
