@@ -9,7 +9,7 @@ Keep this as one HPA-524 PR. Reuse the deterministic battle state, locked enemy 
 ## Existing seams
 
 - Every enemy is a normal `UnitState` on one grid cell.
-- Enemy movement calls `unit_weapon`; `build_intent` still reads `.first()` independently and must reuse the same selector.
+- Enemy movement already calls `unit_weapon`; `build_intent` must reuse the same selector instead of reading `.first()` independently.
 - Committed attacks snapshot weapon/profile/origin/footprint and resolve against live occupants without retargeting.
 - `EliminateTarget` + `Turnabout` already ship together in Mission 4.
 - Friendly fire through committed footprints, collision, and one-cell push already exist.
@@ -33,7 +33,7 @@ HP 21–40 -> Graviton Salvo
 HP 0–20  -> Overload Salvo
 ```
 
-No phase state is stored. The same selected weapon drives future intent commitment and ordinary attack-band movement. Mission 7 is the second concrete consumer and is the earliest point to consider sharing threshold structure.
+No phase state is stored. The same selected weapon drives future intent commitment, opening validation, and ordinary attack-band movement. Mission 7 is the second concrete consumer and is the earliest point to consider sharing threshold structure.
 
 Rejected: generic boss/phase data, boss runtime/controller, scripts, detachable parts, invulnerability, multi-tile occupancy, callbacks, resistance framework.
 
@@ -41,7 +41,7 @@ Rejected: generic boss/phase data, boss runtime/controller, scripts, detachable 
 
 ```text
 Round N planning: 21 HP -> Graviton committed
-Player phase: boss drops below 20
+Player phase: boss drops to 20 HP
 Round N resolution: committed Graviton remains unchanged
 Round N+1 planning: Overload selected
 ```
@@ -50,7 +50,7 @@ No phase-change event or boss banner. The next normal telegraph exposes the new 
 
 ### Movement and initiative
 
-Dreadnought initiative: **40**.
+Dreadnought initiative is **40**, above Controller 35. That ordering is load-bearing for Mission 6's redirection line: the boss must damage the displaced Controller before the Controller resolves its own now-vacated committed target.
 
 Later-round movement uses the existing branch:
 
@@ -74,8 +74,14 @@ Weapon 207 — Graviton Salvo
 Range 3–6 / Cross1 / Damage 8 / Hit +10 / Crit 5% / EN 0 / no push / no counter
 
 Weapon 208 — Overload Salvo
-Range 1–4 / Cross1 / Damage 10 / Hit +10 / Crit 10% / EN 0 / no push / no counter
+Range 2–4 / Cross1 / Damage 10 / Hit +10 / Crit 10% / EN 0 / no push / no counter
 ```
+
+### Why Overload starts at range 2
+
+`Cross1` includes the target cell and its four orthogonal neighbors. At Manhattan range 1, the attacker is itself an orthogonal neighbor of the target, so a range-1 Cross1 can include its own attacker. Enemy intent resolution attacks every occupant in the footprint and intentionally allows enemy-on-enemy damage; a range-1 Overload would therefore let the Dreadnought damage or KO itself and complete `Turnabout` for free.
+
+Keep this an authored-value fix, not a new combat exception. **Range 2–4** preserves the intended close-pressure contrast with Graviton 3–6 while keeping the footprint radius strictly below the minimum range. A regression test pins that a committed Overload footprint never contains the Dreadnought's cell.
 
 ## Mission 6 — Break the Dreadnought
 
@@ -100,7 +106,7 @@ Controller  63 start (8,7) -> (6,7), target Vanguard
 Rifleman    64 start (8,6) -> (6,6), target Interceptor
 ```
 
-Reuse `assert_opening_plan_is_legal`; Mission 6 tests also pin every exact row.
+Reuse `assert_opening_plan_is_legal`; Mission 6 tests also pin every exact row. Make `unit_weapon` `pub(crate)` and let the shared opening validator use it, so movement, authored-opening validation, and intent construction all agree on the selected enemy weapon.
 
 ### Opening manipulation line
 
@@ -108,18 +114,12 @@ Dreadnought commits Graviton centered on Vanguard `(4,7)`; Cross1 contains `(5,7
 
 1. Vanguard `(4,7) -> (4,5)`.
 2. Interceptor `(5,8) -> (7,7)`.
-3. Vector Pulse Controller `(6,7) -> (5,7)`.
-4. Resolve locked intents.
+3. Vector Pulse geometry pushes Controller `(6,7) -> (5,7)`.
+4. Finish all three player activations and call normal `resolve_enemy_phase()`.
 
-The boss can then roll against Controller at `(5,7)` without retargeting; Controller's committed `(4,7)` push resolves into the vacated cell.
+With deterministic seed **1**, the Dreadnought's first roll is 66 (hit at 85%) and the critical roll is 20 (not critical at 5%). Graviton therefore deals normal 7 damage to Controller, leaving it alive at 2 HP; `OptionalObjectiveCompleted` is emitted through the existing `Turnabout` observer. Controller then resolves second at initiative 35 and its committed `(4,7)` target is empty, producing `AttackHitEmpty` instead of being canceled by a boss critical.
 
-```text
-Controller HP 9 / Armor 1
-Vector Pulse normal damage at weapon level 0: 3
-Graviton normal damage against Controller: 7
-```
-
-The hit is RNG-driven. Automated coverage uses the exact public movement/push line and a deterministic seed sweep to prove redirected Graviton enemy-weapon damage emits the existing `OptionalObjectiveCompleted` event for Turnabout. No friendly-fire special case.
+This pins the centerpiece using the real enemy-phase ordering rather than a private intent resolver or a seed sweep. If RNG call order changes, this test should fail visibly rather than silently finding another seed.
 
 ### Objective/reward/story
 
@@ -172,13 +172,12 @@ Ok(id) => next_state.set(if mission_definition(id).is_some() {
 
 This reuses the same authored-data seam as `Proceed`. Add no new routing helper/table.
 
-When Six becomes authored, existing library tests in Missions 2–5 that pin `mission_definition(Six).is_none()` move to Seven in that same task, so `cargo test --lib` stays green.
+Mission 6 registration and the full old-terminal blast radius land in the same implementation task/commit so every task can remain green under `cargo test --all-targets`:
 
-Campaign integration coverage then updates:
-
+- Missions 2–5: terminal-definition pins move from Six to Seven.
 - `tests/campaign_model.rs`: Six authored, Seven None, base rewards through Six = 3300.
 - `tests/campaign_flow.rs`: Continue Six -> Upgrade, Continue Seven -> NextMission, Proceed Six -> PreMissionStory, Proceed Seven -> NextMission, Mission 6 completion through `complete_current_mission`.
-- `tests/campaign_persistence.rs`: Seven save round-trip preserves upgrades/credits.
+- `tests/campaign_persistence.rs`: replace the old `mission_definition(Six).is_none()` assertion and round-trip Seven with upgrades/credits intact.
 
 No `GameScreen`, save-field, or migration changes.
 
@@ -204,21 +203,28 @@ Existing Flanker and Bulwark/Controller tests pin old global counts and must mov
 
 Map `Dreadnought -> 13`; no second glTF, texture, animation, generator, under-ring, or inverse-scale compensation.
 
+## Risks
+
+- **Cross1 self-overlap:** Overload is the first proposed area weapon whose minimum range could overlap its own footprint radius. Lock it to 2–4 and test that the attacker cell is absent.
+- **Resolution order:** the authored redirection line requires Dreadnought 40 > Controller 35. Pin both initiatives and the resulting event order.
+- **Mission registration blast radius:** making Six authored invalidates old terminal assertions across mission, campaign-flow, campaign-model, and campaign-persistence tests. Update them in the same task as registration.
+- **Asset append blast radius:** existing glTF tests pin global counts and an unbounded Controller loop would inspect the new nodes. Repair those assertions before appending the new scene.
+
 ## Testing contract
 
 Automated coverage must prove:
 
 1. Graviton at 21 HP, Overload at 20 HP, no oscillation after further damage.
 2. Committed Graviton survives threshold crossing; future intent uses Overload.
-3. Overload close-pressure movement from range 5 -> 4.
-4. Dreadnought remains normally pushable.
-5. Mission 6 board/roster/opening/objective/rewards/stats/weapons/opening legality.
-6. Public redirection line puts Controller on `(5,7)`, vacates `(4,7)`, and redirected boss damage can complete Turnabout.
-7. Dreadnought KO wins with escorts alive.
-8. Mission-local terminal pins move Six -> Seven when Six is registered.
-9. Campaign model/flow/persistence blast radius above is updated.
+3. Overload is exactly range 2–4, closes from range 5 -> 4, and no committed Overload footprint contains its attacker.
+4. Initiative table includes Dreadnought 40 and explicitly proves it is above Controller 35.
+5. Dreadnought remains normally pushable.
+6. Mission 6 board/roster/opening/objective/rewards/stats/weapons/opening legality.
+7. Public redirection line resolves through `resolve_enemy_phase()` at seed 1, damages Controller with Graviton, completes Turnabout, then resolves Controller into empty `(4,7)`.
+8. Dreadnought KO wins with escorts alive.
+9. All old Six-terminal pins move to Seven in the same task that registers Mission 6.
 10. glTF old/new tests agree on final counts and Controller loop is bounded.
-11. Existing Missions 1–5 and all campaign/save/presentation tests remain green.
+11. Every implementation task runs format, strict Clippy, and its focused/full relevant tests; final closeout runs the full CI gate set.
 
 ## Manual validation
 
@@ -227,7 +233,7 @@ Record in `docs/validation/hpa-524.md`:
 - start Mission 6 through real campaign flow;
 - confirm Graviton readability and escort redirection;
 - cross 21+ -> <=20 after commitment and confirm current telegraph stays Graviton;
-- confirm next planning shows Overload and closes from range 5 into range 4;
+- confirm next planning shows Overload range 2–4 and closes from range 5 into range 4;
 - confirm normal boss push;
 - defeat Dreadnought with an escort alive;
 - complete aftermath/reward/upgrade, return to title, Continue, confirm persisted Mission 7 handoff;
