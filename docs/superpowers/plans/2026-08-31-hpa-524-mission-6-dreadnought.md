@@ -384,8 +384,6 @@ fn mission_six_opening_rows_are_legal() {
 
 - [ ] **Step 8: Add a test-only public-line helper**
 
-Inside `mission_six.rs` tests:
-
 ```rust
 fn redirect_controller_into_graviton(battle: &mut BattleState) {
     battle.begin_round().unwrap();
@@ -409,9 +407,7 @@ fn redirect_controller_into_graviton(battle: &mut BattleState) {
 }
 ```
 
-- [ ] **Step 9: Pin geometry and Turnabout separately**
-
-Geometry:
+- [ ] **Step 9: Pin geometry and Turnabout**
 
 ```rust
 #[test]
@@ -426,11 +422,7 @@ fn mission_six_redirect_line_puts_controller_in_locked_boss_footprint() {
             if *attacker == ids::CONTROLLER && *cell == GridPos::new(4, 7)
     )));
 }
-```
 
-Bonus proof:
-
-```rust
 #[test]
 fn redirected_graviton_can_complete_turnabout() {
     let mut witnessed = false;
@@ -443,9 +435,7 @@ fn redirected_graviton_can_complete_turnabout() {
             BattleEvent::AttackRolled { attacker, target, .. }
                 if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
         ));
-        let completed = events
-            .iter()
-            .any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted));
+        let completed = events.iter().any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted));
         if rolled_on_controller && completed {
             witnessed = true;
             break;
@@ -467,7 +457,7 @@ fn dreadnought_ko_wins_with_escorts_alive() {
 }
 ```
 
-For displacement, put Vanguard and Dreadnought in the same row with the existing test-only movement helper, call `resolve_push(ids::VANGUARD, ids::DREADNOUGHT)`, and assert `BattleEvent::UnitPushed` plus a one-cell position change. Do not add a resistance event/error.
+For displacement, put Vanguard and Dreadnought in one row with the existing test-only movement helper, call `resolve_push(ids::VANGUARD, ids::DREADNOUGHT)`, and assert `BattleEvent::UnitPushed` plus a one-cell position change. Do not add a resistance event/error.
 
 - [ ] **Step 11: Verify library and commit**
 
@@ -531,8 +521,6 @@ Add a fresh completion with `optional_complete: true` and assert `(base_reward, 
 
 Update the existing end-of-Mission-5 Continue assertion to expect `GameScreen::Upgrade` at Six.
 
-In the route test:
-
 ```rust
 assert_eq!(route_continue(MissionId::Six), Some(GameScreen::Upgrade));
 assert_eq!(route_continue(MissionId::Seven), Some(GameScreen::NextMission));
@@ -540,7 +528,7 @@ assert_eq!(route_continue(MissionId::Seven), Some(GameScreen::NextMission));
 
 - [ ] **Step 4: Move Proceed assertions from Six to Seven**
 
-Existing Six fixture:
+For Six:
 
 ```rust
 assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
@@ -567,8 +555,6 @@ let state = CampaignState {
 save.store(&state).unwrap();
 assert_eq!(save.load().unwrap(), Some(state));
 ```
-
-No migration layer.
 
 - [ ] **Step 6: Pin Mission 6 story/briefing**
 
