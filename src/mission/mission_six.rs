@@ -194,7 +194,7 @@ pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
 mod tests {
     use super::*;
     use crate::domain::combat::DamageSource;
-    use crate::domain::model::{BattleEvent, Reaction};
+    use crate::domain::model::{BattleEvent, Reaction, WeaponShape};
     use crate::mission::assert_opening_plan_is_legal;
     use crate::mission::mission_definition;
     use crate::mission::squad;
@@ -230,6 +230,64 @@ mod tests {
             }
         );
         assert_eq!(battle.rules().optional, OptionalObjective::Turnabout);
+    }
+
+    #[test]
+    fn mission_six_pins_the_enemy_roster_stats_and_salvo_profiles() {
+        let battle = mission_six(1);
+
+        let roster = [
+            (
+                ids::DREADNOUGHT,
+                GridPos::new(4, 1),
+                stats(40, 3, 1, 90, 5, 0),
+            ),
+            (ids::BULWARK, GridPos::new(0, 7), stats(16, 4, 1, 76, 0, 0)),
+            (
+                ids::CONTROLLER,
+                GridPos::new(8, 7),
+                stats(9, 1, 2, 82, 15, 0),
+            ),
+            (ids::RIFLEMAN, GridPos::new(8, 6), stats(9, 1, 2, 72, 5, 0)),
+        ];
+        for (id, position, unit_stats) in roster {
+            let enemy = battle.unit(id).unwrap();
+            assert_eq!(enemy.position, position);
+            assert_eq!(enemy.stats, unit_stats);
+        }
+
+        assert_eq!(
+            battle.weapon(ids::GRAVITON_SALVO),
+            Some(&weapon(
+                ids::GRAVITON_SALVO,
+                "Graviton Salvo",
+                3,
+                6,
+                WeaponShape::Cross1,
+                8,
+                10,
+                5,
+                0,
+                false,
+                false,
+            ))
+        );
+        assert_eq!(
+            battle.weapon(ids::OVERLOAD_SALVO),
+            Some(&weapon(
+                ids::OVERLOAD_SALVO,
+                "Overload Salvo",
+                2,
+                4,
+                WeaponShape::Cross1,
+                10,
+                10,
+                10,
+                0,
+                false,
+                false,
+            ))
+        );
     }
 
     #[test]

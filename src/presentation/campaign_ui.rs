@@ -312,7 +312,7 @@ pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
 }
 
 /// NextMission handoff copy; the heading follows the runtime's next mission —
-/// authored missions and the Mission 6 handoff alike announce the unlock.
+/// authored missions and the terminal Mission 7 handoff alike announce the unlock.
 /// `Vanguard/Gunner/Interceptor` lines
 /// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
 pub fn next_mission_copy(state: &CampaignState) -> String {
@@ -811,7 +811,7 @@ pub fn apply_campaign_action(
         }
         CampaignUiAction::Proceed => {
             // Authored next mission: straight into its pre-mission story.
-            // Six is the terminal handoff state.
+            // Seven is the terminal handoff state.
             let authored = runtime
                 .0
                 .state

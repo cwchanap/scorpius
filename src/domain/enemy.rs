@@ -1210,7 +1210,16 @@ mod tests {
             GRAVITON
         );
 
-        battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+        battle.apply_direct_damage(DREADNOUGHT, 19, DamageSource::Collision);
+        assert_eq!(battle.unit(DREADNOUGHT).unwrap().hp, 21);
+        assert_eq!(
+            unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap())
+                .unwrap()
+                .id,
+            GRAVITON
+        );
+
+        battle.apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
         assert_eq!(battle.unit(DREADNOUGHT).unwrap().hp, 20);
         assert_eq!(
             unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap())
@@ -1220,6 +1229,7 @@ mod tests {
         );
 
         battle.apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
+        assert_eq!(battle.unit(DREADNOUGHT).unwrap().hp, 19);
         assert_eq!(
             unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap())
                 .unwrap()
