@@ -4,7 +4,7 @@
 
 **Goal:** Ship Mission 6 and the first Dreadnought boss as one player-visible HPA-524 slice, with one half-HP behavior change on the existing locked-intent path and a persisted Mission 7 handoff.
 
-**Architecture:** Add one concrete `Dreadnought` archetype and teach the existing `unit_weapon` selector to choose weapon slot 1 at/below half HP for that archetype only. `build_intent` reuses that selector, so movement and future intent commitment change together while already-committed intents remain immutable. Mission 6 owns the boss values, two weapons, board, escorts, dialogue, rewards, and first-round geometry; campaign/presentation reuse existing paths with Six becoming authored and Seven becoming the terminal handoff.
+**Architecture:** Add one concrete `Dreadnought` archetype and teach the existing `unit_weapon` selector to choose weapon slot 1 at/below half HP for that archetype only. `build_intent` reuses that selector, so movement and future intent commitment change together while already-committed intents remain immutable. Mission 6 owns the boss values, weapons, board, escorts, dialogue, rewards, and opening geometry. Campaign routing keeps Mission 1 special and otherwise derives authored-vs-handoff from `mission_definition`, matching the existing `Proceed` seam.
 
 **Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, checked-in glTF, ordinary Cargo tests plus existing Bevy `App` integration tests.
 
@@ -14,31 +14,33 @@
 
 - One HPA-524 ticket = one PR. Continue implementation on this planning branch/PR.
 - Keep the boss on normal single-cell `UnitState`, normal damage/knockout, normal locked `AttackIntent`, normal push, and normal campaign/save flow.
-- Add exactly one boss archetype here: `UnitArchetype::Dreadnought`.
-- Mission 6 owns the boss factory and its two weapons locally; do not add a shared boss module or threshold data framework before Mission 7.
-- Threshold is exactly half authored max HP: with max HP 40, Graviton Salvo applies at 21–40 HP and Overload Salvo at 0–20 HP.
-- The threshold is derived, not stored. No boss phase field/event/registry is added.
-- Crossing the threshold during the player phase never changes the already-committed current-round intent. Only a newly built future intent uses the new weapon.
-- Dreadnought remains pushable. Do not add displacement resistance unless manual validation proves authored tuning cannot work without it.
-- Do not add a primary turn limit, objective variant, optional-objective variant, status system, behavior tree/policy object, phase scripting, multi-tile collision, boss parts, invulnerability, or second battle runtime.
-- Mission 6 uses a 9×9 board, existing blocking vocabulary only, no hazards, and no explosive props.
-- Mission 6 primary is `EliminateTarget { target: DREADNOUGHT }`; bonus is existing `Turnabout`.
-- Mission 6 rewards are 800 base + 250 optional and unlock `MissionId::Seven`.
-- Mission IDs become One–Seven; One–Six are authored and Seven is the HPA-524 terminal handoff.
-- Reuse existing VN assets only; add no VN files.
-- Append one Dreadnought scene to `assets/models/mission_one.gltf`; no second glTF, texture, animation, generator, or runtime asset pipeline.
-- Final asset counts are 14 scenes, 77 nodes, 14 meshes, 14 materials, 1 buffer.
-- CI gates remain `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo llvm-cov --all-targets --lcov --output-path lcov.info`, and `cargo build --release`.
+- Add exactly one boss archetype: `UnitArchetype::Dreadnought`.
+- Mission 6 owns the boss factory and two boss weapons locally; do not add a shared boss module or threshold framework before Mission 7.
+- Threshold is exactly half max HP: max 40 means Graviton at 21–40 and Overload at 0–20.
+- Threshold is derived, not stored. No boss phase field/event/registry.
+- Crossing the threshold during the player phase never changes the current committed intent.
+- Dreadnought remains pushable; no displacement resistance.
+- No turn limit, new objective shape, optional-objective shape, status system, behavior policy, phase scripting, multi-tile collision, parts, invulnerability, or second runtime.
+- Mission 6 uses a 9×9 board, existing blocking only, no hazards or explosives.
+- Primary is `EliminateTarget { target: DREADNOUGHT }`; bonus is `Turnabout`.
+- Rewards are 800 + 250; Mission 6 unlocks `MissionId::Seven`.
+- Mission IDs become One–Seven; One–Six authored, Seven terminal handoff.
+- `Continue`: One -> story; any other authored mission -> Upgrade; unauthored handoff -> NextMission. Do not enumerate Two–Six.
+- Reuse existing VN assets only.
+- Append one Dreadnought scene to `assets/models/mission_one.gltf`; final counts 14 scenes / 77 nodes / 14 meshes / 14 materials / 1 buffer.
+- CI gates remain `cargo fmt --check`, strict Clippy, `cargo test --all-targets`, llvm-cov, and release build.
 
 ## Risks
 
-- **Threshold/intent timing — highest risk.** The boss can cross 20 HP after committing Graviton Salvo. Current-round `AttackIntent` must remain unchanged; only the next call to `build_intent` may select Overload Salvo. Task 1 pins both sides of this contract before Mission 6 authoring.
-- **Opening geometry is load-bearing.** The Dreadnought Cross1 committed on Vanguard `(4,7)` must contain `(5,7)`, Vanguard `(4,7)->(4,5)` and Interceptor `(5,8)->(7,7)` must be legal public movement paths, and Controller `(6,7)->(5,7)` must be a legal leftward Vector Pulse displacement. Task 2 drives the real opening and public movement/push geometry.
-- **Old terminal routing is explicit.** `campaign_ui.rs` currently sends saved Mission 6 directly to `NextMission`. Task 3 must move Six into the authored resume group and make Seven the new handoff without adding a new `GameScreen`.
+- **Threshold/intent timing.** Crossing 20 HP after Graviton commits must not alter that intent; the next intent must use Overload.
+- **Close-pressure identity.** At/below 20 HP and distance 5, the ordinary attack-band planner must move the boss one cell closer because Overload max range is 4.
+- **Opening geometry.** Dreadnought Cross1 on `(4,7)` contains `(5,7)`; Vanguard can vacate `(4,7)` and Interceptor can push Controller `(6,7)->(5,7)` through public movement/push paths.
+- **Task ordering.** Registering Mission 6 invalidates existing library pins and the hardcoded Continue match immediately; those edits belong in Task 2, not Task 3.
+- **Asset blast radius.** Existing glTF tests pin old global counts, and Controller's current `.skip(64)` loop is unbounded. Task 4 must update those invariants with the new scene.
 
 ---
 
-### Task 1: Add the Dreadnought threshold behavior on the existing enemy path
+### Task 1: Add Dreadnought threshold behavior on the existing enemy path
 
 **Files:**
 - Modify: `src/domain/model.rs`
@@ -50,11 +52,11 @@
 
 **Interfaces:**
 - Consumes: `UnitState.weapons`, `unit_weapon`, `build_intent`, `attack_band_destination`, `AttackIntent`, exhaustive archetype matches.
-- Produces: `UnitArchetype::Dreadnought`; half-HP slot selection inside `unit_weapon`; `build_intent` using the same selector; initiative 40; temporary scene 11 mapping until Task 4.
+- Produces: `Dreadnought`; half-HP selection inside `unit_weapon`; `build_intent` using the same selector; initiative 40; ordinary attack-band movement; temporary scene mapping until Task 4.
 
-- [ ] **Step 1: Write the failing threshold and locked-intent tests**
+- [ ] **Step 1: Write threshold fixtures and failing tests**
 
-In `src/domain/enemy.rs` tests add constants and a tiny boss fixture:
+Add a normal threshold fixture with the boss at `(3,1)` and target at `(3,5)`:
 
 ```rust
 const DREADNOUGHT: UnitId = UnitId(90);
@@ -82,32 +84,8 @@ fn dreadnought_threshold_fixture() -> BattleState {
         vec![],
     );
     let weapons = vec![
-        squad::weapon(
-            GRAVITON,
-            "Graviton Salvo",
-            3,
-            6,
-            WeaponShape::Cross1,
-            8,
-            10,
-            5,
-            0,
-            false,
-            false,
-        ),
-        squad::weapon(
-            OVERLOAD,
-            "Overload Salvo",
-            1,
-            4,
-            WeaponShape::Cross1,
-            10,
-            10,
-            10,
-            0,
-            false,
-            false,
-        ),
+        squad::weapon(GRAVITON, "Graviton Salvo", 3, 6, WeaponShape::Cross1, 8, 10, 5, 0, false, false),
+        squad::weapon(OVERLOAD, "Overload Salvo", 1, 4, WeaponShape::Cross1, 10, 10, 10, 0, false, false),
     ];
     BattleState::new(
         BoardState::new(7, 7, [], [], []),
@@ -123,21 +101,17 @@ fn dreadnought_threshold_fixture() -> BattleState {
 }
 ```
 
-Add:
+Pin the boundary and immutable intent:
 
 ```rust
 #[test]
 fn dreadnought_switches_weapon_once_at_half_hp() {
     let mut battle = dreadnought_threshold_fixture();
     assert_eq!(unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap()).unwrap().id, GRAVITON);
-
-    battle
-        .apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+    battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
     assert_eq!(battle.unit(DREADNOUGHT).unwrap().hp, 20);
     assert_eq!(unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap()).unwrap().id, OVERLOAD);
-
-    battle
-        .apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
+    battle.apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
     assert_eq!(unit_weapon(&battle, battle.unit(DREADNOUGHT).unwrap()).unwrap().id, OVERLOAD);
 }
 
@@ -148,72 +122,77 @@ fn crossing_threshold_does_not_rewrite_committed_dreadnought_intent() {
     let committed = battle.intent_for(DREADNOUGHT).unwrap().clone();
     assert_eq!(committed.profile.weapon, GRAVITON);
 
-    battle
-        .apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
-
+    battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
     assert_eq!(battle.intent_for(DREADNOUGHT).unwrap(), &committed);
+
     let future = build_intent(&battle, DREADNOUGHT, Some(GridPos::new(3, 5))).unwrap();
     assert_eq!(future.profile.weapon, OVERLOAD);
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm red**
+Add the lower-risk but product-visible movement proof with a separate fixture placing the boss at `(3,0)` and the target at `(3,5)`:
+
+```rust
+#[test]
+fn dreadnought_overload_closes_from_range_five() {
+    let mut battle = dreadnought_close_pressure_fixture();
+    battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
+
+    let destination = choose_enemy_destination(&battle, DREADNOUGHT).unwrap();
+
+    assert_eq!(destination, GridPos::new(3, 1));
+    assert_eq!(destination.manhattan(GridPos::new(3, 5)), 4);
+}
+```
+
+`dreadnought_close_pressure_fixture()` uses the same stats/weapons as the threshold fixture, boss `(3,0)`, target `(3,5)`, and a 7×7 empty board.
+
+- [ ] **Step 2: Run focused tests and confirm red**
 
 ```bash
 cargo test --lib dreadnought -- --nocapture
 ```
 
-Expected: compile failure because `UnitArchetype::Dreadnought` does not exist and `unit_weapon` always selects slot 0.
+Expected: compile failure because `Dreadnought` does not exist and slot selection is still fixed to the first weapon.
 
-- [ ] **Step 3: Add the concrete archetype and one-way weapon selector**
+- [ ] **Step 3: Add the archetype and single weapon selector**
 
-In `src/domain/model.rs`, append:
+In `src/domain/model.rs`, append `Dreadnought`.
 
-```rust
-Dreadnought,
-```
-
-Replace `unit_weapon` in `src/domain/enemy.rs` with:
+Replace `unit_weapon` with:
 
 ```rust
-fn unit_weapon<'a>(
-    battle: &'a BattleState,
-    unit: &UnitState,
-) -> Result<&'a WeaponSpec, BattleError> {
-    let weapon_index = match unit.archetype {
+fn unit_weapon<'a>(battle: &'a BattleState, unit: &UnitState) -> Result<&'a WeaponSpec, BattleError> {
+    let index = match unit.archetype {
         UnitArchetype::Dreadnought if unit.hp * 2 <= unit.stats.max_hp => 1,
         _ => 0,
     };
-    let weapon_id = unit
+    let id = unit
         .weapons
-        .get(weapon_index)
+        .get(index)
         .copied()
         .ok_or(BattleError::InvalidTarget(unit.position))?;
-    battle
-        .weapon(weapon_id)
-        .ok_or(BattleError::UnknownWeapon(weapon_id))
+    battle.weapon(id).ok_or(BattleError::UnknownWeapon(id))
 }
 ```
 
-Do not add phase state or threshold data to `UnitState`.
+Do not add phase/threshold state to `UnitState`.
 
-- [ ] **Step 4: Make intent construction use the same selected weapon**
+- [ ] **Step 4: Make `build_intent` reuse `unit_weapon`**
 
-At the start of `build_intent`, replace the direct first-weapon lookup with:
+Replace the independent `.first()` lookup with:
 
 ```rust
-let attacker = battle
-    .unit(attacker_id)
-    .ok_or(BattleError::UnknownUnit(attacker_id))?;
+let attacker = battle.unit(attacker_id).ok_or(BattleError::UnknownUnit(attacker_id))?;
 let weapon = unit_weapon(battle, attacker)?;
 let weapon_id = weapon.id;
 ```
 
-Leave the remainder of `AttackProfile` construction unchanged so the selected weapon is snapshotted into the immutable intent.
+Leave the remaining intent/profile snapshot logic unchanged.
 
-- [ ] **Step 5: Give Dreadnought ordinary attack-band movement and initiative 40**
+- [ ] **Step 5: Add ordinary movement and initiative**
 
-In `choose_enemy_destination`:
+Group Dreadnought with the existing attack-band branch:
 
 ```rust
 UnitArchetype::Rifleman
@@ -225,64 +204,60 @@ UnitArchetype::Rifleman
 }
 ```
 
-In `initiative`:
+Initiative:
 
 ```rust
 UnitArchetype::Dreadnought => 40,
 UnitArchetype::Controller => 35,
 ```
 
-Keep every enemy archetype explicit.
+Keep all enemy matches exhaustive.
 
-- [ ] **Step 6: Keep presentation/interaction exhaustive while the real boss scene is not authored yet**
+- [ ] **Step 6: Keep presentation/interaction exhaustive**
 
-In `src/presentation/battlefield.rs`, temporarily compile with:
+Temporarily map `Dreadnought => 11` in `battlefield::scene_index` until Task 4. Add Dreadnought to enemy-only branches in `ui.rs` and `interaction.rs`; no pilot command or boss HUD.
 
-```rust
-UnitArchetype::Dreadnought => 11,
-```
-
-Task 4 changes it to scene 13.
-
-Where `ui.rs` and `interaction.rs` enumerate enemy archetypes for pilot-skill availability/errors, include Dreadnought with Rifleman/Striker/Artillery/Flanker/Bulwark/Controller. Do not give the boss a pilot command or special HUD.
-
-- [ ] **Step 7: Run focused and all-target gates**
+- [ ] **Step 7: Run gates and commit**
 
 ```bash
 cargo fmt --check
 cargo test --lib dreadnought
 cargo test --all-targets
-```
-
-Expected: threshold tests pass; existing regular enemies still use their first weapon and all exhaustive matches compile.
-
-- [ ] **Step 8: Commit the threshold slice**
-
-```bash
 git add src/domain/model.rs src/domain/enemy.rs src/presentation/battlefield.rs src/presentation/ui.rs src/presentation/interaction.rs
 git commit -m "feat: add dreadnought threshold behavior"
 ```
 
 ---
 
-### Task 2: Author Mission 6 and its escort-manipulation geometry
+### Task 2: Author Mission 6, register it cleanly, and pin escort redirection
 
 **Files:**
 - Create: `src/mission/mission_six.rs`
 - Modify: `src/mission/mod.rs`
+- Modify: `src/mission/mission_two.rs`
+- Modify: `src/mission/mission_three.rs`
+- Modify: `src/mission/mission_four.rs`
+- Modify: `src/mission/mission_five.rs`
+- Modify: `src/presentation/campaign_ui.rs`
 - Test: `src/mission/mission_six.rs`
+- Test: existing mission-local definition pins in Missions 2–5
 
 **Interfaces:**
-- Consumes: `build_player_squad`, `squad::{unit, stats, weapon}`, regular enemy factories, `MissionRules`, `EliminateTarget`, `Turnabout`, `assert_opening_plan_is_legal`, threshold selector from Task 1.
-- Produces: `MISSION_SIX_DEFINITION`, Mission IDs Seven/handoff, boss IDs 61/207/208, exact 9×9 encounter, 800/250 rewards.
+- Consumes: `build_player_squad`, local `squad::{unit, stats, weapon}`, regular enemy factories, `EliminateTarget`, `Turnabout`, `assert_opening_plan_is_legal`, Task 1 selector.
+- Produces: authored `MISSION_SIX_DEFINITION`, Seven terminal handoff, data-driven Continue routing, exact 9×9 encounter, 800/250 rewards.
 
-- [ ] **Step 1: Add the failing Mission 6 authoring tests**
+- [ ] **Step 1: Add failing Mission 6 authoring tests**
 
-Create `src/mission/mission_six.rs` with the test module first. Pin:
+Pin:
 
 ```rust
-assert_eq!(battle.board().width(), 9);
-assert_eq!(battle.board().height(), 9);
+let battle = mission_six(7);
+assert_eq!((battle.board().width(), battle.board().height()), (9, 9));
+assert_eq!(battle.board().blocking_cells().collect::<Vec<_>>(), vec![
+    GridPos::new(2, 4), GridPos::new(6, 4), GridPos::new(2, 5), GridPos::new(6, 5),
+]);
+assert_eq!(battle.board().hazard_cells().count(), 0);
+assert_eq!(battle.board().explosives().count(), 0);
 assert_eq!(battle.unit(ids::DREADNOUGHT).unwrap().stats.max_hp, 40);
 assert_eq!(battle.unit(ids::DREADNOUGHT).unwrap().stats.armor, 3);
 assert_eq!(battle.unit(ids::DREADNOUGHT).unwrap().stats.movement, 1);
@@ -291,41 +266,60 @@ assert_eq!(battle.rules().primary, PrimaryObjective::EliminateTarget { target: i
 assert_eq!(battle.rules().optional, OptionalObjective::Turnabout);
 ```
 
-Also assert exact blocking cells `(2,4) (6,4) (2,5) (6,5)`, no hazards/explosives, exact four-enemy roster, and exact opening rows.
+Also pin four enemies and exact opening rows.
 
-- [ ] **Step 2: Run the Mission 6 test target and confirm red**
+- [ ] **Step 2: Confirm red**
 
 ```bash
 cargo test --lib mission::mission_six -- --nocapture
 ```
 
-Expected: compile failure because the module/definition/IDs do not exist.
-
-- [ ] **Step 3: Add MissionId Seven and register Mission 6**
+- [ ] **Step 3: Add `MissionId::Seven`, register Six, and immediately fix the library blast radius**
 
 In `src/mission/mod.rs`:
 
 ```rust
 pub mod mission_six;
+
+pub enum MissionId {
+    One, Two, Three, Four, Five, Six, Seven,
+}
 ```
 
-Extend `MissionId` and display:
-
-```rust
-Six,
-Seven,
-```
-
-Register:
+Display Seven as `7`, and register:
 
 ```rust
 MissionId::Six => Some(&mission_six::MISSION_SIX_DEFINITION),
 MissionId::Seven => None,
 ```
 
-Do not change `MissionDefinition` or campaign persistence structures.
+In the existing mission-local definition tests, replace terminal assertions on Six with Seven:
 
-- [ ] **Step 4: Implement the local Dreadnought factory and exact weapons**
+```rust
+assert!(mission_definition(MissionId::Seven).is_none());
+```
+
+Do this in `mission_two.rs`, `mission_three.rs`, `mission_four.rs`, and `mission_five.rs`. Mission 5 may additionally assert `mission_definition(MissionId::Six).is_some()`.
+
+- [ ] **Step 4: Remove the hardcoded Continue mission list in the same compile step**
+
+In `apply_campaign_action`:
+
+```rust
+CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
+    Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
+    Ok(id) => next_state.set(if mission_definition(id).is_some() {
+        GameScreen::Upgrade
+    } else {
+        GameScreen::NextMission
+    }),
+    Err(error) => status.0 = error.to_string(),
+},
+```
+
+This intentionally matches the existing `Proceed` authored-data seam. Do not add a new routing helper/table. Update comments that call Six the terminal handoff.
+
+- [ ] **Step 5: Implement the local boss and weapons**
 
 In `mission_six.rs`:
 
@@ -343,7 +337,7 @@ pub mod ids {
 }
 ```
 
-Create the boss with:
+Boss:
 
 ```rust
 unit(
@@ -357,18 +351,18 @@ unit(
 )
 ```
 
-Author the weapons exactly:
+Weapons:
 
 ```rust
 weapon(ids::GRAVITON_SALVO, "Graviton Salvo", 3, 6, WeaponShape::Cross1, 8, 10, 5, 0, false, false)
 weapon(ids::OVERLOAD_SALVO, "Overload Salvo", 1, 4, WeaponShape::Cross1, 10, 10, 10, 0, false, false)
 ```
 
-Use existing `enemies::{bulwark, controller, rifleman}` and their weapon factories for escorts.
+Use existing `enemies::{bulwark, controller, rifleman}` for escorts. Do not add Dreadnought to shared regular factories.
 
-- [ ] **Step 5: Author the board, deployment, opening, rules, dialogue, and rewards**
+- [ ] **Step 6: Author board, deployment, opening, rules, dialogue, and rewards**
 
-Use player deployment:
+Deployment:
 
 ```rust
 SquadDeployment {
@@ -378,7 +372,7 @@ SquadDeployment {
 }
 ```
 
-Opening rows:
+Opening:
 
 ```rust
 static MISSION_SIX_OPENING: [EnemyOpening; 4] = [
@@ -389,7 +383,7 @@ static MISSION_SIX_OPENING: [EnemyOpening; 4] = [
 ];
 ```
 
-Rules:
+Rules/definition:
 
 ```rust
 const MISSION_SIX_RULES: MissionRules = MissionRules {
@@ -397,11 +391,7 @@ const MISSION_SIX_RULES: MissionRules = MissionRules {
     optional: OptionalObjective::Turnabout,
     opening_plan: &MISSION_SIX_OPENING,
 };
-```
 
-Definition:
-
-```rust
 pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Six,
     unlocks: MissionId::Seven,
@@ -416,11 +406,9 @@ pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
 };
 ```
 
-Use the exact dialogue from the spec; add no assets.
+Use the spec's exact dialogue; no new assets.
 
-- [ ] **Step 6: Pin the authored opening with the shared validator**
-
-Add:
+- [ ] **Step 7: Pin opening legality and exact rows**
 
 ```rust
 #[test]
@@ -430,104 +418,123 @@ fn mission_six_opening_rows_are_legal() {
 }
 ```
 
-Also pin all four `(unit, destination, target)` tuples exactly so the generic validator cannot hide authoring drift.
+Also assert all four `(unit, destination, target)` tuples exactly.
 
-- [ ] **Step 7: Drive the real opening manipulation geometry**
+- [ ] **Step 8: Drive the real public manipulation line and pin Turnabout**
 
-Add a test that:
+Use a small deterministic seed sweep so the test proves the redirected boss shot can actually deal qualifying enemy-weapon damage without assuming an unknown RNG seed:
 
 ```rust
-let mut battle = mission_six(7);
-battle.begin_round().unwrap();
-let boss_intent = battle.intent_for(ids::DREADNOUGHT).unwrap().clone();
-assert_eq!(boss_intent.profile.weapon, ids::GRAVITON_SALVO);
-assert!(boss_intent.footprint.contains(&GridPos::new(5, 7)));
+#[test]
+fn redirected_graviton_hits_controller_and_completes_turnabout() {
+    let mut witnessed = false;
 
-battle.begin_activation(ids::VANGUARD).unwrap();
-battle.move_unit(ids::VANGUARD, GridPos::new(4, 5)).unwrap();
-battle.choose_reaction(ids::VANGUARD, Reaction::Guard).unwrap();
-battle.finish_activation(ids::VANGUARD).unwrap();
+    for seed in 0..256 {
+        let mut battle = mission_six(seed);
+        battle.begin_round().unwrap();
+        let boss_intent = battle.intent_for(ids::DREADNOUGHT).unwrap().clone();
+        assert_eq!(boss_intent.profile.weapon, ids::GRAVITON_SALVO);
+        assert!(boss_intent.footprint.contains(&GridPos::new(5, 7)));
 
-battle.begin_activation(ids::INTERCEPTOR).unwrap();
-battle.move_unit(ids::INTERCEPTOR, GridPos::new(7, 7)).unwrap();
-let preview = battle
-    .preview_attack(ids::INTERCEPTOR, squad::ids::VECTOR_PULSE, GridPos::new(6, 7))
-    .unwrap();
-assert_eq!(preview.push_destination, Some(GridPos::new(5, 7)));
-battle.resolve_push(ids::INTERCEPTOR, ids::CONTROLLER).unwrap();
-assert_eq!(battle.unit(ids::CONTROLLER).unwrap().position, GridPos::new(5, 7));
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 5)).unwrap();
+        battle.choose_reaction(ids::VANGUARD, Reaction::Guard).unwrap();
+        battle.finish_activation(ids::VANGUARD).unwrap();
 
-let boss_events = battle.resolve_intent_for_test(ids::DREADNOUGHT).unwrap();
-assert!(boss_events.iter().any(|event| matches!(
-    event,
-    BattleEvent::AttackRolled { attacker, target, .. }
-        if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
-)));
+        battle.begin_activation(ids::INTERCEPTOR).unwrap();
+        battle.move_unit(ids::INTERCEPTOR, GridPos::new(7, 7)).unwrap();
+        let preview = battle
+            .preview_attack(ids::INTERCEPTOR, squad::ids::VECTOR_PULSE, GridPos::new(6, 7))
+            .unwrap();
+        assert_eq!(preview.push_destination, Some(GridPos::new(5, 7)));
+        battle.resolve_push(ids::INTERCEPTOR, ids::CONTROLLER).unwrap();
+
+        let events = battle.resolve_intent_for_test(ids::DREADNOUGHT).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::AttackRolled { attacker, target, .. }
+                if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
+        )));
+
+        if events.iter().any(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted)) {
+            witnessed = true;
+            break;
+        }
+    }
+
+    assert!(witnessed, "expected a deterministic seed to land redirected Graviton damage");
+}
 ```
 
-Also assert Controller's committed center remains Vanguard's old `(4,7)` footprint and resolves into empty space after Vanguard moves. Do not require either RNG roll to hit.
+Separately assert Controller's committed `(4,7)` footprint resolves empty after Vanguard moves. Do not add friendly-fire special cases.
 
-- [ ] **Step 8: Prove target-only victory and normal boss displacement**
-
-Add:
+- [ ] **Step 9: Prove target victory and normal boss displacement**
 
 ```rust
 #[test]
 fn dreadnought_ko_wins_with_escorts_alive() {
     let mut battle = mission_six(7);
-    battle.apply_direct_damage(
-        ids::DREADNOUGHT,
-        99,
-        DamageSource::PlayerWeapon(squad::ids::RAIL_RIFLE),
-    );
+    battle.apply_direct_damage(ids::DREADNOUGHT, 99, DamageSource::PlayerWeapon(squad::ids::RAIL_RIFLE));
     assert!(battle.result().is_some_and(|result| result.victory));
     assert!(!battle.unit(ids::BULWARK).unwrap().is_knocked_out());
 }
 ```
 
-For displacement, place Vanguard/Dreadnought in one row with `move_unit_direct_for_test`, call `resolve_push`, and assert Dreadnought moves one cell plus no new resistance event/error exists.
+For displacement, place a player and Dreadnought in one row with the existing test helper, call `resolve_push`, and assert one-cell movement with no resistance path.
 
-- [ ] **Step 9: Run Mission 6 and full library tests**
+- [ ] **Step 10: Run library gates and commit**
 
 ```bash
 cargo fmt --check
 cargo test --lib mission::mission_six
 cargo test --lib
-```
-
-Expected: Mission 6 authoring, opening geometry, target victory, and normal push behavior all pass.
-
-- [ ] **Step 10: Commit Mission 6**
-
-```bash
-git add src/mission/mod.rs src/mission/mission_six.rs
+git add src/mission/mod.rs src/mission/mission_six.rs src/mission/mission_two.rs src/mission/mission_three.rs src/mission/mission_four.rs src/mission/mission_five.rs src/presentation/campaign_ui.rs
 git commit -m "feat: author Mission 6 Dreadnought encounter"
 ```
 
+Expected: the whole library is green immediately after Six becomes authored; no non-exhaustive Continue match or stale `Six is None` pin remains.
+
 ---
 
-### Task 3: Advance campaign/save/Continue through Mission 6 to the Mission 7 handoff
+### Task 3: Advance campaign/save integration through Mission 6
 
 **Files:**
-- Modify: `src/presentation/campaign_ui.rs`
+- Modify: `tests/campaign_model.rs`
 - Modify: `tests/campaign_flow.rs`
 - Modify: `tests/campaign_persistence.rs`
-- Test: `tests/campaign_flow.rs`
-- Test: `tests/campaign_persistence.rs`
 
 **Interfaces:**
-- Consumes: `MISSION_SIX_DEFINITION`, `CampaignState::complete_mission`, `continue_game`, `mission_definition`, existing `Proceed` authored-vs-handoff check.
-- Produces: Six resumes as authored; Seven is terminal; Mission 6 rewards/persistence/upgrade continuity are integration-tested.
+- Consumes: `MISSION_SIX_DEFINITION`, `complete_current_mission`, data-driven Continue from Task 2, existing `Proceed` check.
+- Produces: 3300 base-credit total through Mission 6, 250 optional reward coverage, persisted Seven handoff, Six-authored/Seven-terminal route assertions, story/briefing coverage.
 
-- [ ] **Step 1: Extend the current red campaign progression test through Mission 6**
+- [ ] **Step 1: Update campaign model expectations for authored Six**
 
-In the existing integration test that currently ends after Mission 5 with 2500 base credits and `MissionId::Six`, continue:
+In `tests/campaign_model.rs`:
 
 ```rust
-let receipt = persist_completion(
+let six = mission_definition(MissionId::Six).unwrap();
+assert_eq!(six.id, MissionId::Six);
+assert_eq!(six.unlocks, MissionId::Seven);
+assert_eq!(six.title, "Mission 6 — Break the Dreadnought");
+assert_eq!((six.base_reward, six.optional_reward), (800, 250));
+assert_eq!(mission_definition(MissionId::Seven), None);
+```
+
+Extend the base-reward sum through Six and assert `3300`.
+
+- [ ] **Step 2: Extend progression with the real completion API**
+
+Use `complete_current_mission`, not a nonexistent `persist_completion`:
+
+```rust
+let receipt = complete_current_mission(
     &mut session,
     mission_definition(MissionId::Six).unwrap(),
-    victory(false),
+    MissionResult {
+        victory: true,
+        optional_complete: false,
+        rounds: 4,
+    },
 )
 .unwrap();
 assert_eq!((receipt.base_reward, receipt.optional_reward), (800, 0));
@@ -535,52 +542,38 @@ assert_eq!(session.state.as_ref().unwrap().next_mission, MissionId::Seven);
 assert_eq!(session.state.as_ref().unwrap().credits, 3300);
 ```
 
-Add a second focused completion with `victory(true)` or the existing helper's optional flag set, and assert the optional reward is 250.
+Add a focused fresh-session completion with `optional_complete: true` and assert optional reward 250 / total Mission 6 reward 1050.
 
-- [ ] **Step 2: Add saved-Continue routing cases for Six and Seven before changing production routing**
+- [ ] **Step 3: Move existing Continue terminal assertions from Six to Seven**
 
-Extend `title_continue_routes_by_the_saved_next_mission`:
+Update the existing flow that currently says `Continue at Six -> NextMission`:
 
 ```rust
-// Six is now authored and resumes at Upgrade so the player may spend credits first.
-store_state(MissionId::Six);
-apply_campaign_action(CampaignUiAction::Continue, ...);
 assert_eq!(pending(&next), Some(GameScreen::Upgrade));
-
-// Seven is HPA-524's terminal handoff.
-store_state(MissionId::Seven);
-apply_campaign_action(CampaignUiAction::Continue, ...);
-assert_eq!(pending(&next), Some(GameScreen::NextMission));
 ```
 
-Use the test's existing save/session construction style; do not add a second routing helper solely for these cases.
-
-- [ ] **Step 3: Run the campaign-flow test and confirm the Six route is red**
-
-```bash
-cargo test --test campaign_flow title_continue_routes_by_the_saved_next_mission -- --nocapture
-```
-
-Expected: saved Six still routes to `NextMission` under the current production match.
-
-- [ ] **Step 4: Move the hardcoded terminal routing from Six to Seven**
-
-In `apply_campaign_action`:
+Update the reusable route assertions:
 
 ```rust
-Ok(MissionId::Two
-    | MissionId::Three
-    | MissionId::Four
-    | MissionId::Five
-    | MissionId::Six) => next_state.set(GameScreen::Upgrade),
-Ok(MissionId::Seven) => next_state.set(GameScreen::NextMission),
+assert_eq!(route_continue(MissionId::Six), Some(GameScreen::Upgrade));
+assert_eq!(route_continue(MissionId::Seven), Some(GameScreen::NextMission));
 ```
 
-Update comments/doc comments that call Six the terminal handoff. Leave `CampaignUiAction::Proceed` unchanged: it already uses `mission_definition(state.next_mission).is_some()` and therefore sends Six into pre-mission story and Seven to `NextMission` automatically.
+Do not create a new routing helper in production.
 
-- [ ] **Step 5: Pin persisted MissionId Seven and upgrade continuity**
+- [ ] **Step 4: Move Proceed handoff assertions from Six to Seven**
 
-In `tests/campaign_persistence.rs` add a normal save round-trip:
+Existing `Proceed` at Six now must open Mission 6 story:
+
+```rust
+assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
+```
+
+Add the same fixture with `next_mission: MissionId::Seven` and assert `NextMission`.
+
+- [ ] **Step 5: Pin Seven save round-trip and upgrade continuity**
+
+In `tests/campaign_persistence.rs`:
 
 ```rust
 let state = CampaignState {
@@ -596,57 +589,67 @@ save.store(&state).unwrap();
 assert_eq!(save.load().unwrap(), Some(state));
 ```
 
-This is a normal schema update only; add no migration/version conversion.
+No migration/version layer.
 
-- [ ] **Step 6: Pin Mission 6 story/briefing/aftermath through public presentation helpers**
-
-In `tests/campaign_flow.rs`, use `mission_definition(MissionId::Six).unwrap()` and assert:
+- [ ] **Step 6: Pin Mission 6 presentation through public helpers**
 
 ```rust
-assert!(briefing_copy(definition).contains("Mission 6 — Break the Dreadnought"));
-assert!(briefing_copy(definition).contains("800 credits"));
-assert!(briefing_copy(definition).contains("+250 credits"));
+let definition = mission_definition(MissionId::Six).unwrap();
+let copy = briefing_copy(definition);
+assert!(copy.contains("Mission 6 — Break the Dreadnought"));
+assert!(copy.contains("800 credits"));
+assert!(copy.contains("+250 credits"));
 assert_eq!(dialogue_snapshot(&definition.pre_mission, DialogueCursor(0)).speaker, "Control");
 assert_eq!(dialogue_snapshot(&definition.aftermath, DialogueCursor(1)).speaker, "Control");
 ```
 
-No new UI widget or boss phase banner is introduced.
-
-- [ ] **Step 7: Run campaign/save/all-target tests**
+- [ ] **Step 7: Run all campaign targets and commit**
 
 ```bash
 cargo fmt --check
+cargo test --test campaign_model
 cargo test --test campaign_flow
 cargo test --test campaign_persistence
 cargo test --all-targets
-```
-
-Expected: Mission 1–6 progression remains stable; saved Six resumes to Upgrade; Seven stays a handoff; upgrades/credits round-trip.
-
-- [ ] **Step 8: Commit campaign continuity**
-
-```bash
-git add src/presentation/campaign_ui.rs tests/campaign_flow.rs tests/campaign_persistence.rs
-git commit -m "feat: advance campaign through Mission 6"
+git add tests/campaign_model.rs tests/campaign_flow.rs tests/campaign_persistence.rs
+git commit -m "test: cover Mission 6 campaign continuity"
 ```
 
 ---
 
-### Task 4: Give the Dreadnought one distinct checked-in visual
+### Task 4: Append the Dreadnought visual and update existing glTF invariants
 
 **Files:**
 - Modify: `assets/models/mission_one.gltf`
 - Modify: `src/presentation/assets.rs`
 - Modify: `src/presentation/battlefield.rs`
-- Test: `src/presentation/assets.rs`
 
 **Interfaces:**
-- Consumes: existing one-buffer glTF, scene 11 Bulwark root/parts as a structural template, `MISSION_ONE_SCENE_COUNT`, `scene_index`.
-- Produces: scene 13 Dreadnought; counts 14/77/14/14/1; permanent `Dreadnought -> 13` mapping.
+- Consumes: single-buffer glTF, Bulwark root/parts pattern, `MISSION_ONE_SCENE_COUNT`, `scene_index`.
+- Produces: scene 13 Dreadnought; 14/77/14/14/1 counts; bounded Controller assertion; permanent `Dreadnought -> 13` mapping.
 
-- [ ] **Step 1: Write the failing asset-structure test**
+- [ ] **Step 1: Update the existing asset tests before adding the scene**
 
-Add to `src/presentation/assets.rs`:
+In `flanker_scene_is_authored_with_own_mesh_material_and_root_scale`, change global counts to the final values while keeping all Flanker indices unchanged:
+
+```rust
+assert_eq!(scenes.len(), 14);
+assert_eq!(nodes.len(), 77);
+assert_eq!(meshes.len(), 14);
+assert_eq!(materials.len(), 14);
+```
+
+In `bulwark_and_controller_scenes_are_authored_with_own_meshes_and_roots`, make the same global count changes and fix the existing unbounded Controller loop:
+
+```rust
+for (index, part) in nodes.iter().enumerate().skip(64).take(6) {
+    assert_eq!(part["mesh"], 12, "node {index} must use mesh 12");
+}
+```
+
+Do not change existing scene/root/mesh/material indices for Flanker, Bulwark, or Controller.
+
+- [ ] **Step 2: Add the failing Dreadnought structure assertions**
 
 ```rust
 #[test]
@@ -679,52 +682,49 @@ fn dreadnought_scene_is_authored_as_a_larger_crimson_unit() {
 }
 ```
 
-- [ ] **Step 2: Run the asset test and confirm red**
+- [ ] **Step 3: Confirm red**
 
 ```bash
-cargo test --lib dreadnought_scene_is_authored -- --nocapture
+cargo test --lib presentation::assets::tests -- --nocapture
 ```
 
-Expected: scene count is still 13 and scene 13 does not exist.
+Expected: final count/scene assertions fail until glTF is appended.
 
-- [ ] **Step 3: Append the exact Dreadnought glTF entries without touching the buffer**
+- [ ] **Step 4: Append scene/root/parts/mesh/material without buffer changes**
 
 In `assets/models/mission_one.gltf`:
 
 - append scene `{ "name": "Dreadnought", "nodes": [70] }`;
-- duplicate Bulwark root/part transform structure from nodes 56–62 into nodes 70–76;
-- set node 70 name to `Dreadnought Root`, children to `[71,72,73,74,75,76]`, and scale to `[1.12,1.12,1.12]`;
-- keep the six copied part translations/scales/rotations unchanged, rename them with `Dreadnought` prefixes, and set every part's `mesh` to `13`;
-- append mesh 13 named `Dreadnought Crimson`, using the same POSITION/NORMAL accessors as existing cube meshes and `material: 13`;
-- append material 13 named `Dreadnought Crimson` with `baseColorFactor: [0.55,0.08,0.12,1.0]`; keep the same metallic/roughness shape used by the other unit materials;
-- do not add or modify buffer/accessor binary data.
+- copy Bulwark's six-part transform structure into root 70 / parts 71–76;
+- root name `Dreadnought Root`, children `[71,72,73,74,75,76]`, scale `[1.12,1.12,1.12]`;
+- rename parts with `Dreadnought` prefixes and set each `mesh` to 13;
+- append mesh 13 `Dreadnought Crimson`, reusing existing POSITION/NORMAL accessors and material 13;
+- append material 13 `Dreadnought Crimson` with `[0.55,0.08,0.12,1.0]` and the same metallic/roughness shape as existing unit materials;
+- do not add or change buffer/accessor binary data.
 
-- [ ] **Step 4: Update Bevy scene loading and permanent archetype mapping**
-
-In `src/presentation/assets.rs`:
+- [ ] **Step 5: Update loading/mapping and run gates**
 
 ```rust
 pub const MISSION_ONE_SCENE_COUNT: usize = 14;
 ```
 
-In `src/presentation/battlefield.rs`, replace the Task 1 temporary mapping with:
+Change temporary mapping to:
 
 ```rust
 UnitArchetype::Dreadnought => 13,
 ```
 
-- [ ] **Step 5: Validate JSON and run presentation/asset tests**
+Run:
 
 ```bash
 python -m json.tool assets/models/mission_one.gltf >/dev/null
 cargo fmt --check
 cargo test --lib presentation::assets::tests
 cargo test --test presentation_app
+cargo test --all-targets
 ```
 
-Expected: glTF parses; Dreadnought scene/count tests pass; existing scenes remain unchanged.
-
-- [ ] **Step 6: Commit the Dreadnought visual**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add assets/models/mission_one.gltf src/presentation/assets.rs src/presentation/battlefield.rs
@@ -733,37 +733,37 @@ git commit -m "feat: present the Dreadnought boss"
 
 ---
 
-### Task 5: Close HPA-524 with validation, documentation, and full gates
+### Task 5: Close HPA-524 with validation, docs, and full gates
 
 **Files:**
 - Create: `docs/validation/hpa-524.md`
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
-- Modify as needed only for test-backed defects found by the gates/playthrough; do not widen product scope.
+- Modify spec/plan only if authored tuning changes locked values.
 
 **Interfaces:**
-- Consumes: completed Mission 6 implementation, existing validation-ledger style, project CI commands.
-- Produces: reproducible HPA-524 evidence and planning docs that remain truthful after implementation.
+- Consumes: completed Mission 6 implementation and existing validation style.
+- Produces: reproducible automated/manual evidence and truthful shipped docs.
 
-- [ ] **Step 1: Update product documentation to the shipped six-mission state**
+- [ ] **Step 1: Update shipped product facts only**
 
-In `README.md` and `CLAUDE.md`, update only concrete shipped facts:
+Document:
 
 ```text
-- authored campaign now runs Missions 1–6 and hands off to Mission 7;
-- regular roster remains six archetypes;
-- Mission 6 adds one single-cell Dreadnought boss;
-- Dreadnought commits Graviton Salvo above half HP and Overload Salvo at/below half HP;
-- threshold affects future planning only; committed intents stay locked;
-- boss remains pushable;
-- save/upgrade flow now advances through Mission 6.
+- authored campaign runs Missions 1–6 and hands off to Mission 7
+- regular roster remains six archetypes
+- Mission 6 adds one single-cell Dreadnought boss
+- Graviton above half HP; Overload at/below half HP
+- threshold affects future planning only; committed intents stay locked
+- boss remains pushable
+- save/upgrade flow advances through Mission 6
 ```
 
-Do not document Mission 7 content, generic boss systems, resistance, or future features as shipped.
+Do not document Mission 7 content, generic boss systems, or resistance as shipped.
 
-- [ ] **Step 2: Create the validation ledger with exact automated commands**
+- [ ] **Step 2: Create the validation ledger and run automated gates**
 
-Create `docs/validation/hpa-524.md` and record these commands with their final pass/fail output summary:
+Record final output summaries for:
 
 ```bash
 cargo fmt --check
@@ -773,31 +773,26 @@ cargo llvm-cov --all-targets --lcov --output-path lcov.info
 cargo build --release
 ```
 
-Also record the final test count reported by `cargo test --all-targets`.
+Record final test count.
 
-- [ ] **Step 3: Perform the real campaign/manual Mission 6 playthrough**
+- [ ] **Step 3: Perform the real Mission 6 campaign playthrough**
 
-Run:
+Run `cargo run` and verify:
 
-```bash
-cargo run
-```
+1. saved Mission 5 completion reaches the Mission 6 upgrade/story flow;
+2. opening Graviton Cross1 is readable;
+3. Vanguard vacates `(4,7)` and Interceptor can push Controller to `(5,7)`;
+4. redirected boss fire can complete Turnabout;
+5. crossing 21+ -> <=20 after commitment does not rewrite the current telegraph;
+6. next planning commits Overload and closes distance when outside range 4;
+7. Dreadnought can still be pushed normally;
+8. Dreadnought defeat with escorts alive wins immediately;
+9. aftermath/reward/upgrade persist Seven; return to title and Continue shows the Mission 7 handoff;
+10. record encounter duration and any authored-value tuning.
 
-From the real campaign flow:
+If pacing is wrong, tune only Mission 6 HP/damage/opening positions and update the locked docs in this PR. Do not add systems as a tuning response.
 
-1. reach/start Mission 6 from the saved Mission 5 completion path;
-2. verify the opening Graviton Salvo Cross1 is readable;
-3. vacate Vanguard `(4,7)`, move Interceptor to `(7,7)`, and push Controller toward `(5,7)` to confirm the intended redirection line is practical;
-4. cross Dreadnought from 21+ HP to 20-or-less after an intent is committed and confirm that current telegraph stays Graviton Salvo;
-5. confirm the next planning pass commits Overload Salvo with the shorter range/higher damage presentation;
-6. push the Dreadnought once and confirm normal one-cell displacement still works;
-7. defeat Dreadnought with at least one escort alive and confirm immediate victory;
-8. finish aftermath/reward/upgrade, return to title, Continue, and confirm `MISSION 7 UNLOCKED` handoff from persisted state;
-9. record approximate encounter duration and any authored HP/damage tuning made.
-
-If the fight is too short/long, tune only Mission 6 HP/damage/opening positions and update the spec/plan locked values in this same PR. Do not add new systems as a tuning response.
-
-- [ ] **Step 4: Re-run full gates after any manual tuning**
+- [ ] **Step 4: Re-run full gates after manual tuning**
 
 ```bash
 cargo fmt --check
@@ -807,22 +802,24 @@ cargo llvm-cov --all-targets --lcov --output-path lcov.info
 cargo build --release
 ```
 
-Expected: every gate green on the final product commit.
+- [ ] **Step 5: Self-review scope**
 
-- [ ] **Step 5: Self-review scope and planning truthfulness**
-
-Verify all of the following before marking HPA-524 complete:
+Verify:
 
 ```text
 - exactly one new boss archetype
 - no threshold/phase registry or stored boss phase
-- no new objective/optional-objective shape
+- no new objective/optional shape
 - no displacement resistance
 - no Mission 7 content
-- Mission 6 target victory works with escorts alive
-- current-round intent remains immutable across threshold crossing
-- Six is authored; Seven is terminal
-- spec/plan values match final tuned implementation
+- target victory works with escorts alive
+- current intent stays immutable across threshold crossing
+- Overload close-pressure move is covered
+- redirected boss fire covers Turnabout
+- Six authored; Seven terminal
+- Continue is data-driven after Mission 1
+- old glTF tests updated and Controller loop bounded
+- spec/plan match final tuned implementation
 - one ticket / one PR preserved
 ```
 
@@ -835,4 +832,4 @@ git commit -m "docs: validate HPA-524 Mission 6"
 
 - [ ] **Step 7: Keep implementation in this same PR**
 
-Do not open a second implementation PR. The draft planning PR created for HPA-524 is the review unit for Tasks 1–5 and should be marked ready only after the final gates/manual ledger are complete.
+Do not open a second implementation PR. Mark this draft ready only after the final gates and manual ledger are complete.
