@@ -125,6 +125,12 @@
       "nodes": [
         63
       ]
+    },
+    {
+      "name": "Dreadnought",
+      "nodes": [
+        70
+      ]
     }
   ],
   "nodes": [
@@ -1113,6 +1119,106 @@
         0.28
       ],
       "name": "Right Wing Blade"
+    },
+    {
+      "scale": [
+        1.12,
+        1.12,
+        1.12
+      ],
+      "name": "Dreadnought Root",
+      "children": [
+        71,
+        72,
+        73,
+        74,
+        75,
+        76
+      ]
+    },
+    {
+      "mesh": 13,
+      "translation": [
+        -0.16,
+        0.2,
+        0.0
+      ],
+      "scale": [
+        0.12,
+        0.42,
+        0.16
+      ],
+      "name": "Dreadnought Left Leg"
+    },
+    {
+      "mesh": 13,
+      "translation": [
+        0.16,
+        0.2,
+        0.0
+      ],
+      "scale": [
+        0.12,
+        0.42,
+        0.16
+      ],
+      "name": "Dreadnought Right Leg"
+    },
+    {
+      "mesh": 13,
+      "translation": [
+        0.0,
+        0.7,
+        0.0
+      ],
+      "scale": [
+        0.36,
+        0.52,
+        0.3
+      ],
+      "name": "Dreadnought Torso"
+    },
+    {
+      "mesh": 13,
+      "translation": [
+        0.0,
+        1.1,
+        0.0
+      ],
+      "scale": [
+        0.22,
+        0.24,
+        0.22
+      ],
+      "name": "Dreadnought Head"
+    },
+    {
+      "mesh": 13,
+      "translation": [
+        -0.5,
+        0.82,
+        0.08
+      ],
+      "scale": [
+        0.62,
+        0.08,
+        0.28
+      ],
+      "name": "Dreadnought Left Wing Blade"
+    },
+    {
+      "mesh": 13,
+      "translation": [
+        0.5,
+        0.82,
+        0.08
+      ],
+      "scale": [
+        0.62,
+        0.08,
+        0.28
+      ],
+      "name": "Dreadnought Right Wing Blade"
     }
   ],
   "meshes": [
@@ -1282,6 +1388,19 @@
           },
           "indices": 2,
           "material": 12
+        }
+      ]
+    },
+    {
+      "name": "Dreadnought Crimson",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1
+          },
+          "indices": 2,
+          "material": 13
         }
       ]
     }
@@ -1523,6 +1642,24 @@
         0.0,
         0.07,
         0.1
+      ]
+    },
+    {
+      "name": "Dreadnought Crimson",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.55,
+          0.08,
+          0.12,
+          1.0
+        ],
+        "metallicFactor": 0.25,
+        "roughnessFactor": 0.62
+      },
+      "emissiveFactor": [
+        0.06,
+        0.01,
+        0.015
       ]
     }
   ],
