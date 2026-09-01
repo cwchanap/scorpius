@@ -4,52 +4,53 @@
 
 Ship Mission 6 as the first boss encounter while keeping the boss on the existing single-cell enemy/combat path. The fight should feel different because the Dreadnought commits large area attacks and switches to a stronger close-pressure salvo at half HP, not because Scorpius gains a boss engine.
 
-Keep this as one HPA-524 PR. Reuse the current deterministic battle state, locked enemy intents, `EliminateTarget`, authored mission openings, campaign save/progression flow, Bevy UI, and checked-in glTF. Do not add a phase scripting system, boss component hierarchy, generic threshold registry, new objective shape, status framework, second battle runtime, or save migration.
+Keep this as one HPA-524 PR. Reuse the deterministic battle state, locked enemy intents, `EliminateTarget`, `Turnabout`, authored mission openings, campaign save/progression flow, Bevy UI, and checked-in glTF. Do not add phase scripting, a boss component hierarchy, generic threshold registry, new objective shape, status framework, second battle runtime, or save migration.
 
 ## Why this is the next slice
 
 HPA-523 is complete and was HPA-524's only blocker. HPA-524 blocks HPA-386, so Mission 6 is the next unblocked roadmap item.
 
-The current code already supplies the important seams:
+The current code already supplies the required seams:
 
 - every enemy is a normal `UnitState` on one grid cell;
-- enemy movement and target selection already route through `unit_weapon`, while committed attacks store a complete immutable `AttackProfile` and footprint;
-- `PrimaryObjective::EliminateTarget` already wins immediately when the authored target is knocked out even if escorts survive;
-- regular enemies, hazards, collisions, friendly fire through locked footprints, and one-cell push are already proven;
-- missions own board geometry, deployments, openings, dialogue, rewards, and their `MissionDefinition`;
-- Mission 5 already advances persisted campaign state to `MissionId::Six`;
-- campaign UI decides authored-vs-handoff from `mission_definition`, except `Continue` still explicitly treats Six as the old terminal handoff;
-- the checked-in `assets/models/mission_one.gltf` already carries all unit scenes and can accept one more scene without a new asset pipeline.
+- movement already calls `unit_weapon`, while `build_intent` still reads `.first()` independently and must be changed to use the same selector;
+- committed attacks snapshot weapon/profile/origin/footprint and resolve against the live occupant without retargeting;
+- `EliminateTarget` + `Turnabout` already ship together in Mission 4;
+- regular enemies, friendly fire through committed footprints, collision, and one-cell push are proven;
+- missions own board geometry, deployment, openings, dialogue, rewards, and `MissionDefinition`;
+- Mission 5 already persists `MissionId::Six`;
+- `Proceed` already decides authored-vs-handoff through `mission_definition(next_mission).is_some()`, while `Continue` still enumerates mission IDs explicitly;
+- the checked-in `assets/models/mission_one.gltf` already carries all unit scenes and can accept one more scene without a new pipeline.
 
 ## Approaches considered
 
-### A — One concrete Dreadnought archetype with a derived half-HP weapon switch — selected
+### A — One concrete Dreadnought with a derived half-HP weapon switch — selected
 
-Add `UnitArchetype::Dreadnought`. Give the Mission 6 boss two ordinary enemy weapons in a fixed order. For this archetype only, `unit_weapon` selects slot 0 above half HP and slot 1 at or below half HP.
+Add `UnitArchetype::Dreadnought`. Mission 6 gives it two ordinary enemy weapons in fixed slots. For this archetype only, `unit_weapon` selects slot 0 above half HP and slot 1 at or below half HP.
 
-The threshold is derived from the authored unit itself:
+The threshold is derived from the authored unit:
 
 ```rust
 unit.hp * 2 <= unit.stats.max_hp
 ```
 
-Mission 6 authors 40 max HP, so the explicit threshold is 20 HP. No phase field is stored. Because the current MVP has no healing, the threshold can only be crossed once. The selected weapon also drives the existing attack-band movement, so the boss naturally changes pressure without another AI layer.
+Mission 6 authors 40 max HP, so the explicit threshold is 20 HP. No phase field is stored. Because the MVP has no healing, the threshold is one-way in normal play. The selected weapon also feeds the existing attack-band movement, so the same rule changes both future attack commitment and preferred range.
 
-This is the smallest implementation that satisfies the ticket while leaving Mission 7 as the second concrete consumer that may justify a shared threshold seam.
+Mission 7 is the second concrete consumer and can justify a small shared threshold seam only if its needs overlap.
 
-### B — Add generic `BossBehavior` / `ThresholdPhase` data to `UnitState` — rejected for now
+### B — Generic boss/threshold data — rejected
 
-A reusable threshold table, phase enum, per-phase movement policy, and serialized boss metadata would make Mission 7 easier to configure, but HPA-524 has only one concrete consumer. Generalize after the final boss proves which parts are actually shared.
+A `BossBehavior`, phase enum, threshold table, per-phase policy, or serialized boss metadata is more machinery than one boss needs.
 
-### C — Parallel boss runtime or scripted encounter phases — rejected
+### C — Parallel boss runtime or scripted phases — rejected
 
-A boss controller, encounter script, detachable parts, invulnerability transitions, multi-tile occupancy, or callback registry would duplicate battle lifecycle rules and directly violate the ticket's scope.
+A boss controller, encounter script, detachable parts, invulnerability transitions, multi-tile occupancy, or callback registry would duplicate battle lifecycle rules and violate the ticket scope.
 
 ## Closed domain change
 
 ### Dreadnought archetype
 
-Extend the closed unit archetype enum by one concrete enemy:
+Extend the closed enum with exactly one enemy:
 
 ```rust
 pub enum UnitArchetype {
@@ -66,60 +67,50 @@ pub enum UnitArchetype {
 }
 ```
 
-`Dreadnought` is still `Faction::Enemy`, occupies one cell, uses normal HP/Armor/Move/Accuracy/Evasion, takes normal weapon/environment damage, can be knocked out normally, and remains pushable through the existing displacement rule.
-
-Do not add displacement resistance in HPA-524. The boss should remain vulnerable to existing tactical tools unless playtesting proves that authored geometry/HP tuning cannot keep the fight intact. If Mission 7 later needs explicit resistance, that is the second point to evaluate a small shared seam.
+Dreadnought remains `Faction::Enemy`, occupies one cell, uses ordinary stats/damage/knockout, and remains pushable through the existing displacement rule. Do not add displacement resistance in HPA-524.
 
 ### Active enemy weapon selection
 
-Keep the current `unit_weapon` helper as the only selector used by enemy movement. Extend it locally:
+Keep `unit_weapon` as the one selector for enemy movement and change `build_intent` to call it too:
 
 ```text
-Dreadnought above 50% HP -> weapon slot 0
-Dreadnought at/below 50% HP -> weapon slot 1
-all other enemies -> weapon slot 0
+Dreadnought HP 21–40 -> weapon slot 0
+Dreadnought HP 0–20  -> weapon slot 1
+all other enemies     -> weapon slot 0
 ```
 
-Change `build_intent` to call this same helper instead of reading `attacker.weapons.first()` directly. That gives movement and intent commitment one source of truth without introducing a policy object.
-
-If a Dreadnought does not own the required slot, keep the current programmer/data-error behavior (`InvalidTarget`/missing weapon) rather than silently falling back.
+A missing required slot remains a programmer/authored-data error; do not silently fall back.
 
 ### Locked threshold semantics
 
-The threshold never mutates an already-committed intent.
-
-Example:
+Crossing the threshold never mutates an already-committed intent:
 
 ```text
-Round N planning: boss at 21 HP -> Graviton Salvo is committed
-Player phase: boss takes 2 damage -> 19 HP
-Round N resolution: the committed Graviton Salvo still resolves unchanged
-Round N+1 planning: current HP is <= 20 -> Overload Salvo is selected and committed
+Round N planning: boss at 21 HP -> Graviton Salvo committed
+Player phase: boss drops to 19 HP
+Round N resolution: committed Graviton Salvo resolves unchanged
+Round N+1 planning: Overload Salvo is selected and committed
 ```
 
-This is important: an intent already contains its weapon ID, damage profile, hit/crit values, origin, footprint, intended occupant, and preview. HPA-524 must preserve that existing immutable contract rather than retroactively upgrading a telegraph after the player has acted around it.
+No `BossPhaseChanged` event or phase banner is required. The visible transition is the next normal telegraph changing weapon name, range, expected damage, and hit/crit values.
 
-No `BossPhaseChanged` event is required. The player-visible transition is the next committed weapon/telegraph changing name, range band, expected damage, and crit chance through the existing HUD.
+### Movement and initiative
 
-### Initiative and movement
+Dreadnought initiative is **40**, ahead of Controller 35 and the regular roster.
 
-Dreadnought initiative is **40**, before Controller 35 and every regular enemy. This makes the boss's committed area attack the first geometry the player must account for during resolution.
-
-For later-round movement, group Dreadnought with the existing attack-band enemies:
+Later-round movement groups it with the existing attack-band enemies:
 
 ```text
 Rifleman | Striker | Bulwark | Dreadnought -> attack_band_destination
 ```
 
-Because `attack_band_destination` receives the active weapon, crossing the threshold also changes desired range from long pressure to close pressure without a second movement implementation.
+Because movement receives the active weapon, Overload's max range 4 must visibly close pressure when the boss is five cells from its nearest player. This behavior is part of the threshold contract and gets a focused destination test.
 
-Keep all enemy movement/initiative matches exhaustive.
+Keep all movement/initiative matches exhaustive.
 
 ## Boss 1 — Dreadnought
 
-Mission 6 owns the boss factory and weapon constants locally in `mission_six.rs`. Do not move boss authoring into a generic shared boss module before Mission 7 exists.
-
-Locked values:
+Mission 6 owns the factory and weapon constants locally in `mission_six.rs`; `mission/enemies.rs` remains the shared regular-roster layer.
 
 ```text
 Name       Dreadnought
@@ -156,17 +147,15 @@ HP 21–40 -> Graviton Salvo
 HP 0–20  -> Overload Salvo
 ```
 
-The stronger phase is intentionally just a different normal weapon: shorter minimum range, higher damage, higher crit chance. The existing telegraph already shows the new weapon and expected outcome.
-
 ## Mission 6 — Break the Dreadnought
 
 ### Product intent
 
-The player should read the boss's committed Cross1 as both a major threat and a weapon that can be redirected onto escorts. The fight then tightens at half HP when the Dreadnought switches from range 3–6 to range 1–4 and starts closing distance under the same attack-band planner.
+The boss's committed Cross1 is both the main threat and a weapon the player can redirect onto escorts. At half HP the same boss begins closing distance because Overload's attack band is shorter.
 
 ### Board
 
-Use a 9×9 board so the existing camera/readability stays consistent with Missions 4–5.
+9×9:
 
 ```text
 Players
@@ -188,29 +177,22 @@ Controller  63 start (8,7) -> (6,7), target Vanguard
 Rifleman    64 start (8,6) -> (6,6), target Interceptor
 ```
 
-Opening legality is intentional:
-
-- Dreadnought `(4,2)` to Vanguard `(4,7)` is range 5 for Graviton Salvo;
-- Bulwark `(1,7)` to Vanguard `(4,7)` is range 3;
-- Controller `(6,7)` to Vanguard `(4,7)` is range 2 and row-aligned;
-- Rifleman `(6,6)` to Interceptor `(5,8)` is range 3.
-
-Reuse `assert_opening_plan_is_legal`; mission-specific tests still pin the exact rows.
+The shared opening validator proves each row is legal. Mission-specific tests pin all exact rows.
 
 ### Opening manipulation line
 
-On the first player phase, the Dreadnought has committed a Cross1 centered on Vanguard `(4,7)`. The footprint contains `(5,7)`.
+The Dreadnought commits Graviton Salvo centered on Vanguard `(4,7)`; its Cross1 contains `(5,7)`.
 
-The authored player line is:
+The intended player line is:
 
-1. move Vanguard from `(4,7)` to `(4,5)`, vacating the Dreadnought and Controller committed target;
-2. move Interceptor from `(5,8)` to `(7,7)`;
-3. use the existing Vector Pulse geometry on Controller at `(6,7)`, pushing it left to `(5,7)`;
+1. Vanguard `(4,7) -> (4,5)`, vacating the Dreadnought and Controller committed target;
+2. Interceptor `(5,8) -> (7,7)`;
+3. Vector Pulse Controller `(6,7) -> (5,7)`;
 4. resolve the unchanged enemy intents.
 
-The Dreadnought's already-locked Cross1 can then hit Controller at `(5,7)` without retargeting. Controller's own committed `(4,7)` push lands on the now-empty original Vanguard cell. The boss attack therefore becomes the main geometry payoff rather than another damage-race weapon.
+The Dreadnought's committed Cross1 can then roll against Controller at `(5,7)` without retargeting, while Controller's committed `(4,7)` push lands on empty space.
 
-Baseline damage reinforces the line without adding special friendly-fire rules:
+Baseline damage:
 
 ```text
 Controller HP 9 / Armor 1
@@ -218,7 +200,7 @@ Vector Pulse normal damage at weapon level 0: 4 - 1 = 3
 Graviton Salvo normal damage against Controller: 8 - 1 = 7
 ```
 
-The exact result remains subject to the existing hit RNG. Tests pin the committed footprint, legal public movement/push geometry, and the boss attack roll targeting Controller; they do not require a guaranteed hit or invent boss-friendly-fire exceptions.
+The hit remains RNG-driven. The test must pin both the `AttackRolled` against Controller and, when the seeded roll deals enemy-weapon damage, the existing `OptionalObjectiveCompleted` event. The product claim is not merely that friendly-fire geometry exists; the redirected boss attack must exercise `Turnabout` through the normal objective observer.
 
 ### Rules and rewards
 
@@ -234,13 +216,11 @@ Bonus reward: 250
 Unlocks: Mission 7 handoff
 ```
 
-Do not add a primary turn limit. Four enemies plus the 40-HP target already supply enough pressure; use manual validation to tune HP/damage before adding another clock.
-
-The target objective means killing the Dreadnought ends the mission immediately even if escorts live, matching HPA-524's boss-focus intent.
+Do not add a turn limit. Tune authored HP/damage/opening values first if manual validation shows pacing problems.
 
 ### Story
 
-Reuse existing VN assets only: `vn/relay_nine_bg.png`, `vn/control_neutral.png`, `vn/control_alert.png`, and `vn/vanguard_neutral.png`.
+Reuse `vn/relay_nine_bg.png`, `vn/control_neutral.png`, `vn/control_alert.png`, and `vn/vanguard_neutral.png` only.
 
 Pre-mission:
 
@@ -255,45 +235,41 @@ Aftermath:
 
 ## Campaign handoff
 
-Extend `MissionId` from One–Six to One–Seven.
+Extend `MissionId` from One–Six to One–Seven:
 
 ```text
 One–Six -> authored definitions
-Seven   -> terminal HPA-524 handoff; `mission_definition(Seven) == None`
+Seven   -> terminal HPA-524 handoff; mission_definition(Seven) == None
 ```
 
-`MISSION_SIX_DEFINITION` unlocks Seven. Existing `CampaignState::complete_mission` remains unchanged because it already copies `definition.unlocks` into persisted `next_mission` exactly once.
+`MISSION_SIX_DEFINITION.unlocks = MissionId::Seven`. `CampaignState::complete_mission` remains unchanged.
 
-Update campaign UI routing:
+Remove the leftover per-mission `Continue` list. Keep Mission 1 special because it starts before the upgrade screen; for every later ID, route from the same authored-data seam already used by `Proceed`:
 
-```text
-Continue One -> PreMissionStory
-Continue Two–Six -> Upgrade
-Continue Seven -> NextMission
-Proceed -> use existing mission_definition(next_mission).is_some() check
+```rust
+Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
+Ok(id) => next_state.set(if mission_definition(id).is_some() {
+    GameScreen::Upgrade
+} else {
+    GameScreen::NextMission
+}),
 ```
 
-No new `GameScreen`, mission-select state, save field, or migration layer is added. Pre-release saves may break when `MissionId::Seven` is added.
+This makes Six authored as soon as its definition is registered and makes Seven terminal without another list extension. Do not add a routing table/helper or new `GameScreen`.
+
+When Six becomes authored, existing library tests in Missions 2–5 that pin `mission_definition(Six).is_none()` must move to Seven in the same task that registers Mission 6 so `cargo test --lib` stays green.
+
+Integration tests that currently pin Six as the terminal handoff move to Seven and are updated in the campaign-continuity task.
 
 ## Presentation
 
-### Boss telegraph
+### Boss telegraph/HUD
 
-Do not add a boss-only HUD or phase banner. Existing intent UI already presents:
-
-- weapon name;
-- committed footprint;
-- intended occupant;
-- expected damage;
-- hit chance.
-
-The switch from Graviton Salvo to Overload Salvo is therefore visible on the same UI path as every regular intent.
-
-Existing target-objective HUD continues to render Dreadnought HP. No new objective presentation type is needed.
+Do not add a boss-only HUD or phase banner. Existing intent UI already shows weapon, footprint, intended occupant, expected damage, and hit chance. Existing target-objective HUD already shows the Dreadnought's HP.
 
 ### Dreadnought visual
 
-Append one distinct scene to the existing checked-in glTF.
+Append one distinct scene to the existing glTF:
 
 ```text
 Scene index 13: Dreadnought
@@ -305,7 +281,7 @@ Material: Dreadnought Crimson
 Base color: [0.55, 0.08, 0.12, 1.0]
 ```
 
-Final asset counts:
+Final counts:
 
 ```text
 14 scenes
@@ -315,39 +291,44 @@ Final asset counts:
 1 embedded buffer
 ```
 
-Set `MISSION_ONE_SCENE_COUNT` to 14 and map `UnitArchetype::Dreadnought -> 13` in `scene_index`.
+Set `MISSION_ONE_SCENE_COUNT = 14` and map `Dreadnought -> 13`.
 
-No new glTF file, texture, animation, runtime asset generator, child under-ring, or inverse-scale compensation.
+The existing Flanker and Bulwark/Controller tests also pin the old global counts and must be updated when scene 13 is appended. Bound the current Controller part-node loop to `.skip(64).take(6)` before nodes 70–76 exist, otherwise the old assertion will walk into the new Dreadnought nodes.
+
+No second glTF, texture, animation, generator, under-ring, or inverse-scale compensation.
 
 ## Testing
 
 Focused deterministic coverage must prove:
 
-1. Dreadnought uses weapon slot 0 at 21 HP and slot 1 at 20 HP; further damage keeps slot 1, so the one-way threshold does not oscillate.
-2. A Graviton Salvo committed above half HP remains Graviton Salvo if the boss crosses to 20 HP during the player phase; a newly built next-round intent uses Overload Salvo.
-3. Dreadnought remains a normal push target under `resolve_push`.
-4. Mission 6 board, roster, opening rows, objective, rewards, and exact boss stats/weapons match the authored values.
-5. The first-round real movement/push line puts Controller on `(5,7)` inside the already-committed Dreadnought footprint and leaves the old Vanguard target empty.
-6. Knocking out Dreadnought wins immediately with escorts alive.
-7. Completing Mission 6 advances once to Seven, rewards 800/250 as appropriate, persists the state, preserves upgrades, and `Continue` routes Six as authored but Seven as the terminal handoff.
-8. The glTF contains the expected Dreadnought scene/root/mesh/material and remains one buffer.
-9. Existing Missions 1–5 and the full campaign/save/presentation suites remain green.
+1. slot 0 at 21 HP and slot 1 at 20 HP; further damage stays on slot 1;
+2. a committed Graviton intent is unchanged by crossing the threshold, while a newly built intent uses Overload;
+3. at 20 HP and distance 5, Dreadnought's ordinary attack-band destination steps one cell closer so Overload can reach;
+4. Dreadnought remains a normal push target;
+5. Mission 6 board, roster, opening rows, objective, rewards, exact stats/weapons, and opening legality match the authored values;
+6. the public opening manipulation line puts Controller on `(5,7)` inside the boss footprint, leaves `(4,7)` empty, rolls the boss attack against Controller, and completes Turnabout through normal enemy-weapon damage;
+7. knocking out Dreadnought wins immediately with escorts alive;
+8. the four existing mission-local `Six is None` pins move to Seven when Six is registered;
+9. completing Mission 6 advances once to Seven, rewards 800/250 as appropriate, persists state/upgrades, and uses `complete_current_mission` in integration coverage;
+10. `campaign_model`, Continue, and Proceed tests treat Six as authored and Seven as terminal;
+11. glTF old and new structural tests agree on 14/77/14/14/1 and the Controller loop is bounded;
+12. Missions 1–5 and full campaign/save/presentation suites remain green.
 
 ## Manual validation
 
 Record HPA-524 evidence in `docs/validation/hpa-524.md`:
 
 - start Mission 6 from the real campaign flow after Mission 5;
-- confirm Graviton Salvo telegraph is readable and can be redirected onto an escort;
-- cross from 21+ HP to 20-or-less during a player phase and confirm the current telegraph does not change retroactively;
-- confirm the next planning pass shows Overload Salvo with the stronger/closer pressure;
-- confirm pushing the boss still works and does not break intent resolution;
-- defeat Dreadnought while at least one escort survives and confirm immediate victory;
-- complete aftermath/reward/upgrade flow, return to title, Continue, and confirm the persisted Mission 7 handoff;
-- note approximate encounter length and tune authored HP/damage only if the fight is clearly too short/long.
+- confirm Graviton telegraph readability and escort redirection;
+- cross from 21+ HP to <=20 after commitment and confirm the current telegraph stays Graviton;
+- confirm next planning shows Overload and the boss closes when outside its shorter band;
+- confirm normal boss push still works;
+- defeat Dreadnought with an escort alive and confirm immediate victory;
+- finish aftermath/reward/upgrade, return to title, Continue, and confirm persisted Mission 7 handoff;
+- record encounter length and tune authored values only if clearly necessary.
 
 ## Scope guardrails
 
-No multi-tile boss, boss parts, invulnerability, cinematic battle scene, unique boss runtime, threshold registry, phase scripting, generic behavior policies, displacement immunity, new status effect, new objective variant, new optional objective, new hazard/prop type, new progression track, new save field, save migration, new crate/dependency, second boss, Mission 7 content, new VN art, second glTF, or asset pipeline.
+No multi-tile boss, parts, invulnerability, cinematic battle scene, unique boss runtime, threshold registry, phase scripting, generic behavior policies, displacement immunity, new status effect, new objective/optional shape, new hazard/prop type, new progression track, new save field, save migration, dependency/crate, second boss, Mission 7 content, new VN art, second glTF, or asset pipeline.
 
-Mission 7 is deliberately the next and second threshold consumer. If it needs a different threshold shape, generalize only the common behavior proven by both encounters.
+Mission 7 is deliberately the second threshold consumer. Generalize only behavior proven by both encounters.
