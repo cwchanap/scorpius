@@ -220,7 +220,7 @@ Automated coverage must prove:
 4. Initiative table includes Dreadnought 40 and explicitly proves it is above Controller 35.
 5. Dreadnought remains normally pushable.
 6. Mission 6 board/roster/opening/objective/rewards/stats/weapons/opening legality.
-7. Public redirection line resolves through `resolve_enemy_phase()` at seed 1, damages Controller with Graviton, completes Turnabout, then resolves Controller into empty `(4,7)`.
+7. Public redirection line resolves through `resolve_enemy_phase()` at seed 2 via the real Vector Pulse `attack` (damage + push onto the committed footprint), the redirected Graviton completes Turnabout, and the knocked-out Controller's committed intent is canceled (`IntentCanceled`) rather than firing into the vacated cell.
 8. Dreadnought KO wins with escorts alive.
 9. All old Six-terminal pins move to Seven in the same task that registers Mission 6.
 10. glTF old/new tests agree on final counts and Controller loop is bounded.
