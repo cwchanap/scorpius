@@ -314,11 +314,15 @@ mod tests {
         assert_opening_plan_is_legal(&mission_six(1));
     }
 
-    /// Seed 1, all three player activations spent displacing the Controller
+    /// Seed 2, all three player activations spent displacing the Controller
     /// onto the boss's committed Graviton footprint cell `(5,7)` while the
-    /// Vanguard vacates the footprint center `(4,7)`.
+    /// Vanguard vacates the footprint center `(4,7)`. The Interceptor fires
+    /// the real Vector Pulse action through `BattleState::attack` — applying
+    /// its damage and push and consuming the two RNG rolls (hit, crit) the
+    /// player action actually spends — so the RNG call order matches a state
+    /// the player can create.
     fn redirected_opening_ready_to_resolve() -> BattleState {
-        let mut battle = mission_six(1);
+        let mut battle = mission_six(2);
         battle.begin_round().unwrap();
 
         assert_eq!(battle.intents()[0].attacker, ids::DREADNOUGHT);
@@ -338,17 +342,36 @@ mod tests {
         battle
             .move_unit(ids::INTERCEPTOR, GridPos::new(7, 7))
             .unwrap();
-        let preview = battle
-            .preview_attack(
+        // Real Vector Pulse: damage then push through `attack`, spending the
+        // hit and crit rolls. Seed 2 pins a normal hit (roll 11) that deals 3
+        // damage (9 -> 6) and pushes the Controller onto the boss footprint.
+        let vp_events = battle
+            .attack(
                 ids::INTERCEPTOR,
                 squad::ids::VECTOR_PULSE,
                 GridPos::new(6, 7),
             )
             .unwrap();
-        assert_eq!(preview.push_destination, Some(GridPos::new(5, 7)));
-        battle
-            .resolve_push(ids::INTERCEPTOR, ids::CONTROLLER)
-            .unwrap();
+        assert!(vp_events.iter().any(|event| {
+            matches!(
+                event,
+                BattleEvent::AttackRolled {
+                    attacker,
+                    target,
+                    roll: 11,
+                    hit: true,
+                    critical: false,
+                    ..
+                } if *attacker == ids::INTERCEPTOR && *target == ids::CONTROLLER
+            )
+        }));
+        assert!(vp_events.iter().any(|event| {
+            matches!(
+                event,
+                BattleEvent::UnitPushed { unit, to, .. }
+                    if *unit == ids::CONTROLLER && *to == GridPos::new(5, 7)
+            )
+        }));
         battle
             .choose_reaction(ids::INTERCEPTOR, Reaction::Guard)
             .unwrap();
@@ -368,15 +391,20 @@ mod tests {
             battle.unit(ids::VANGUARD).unwrap().position,
             GridPos::new(4, 5)
         );
+        // Vector Pulse damage applied: Controller is at 6 HP, not its start 9.
+        assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 6);
         battle
     }
 
     #[test]
-    fn redirected_graviton_completes_turnabout_before_controller_hits_empty() {
+    fn redirected_graviton_completes_turnabout_and_cancels_the_knocked_out_controller() {
         let mut battle = redirected_opening_ready_to_resolve();
         let events = battle.resolve_enemy_phase().unwrap();
 
-        let boss_roll = events
+        // Seed 2: the redirected boss Graviton hits the Controller (roll 52,
+        // no crit). The Controller is at 6 HP from Vector Pulse, so the 7
+        // Graviton damage knocks it out.
+        let boss_hit = events
             .iter()
             .position(|event| {
                 matches!(
@@ -384,38 +412,47 @@ mod tests {
                     BattleEvent::AttackRolled {
                         attacker,
                         target,
-                        roll: 66,
+                        roll: 52,
                         hit: true,
-                        critical_roll: Some(20),
+                        critical_roll: Some(37),
                         critical: false,
                         ..
                     } if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
                 )
             })
-            .expect("seed 1 pins a normal Graviton hit on Controller");
+            .expect("seed 2 pins a normal Graviton hit on the redirected Controller");
 
         let turnabout = events
             .iter()
             .position(|event| matches!(event, BattleEvent::OptionalObjectiveCompleted))
             .expect("redirected enemy fire completes Turnabout");
 
-        let controller_empty = events
+        let controller_canceled = events
             .iter()
             .position(|event| {
                 matches!(
                     event,
-                    BattleEvent::AttackHitEmpty {
-                        attacker,
-                        cell,
-                        ..
-                    } if *attacker == ids::CONTROLLER && *cell == GridPos::new(4, 7)
+                    BattleEvent::IntentCanceled { attacker } if *attacker == ids::CONTROLLER
                 )
             })
-            .expect("Controller survives normal Graviton damage and fires into the vacated target");
+            .expect("knocked-out Controller intent is canceled");
 
-        assert!(boss_roll < turnabout);
-        assert!(turnabout < controller_empty);
-        assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 2);
+        // The Controller was knocked out by the redirected Graviton, so it
+        // never fires into the vacated cell.
+        assert!(
+            !events.iter().any(|event| {
+                matches!(
+                    event,
+                    BattleEvent::AttackHitEmpty { attacker, .. } if *attacker == ids::CONTROLLER
+                )
+            }),
+            "knocked-out Controller does not fire"
+        );
+
+        assert!(boss_hit < turnabout);
+        assert!(turnabout < controller_canceled);
+        assert!(battle.unit(ids::CONTROLLER).unwrap().is_knocked_out());
+        assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 0);
     }
 
     #[test]

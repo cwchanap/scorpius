@@ -508,11 +508,11 @@ fn mission_six_opening_rows_are_legal() {
 }
 ```
 
-Create a test helper that uses seed 1 and finishes all three player activations:
+Create a test helper that uses seed 2 and finishes all three player activations, firing the real Vector Pulse through `BattleState::attack` (damage + push) so the RNG call order matches a state the player can actually create:
 
 ```rust
 fn redirected_opening_ready_to_resolve() -> BattleState {
-    let mut battle = mission_six(1);
+    let mut battle = mission_six(2);
     battle.begin_round().unwrap();
 
     assert_eq!(battle.intents()[0].attacker, ids::DREADNOUGHT);
@@ -528,15 +528,21 @@ fn redirected_opening_ready_to_resolve() -> BattleState {
 
     battle.begin_activation(ids::INTERCEPTOR).unwrap();
     battle.move_unit(ids::INTERCEPTOR, GridPos::new(7, 7)).unwrap();
-    let preview = battle
-        .preview_attack(
-            ids::INTERCEPTOR,
-            squad::ids::VECTOR_PULSE,
-            GridPos::new(6, 7),
-        )
+    // Real Vector Pulse: damage then push through `attack`, spending the
+    // hit and crit rolls. Seed 2 pins a normal hit (roll 11) that deals 3
+    // damage (9 -> 6) and pushes the Controller onto the boss footprint.
+    let vp_events = battle
+        .attack(ids::INTERCEPTOR, squad::ids::VECTOR_PULSE, GridPos::new(6, 7))
         .unwrap();
-    assert_eq!(preview.push_destination, Some(GridPos::new(5, 7)));
-    battle.resolve_push(ids::INTERCEPTOR, ids::CONTROLLER).unwrap();
+    assert!(vp_events.iter().any(|event| matches!(
+        event,
+        BattleEvent::AttackRolled { attacker, target, roll: 11, hit: true, critical: false, .. }
+            if *attacker == ids::INTERCEPTOR && *target == ids::CONTROLLER
+    )));
+    assert!(vp_events.iter().any(|event| matches!(
+        event,
+        BattleEvent::UnitPushed { unit, to, .. } if *unit == ids::CONTROLLER && *to == GridPos::new(5, 7)
+    )));
     battle.choose_reaction(ids::INTERCEPTOR, Reaction::Guard).unwrap();
     battle.finish_activation(ids::INTERCEPTOR).unwrap();
 
@@ -546,11 +552,13 @@ fn redirected_opening_ready_to_resolve() -> BattleState {
 
     assert_eq!(battle.unit(ids::CONTROLLER).unwrap().position, GridPos::new(5, 7));
     assert_eq!(battle.unit(ids::VANGUARD).unwrap().position, GridPos::new(4, 5));
+    // Vector Pulse damage applied: Controller is at 6 HP, not its start 9.
+    assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 6);
     battle
 }
 ```
 
-This helper deliberately uses the public displacement primitive for deterministic geometry; manual validation later exercises the actual Vector Pulse attack command.
+This helper drives the real Vector Pulse action so the test proves a state the player can create; the earlier `preview_attack` + `resolve_push` shortcut skipped Vector Pulse damage and its two RNG rolls, which let the Controller survive at 2 HP and fire into the vacated cell — a state the live game never produces (the manual playtest observed the KO).
 
 - [ ] **Step 7: Resolve the centerpiece through `resolve_enemy_phase()` with pinned seed semantics**
 
@@ -558,41 +566,51 @@ Use one deterministic seed, not a sweep:
 
 ```rust
 #[test]
-fn redirected_graviton_completes_turnabout_before_controller_hits_empty() {
+fn redirected_graviton_completes_turnabout_and_cancels_the_knocked_out_controller() {
     let mut battle = redirected_opening_ready_to_resolve();
     let events = battle.resolve_enemy_phase().unwrap();
 
-    let boss_roll = events.iter().position(|event| matches!(
+    // Seed 2: the redirected boss Graviton hits the Controller (roll 52,
+    // no crit). The Controller is at 6 HP from Vector Pulse, so the 7
+    // Graviton damage knocks it out.
+    let boss_hit = events.iter().position(|event| matches!(
         event,
         BattleEvent::AttackRolled {
             attacker,
             target,
-            roll: 66,
+            roll: 52,
             hit: true,
-            critical_roll: Some(20),
+            critical_roll: Some(37),
             critical: false,
             ..
         } if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
-    )).expect("seed 1 pins a normal Graviton hit on Controller");
+    )).expect("seed 2 pins a normal Graviton hit on the redirected Controller");
 
     let turnabout = events.iter().position(|event| matches!(
         event,
         BattleEvent::OptionalObjectiveCompleted
     )).expect("redirected enemy fire completes Turnabout");
 
-    let controller_empty = events.iter().position(|event| matches!(
+    let controller_canceled = events.iter().position(|event| matches!(
         event,
-        BattleEvent::AttackHitEmpty { attacker, cell, .. }
-            if *attacker == ids::CONTROLLER && *cell == GridPos::new(4, 7)
-    )).expect("Controller survives normal Graviton damage and fires into the vacated target");
+        BattleEvent::IntentCanceled { attacker } if *attacker == ids::CONTROLLER
+    )).expect("knocked-out Controller intent is canceled");
 
-    assert!(boss_roll < turnabout);
-    assert!(turnabout < controller_empty);
-    assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 2);
+    // The Controller was knocked out by the redirected Graviton, so it
+    // never fires into the vacated cell.
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        BattleEvent::AttackHitEmpty { attacker, .. } if *attacker == ids::CONTROLLER
+    )), "knocked-out Controller does not fire");
+
+    assert!(boss_hit < turnabout);
+    assert!(turnabout < controller_canceled);
+    assert!(battle.unit(ids::CONTROLLER).unwrap().is_knocked_out());
+    assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 0);
 }
 ```
 
-Seed 1 is intentional: the first RNG rolls are 66 then 20, so Graviton hits at 85% but does not crit at 5%. A changed RNG call order should fail this regression instead of silently finding another seed.
+Seed 2 is intentional: Vector Pulse rolls 11 (hit, no crit at 5%) and the redirected Graviton rolls 52 (hit at 85%, no crit at 5%). Vector Pulse's 3 damage (9 → 6) plus the Graviton's 7 damage knocks the Controller out, so its committed intent is canceled rather than firing into the vacated cell. A changed RNG call order should fail this regression instead of silently finding another seed.
 
 - [ ] **Step 8: Pin target victory and normal boss displacement**
 
