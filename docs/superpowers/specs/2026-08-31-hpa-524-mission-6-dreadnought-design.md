@@ -117,9 +117,9 @@ Dreadnought commits Graviton centered on Vanguard `(4,7)`; Cross1 contains `(5,7
 3. Vector Pulse geometry pushes Controller `(6,7) -> (5,7)`.
 4. Finish all three player activations and call normal `resolve_enemy_phase()`.
 
-With deterministic seed **1**, the Dreadnought's first roll is 66 (hit at 85%) and the critical roll is 20 (not critical at 5%). Graviton therefore deals normal 7 damage to Controller, leaving it alive at 2 HP; `OptionalObjectiveCompleted` is emitted through the existing `Turnabout` observer. Controller then resolves second at initiative 35 and its committed `(4,7)` target is empty, producing `AttackHitEmpty` instead of being canceled by a boss critical.
+With deterministic seed **2**, the player action is part of the RNG call order: Interceptor's Vector Pulse `attack` spends the first hit roll (11, hit at 85%) and crit roll (27, not critical at 5%), dealing 3 damage to Controller (9 → 6) and pushing it `(6,7) -> (5,7)` onto the boss's committed Cross1 footprint. `resolve_enemy_phase()` then resolves the Dreadnought first at initiative 40: the redirected Graviton rolls 52 (hit, crit roll 37, not critical at 5%) and deals 7 damage, knocking the Controller out from 6 HP. `OptionalObjectiveCompleted` is emitted through the existing `Turnabout` observer, and because the Controller is knocked out its committed intent is canceled (`IntentCanceled`) — it never fires into the vacated cell, so no `AttackHitEmpty` is produced.
 
-This pins the centerpiece using the real enemy-phase ordering rather than a private intent resolver or a seed sweep. If RNG call order changes, this test should fail visibly rather than silently finding another seed.
+This pins the centerpiece through the real `BattleState::attack` Vector Pulse and the real enemy-phase ordering, not a private intent resolver or a seed sweep. If RNG call order changes, this test should fail visibly rather than silently finding another seed.
 
 ### Objective/reward/story
 
