@@ -411,13 +411,16 @@ mod tests {
                     event,
                     BattleEvent::AttackRolled {
                         attacker,
+                        weapon,
                         target,
                         roll: 52,
                         hit: true,
                         critical_roll: Some(37),
                         critical: false,
                         ..
-                    } if *attacker == ids::DREADNOUGHT && *target == ids::CONTROLLER
+                    } if *attacker == ids::DREADNOUGHT
+                        && *weapon == ids::GRAVITON_SALVO
+                        && *target == ids::CONTROLLER
                 )
             })
             .expect("seed 2 pins a normal Graviton hit on the redirected Controller");
