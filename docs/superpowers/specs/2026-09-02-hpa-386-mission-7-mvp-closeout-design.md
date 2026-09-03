@@ -2,11 +2,11 @@
 
 ## Outcome
 
-Complete the seven-mission Scorpius MVP with one final authored battle, the second and final boss, a stable persisted campaign-complete state, a simple ending, and a focused presentation/tuning pass.
+Complete the seven-mission Scorpius MVP with one final authored battle, the second and final boss, a stable persisted campaign-complete state, a simple ending, and one focused presentation/tuning pass.
 
-Keep this as one HPA-386 PR. Mission 7 should feel like a synthesis of the six missions already shipped: read locked telegraphs, move out of threatened cells, redirect committed attacks onto enemies or props, use displacement and reactions, and decide whether the optional time pressure is worth pursuing. The closeout should prefer authored values and small presentation effects over new systems.
+Keep this as one HPA-386 PR. Mission 7 should synthesize the six missions already shipped: read locked telegraphs, vacate threatened cells, redirect committed attacks onto enemies or props, use displacement/environment positioning and reactions, and decide whether optional time pressure is worth pursuing.
 
-Do not add a boss engine, phase scripting, multi-tile occupancy, destructible boss parts, invulnerability phases, new objective/status frameworks, a cinematic battle scene, an audio subsystem, analytics, save migration, New Game+, or another crate/dependency.
+Prefer authored values and small extensions of existing seams over new systems. Do not add a boss engine, phase scripting, multi-tile occupancy, destructible boss parts, invulnerability phases, new objective/status frameworks, a cinematic battle scene, an audio subsystem, analytics, save migration, New Game+, or another crate/dependency.
 
 ## Existing seams
 
@@ -15,34 +15,35 @@ The current code already provides nearly everything HPA-386 needs:
 - `MissionId::Seven` exists as the current terminal handoff; Missions One–Six are authored definitions.
 - `MissionDefinition` owns a mission's builder, objectives, rewards, pre-mission dialogue, and aftermath dialogue.
 - `CampaignState` persists `next_mission`, credits, and upgrades through the existing `serde_json` save path.
-- `CampaignState::complete_mission` and `complete_current_mission` already enforce save-backed completion and reject replaying a mission after `next_mission` advances.
-- Mission 6 introduced the Dreadnought as a normal one-cell `UnitState`. `unit_weapon` switches its future weapon selection at half HP while committed `AttackIntent` values remain immutable.
-- All six regular enemy factories already exist in `mission/enemies.rs`; Mission 7 should compose those instead of adding a seventh regular archetype.
-- Primary objectives already include `EliminateTarget`; optional objectives already include `VictoryByRound` and `Turnabout`.
-- Existing board vocabulary already includes blocking cells, damaging hazards, explosives, collision, and one-cell push.
-- Battlefield presentation already renders selected/reachable/attack-preview cells, intent footprints/edges/target guides, reaction markers, movement/push motion, hit/impact pulses, damage shake on units, and knockout shrink.
-- There is no audio path today. HPA-386 therefore does not add sound merely to satisfy an optional polish bullet.
-- The checked-in `assets/models/mission_one.gltf` contains all current unit/prop scenes and remains the single combat visual asset.
-
-The closeout should extend those seams, not replace them.
+- `CampaignState::complete_mission` and `complete_current_mission` already own save-backed mission completion.
+- Mission 6 introduced Dreadnought as a normal one-cell `UnitState`; `unit_weapon` selects its future weapon slot by HP while committed `AttackIntent` values remain immutable.
+- All six regular enemy factories already exist in `mission/enemies.rs`.
+- Existing primary/optional objective variants already cover `EliminateTarget`, `VictoryByRound`, and `Turnabout`.
+- Existing board vocabulary already includes blocking cells, hazards, explosives, collision, and one-cell push.
+- `BattleState::is_open_for` deliberately treats live explosives as occupied terrain; pushes into them become collision instead of movement. Mission 7 must author around that rule rather than weaken it.
+- Battlefield presentation already renders selected/reachable/attack-preview cells, intent footprints/edges/target guides, reaction markers, movement/push motion, impact meshes, hit/damage shake, and knockout shrink.
+- Battle HUD copy already uses Bevy UI `Text` under the screen-space `HudRoot`; combat playback does not use `Text2d` or a `Camera2d`.
+- `grid_to_world` is centered for the existing 9×9 board convention (`HALF = 4.0`). Mission 7 can fit on 9×9, so there is no reason to add board-size camera math for closeout.
+- There is no audio path today. HPA-386 therefore skips sound rather than adding a subsystem for optional polish.
+- The checked-in `assets/models/mission_one.gltf` remains the single combat visual asset.
 
 ## Selected approach
 
-### Why this approach
+### Boss behavior: share only the second concrete seam
 
-There are three reasonable ways to implement the final boss threshold behavior:
+There are three plausible choices for the final boss threshold behavior:
 
-1. **Add a generic boss phase/threshold data model.** Rejected. Two bosses with one half-HP switch do not justify a registry, callbacks, or scripting surface.
-2. **Copy the Dreadnought selector into Mission 7-specific code.** Rejected. Mission 7 is now the second concrete consumer, and duplicating the same half-HP slot rule would make the existing selector disagree across movement, opening validation, and intent construction.
-3. **Extend the existing closed `unit_weapon` match to both boss archetypes.** Selected. This is the smallest shared seam justified by the second consumer and keeps all future-intent selection on one path.
+1. Add a generic boss phase/threshold data model — rejected. Two bosses with one half-HP switch do not justify a registry, callbacks, or scripting.
+2. Copy Dreadnought's threshold selector into Mission 7 — rejected. That would duplicate the same rule across movement, opening validation, and intent construction.
+3. Extend the existing closed `unit_weapon` match to Dreadnought + Regent — selected. Mission 7 is the second concrete consumer and this is the smallest justified shared seam.
 
-The same principle applies to campaign completion: represent completion directly rather than keeping `MissionId::Seven` as an unauthored sentinel or self-unlocking Mission 7.
+The same principle applies to campaign completion: represent terminal state directly rather than keeping Seven as an unauthored sentinel or inventing Mission Eight.
 
 ## Final boss — Regent
 
 Add one final `UnitArchetype::Regent`. It remains a normal single-cell enemy using ordinary movement, targeting, damage, reactions, collision, displacement, and locked intent resolution.
 
-Mission 7 owns the Regent factory and weapons locally; it does not join the six-archetype regular roster in `mission/enemies.rs`.
+Mission 7 owns the Regent factory and weapons locally; Regent does not join the six-archetype regular roster in `mission/enemies.rs`.
 
 ### Shared half-HP selector
 
@@ -56,14 +57,14 @@ let index = match unit.archetype {
 };
 ```
 
-No phase field is stored in `UnitState`. No threshold event is added. Both bosses use weapon slot 0 above half HP and slot 1 at/below half HP.
+No phase field is stored in `UnitState`. No threshold event is added. Both bosses use slot 0 above half HP and slot 1 at/below half HP.
 
-The locked-intent contract remains unchanged:
+Locked-intent behavior remains unchanged:
 
 ```text
 Round N planning: Regent above half HP -> Command Barrage committed
 Player phase: Regent crosses to half HP or below
-Round N resolution: committed Command Barrage is unchanged
+Round N resolution: committed Command Barrage stays unchanged
 Round N+1 planning: Rupture Beam is selected
 ```
 
@@ -89,77 +90,86 @@ HP 27–52 -> Command Barrage
 HP 0–26  -> Rupture Beam
 ```
 
-The phase contrast is authored rather than systemic: the first weapon threatens a broad committed footprint, while the second closes the range band and concentrates more damage on one cell. `attack_band_destination` remains sufficient because neither Regent weapon pushes.
+The contrast is authored rather than systemic: the first weapon threatens a broad committed footprint, while the second closes its range band and concentrates more damage on one cell. Existing `attack_band_destination` remains sufficient.
 
-Regent initiative is **45**, above the Dreadnought's 40 and Controller's 35. This lets the final boss remain the first resolved threat when its telegraph is deliberately redirected onto an escort.
-
-The Regent remains normally pushable. Do not add boss mass/resistance.
+Regent initiative is **45**, above Dreadnought 40 and Controller 35. The Regent remains normally pushable; do not add mass/resistance.
 
 ## Mission 7 — Last Command
 
 ### Board and deployment
 
-Use a 10×10 board. It is slightly larger than prior encounters but remains within the locked compact-map range and gives the final mixed roster enough room without increasing system complexity.
+Use a **9×9** board. The final encounter does not need a tenth row, and keeping 9×9 preserves the current centered `grid_to_world`/camera composition without another presentation rule.
 
 ```text
 Players
-Vanguard    (4,8)
-Gunner      (3,9)
-Interceptor (5,9)
+Vanguard    (4,7)
+Gunner      (3,8)
+Interceptor (5,8)
 
 Blocking
-(2,4) (7,4)
-(2,5) (7,5)
+(2,4) (6,4)
+(2,5) (6,5)
 
 Hazards
 (3,5) (5,5)
 
 Explosive
-(5,8), HP 4
+(3,7), HP 4
 ```
 
-The single explosive is deliberately placed inside the opening Regent footprint so the board itself can become part of the solution without cluttering the final telegraphs. The two hazards preserve the earlier environmental vocabulary for later-round positioning.
+The explosive and the Controller's intended push landing are deliberately **different** cells. Both are in the Regent's opening `Cross1`, but `(5,7)` stays empty so Vector Pulse can legally push into it under the existing `is_open_for` rule.
+
+Do not change `is_open_for` or `resolve_push` to let units overlap live explosives.
 
 ### Enemy roster and opening
 
-Use the Regent plus four existing regular archetypes. Do not put all six regular types on the board simply to showcase the roster.
+Use Regent plus four existing regular archetypes. Do not put all six regular types on the board merely to showcase the roster.
 
 ```text
-Regent      71 start (4,0) -> (4,2), target Vanguard
-Artillery   72 start (2,2) -> (2,3), target Gunner
-Controller  73 start (8,8) -> (6,8), target Vanguard
-Bulwark     74 start (1,7) -> (2,7), target Vanguard
-Flanker     75 start (0,9) -> (1,9), target Gunner
+Regent      71 start (4,1) -> (4,2), target Vanguard
+Artillery   72 start (2,1) -> (2,2), target Gunner
+Controller  73 start (8,7) -> (6,7), target Vanguard
+Bulwark     74 start (1,6) -> (2,6), target Vanguard
+Flanker     75 start (0,8) -> (1,8), target Gunner
 ```
 
-This opening deliberately layers earlier lessons:
+All opening rows must pass the existing shared `assert_opening_plan_is_legal` helper.
 
-- Regent commits a `Cross1` Command Barrage centered on Vanguard `(4,8)`; the footprint includes `(5,8)` and therefore the explosive.
-- Controller creates a displacement threat in the same lower-right lane.
-- Artillery reinforces the idea that long-range footprints stay locked.
-- Bulwark occupies space rather than gaining a new aura/guard mechanic.
-- Flanker creates fast side pressure without a new policy branch.
+The opening layers earlier lessons without inventing a new mechanic:
+
+- Regent commits `Command Barrage` centered on Vanguard `(4,7)`. Its `Cross1` footprint is `(4,7) (4,6) (4,8) (3,7) (5,7)`.
+- `(3,7)` contains the live explosive.
+- `(5,7)` is empty and is the legal Controller push landing.
+- Controller creates a displacement threat in the lower-right lane.
+- Artillery reinforces long-range locked-footprint reading.
+- Bulwark occupies space through body blocking only.
+- Flanker adds side pressure through its existing behavior.
 
 ### Authored opening manipulation line
 
-Pin one public-path regression around the centerpiece, using the same normal player action and enemy resolution seams that shipped in Mission 6:
+Pin one public-path regression around the centerpiece using the same live action/resolution seams as Mission 6.
 
-1. Regent has already committed Command Barrage centered on Vanguard `(4,8)`.
-2. Vanguard vacates `(4,8)` to `(4,6)`.
-3. Interceptor moves `(5,9)` to `(7,8)`.
-4. Interceptor uses the real Vector Pulse action on Controller `(6,8)`, pushing it to `(5,8)` — the Regent footprint and explosive cell.
-5. Finish all player activations and call normal `resolve_enemy_phase()`.
-6. Regent resolves first at initiative 45. A hit on the displaced Controller applies enemy damage; the same committed footprint damages the explosive and can trigger the existing explosion path.
+With deterministic seed **2**:
 
-Use a fixed deterministic seed in the test after confirming the actual current RNG sequence. Do not use a seed sweep and do not bypass `BattleState::attack` or `resolve_enemy_phase()` with test-only mutation shortcuts.
+1. `begin_round()` applies the authored opening and commits Regent `Command Barrage` on Vanguard `(4,7)`.
+2. Vanguard moves `(4,7) -> (4,5)` and finishes with a reaction.
+3. Gunner moves `(3,8) -> (2,8)` so the explosive at `(3,7)` can detonate without clipping the original Gunner cell, then finishes with a reaction.
+4. Interceptor moves `(5,8) -> (7,7)`.
+5. Interceptor uses the real Vector Pulse `attack` on Controller `(6,7)`. Seed 2's first player rolls remain the existing deterministic sequence; the attack deals its normal player damage and legally pushes Controller `(6,7) -> (5,7)`.
+6. Finish Interceptor with a reaction and call normal `resolve_enemy_phase()`.
+7. Regent resolves first at initiative 45. Its still-committed `Command Barrage` damages Controller at `(5,7)` and separately damages the explosive at `(3,7)` enough to trigger the existing explosion path.
+8. If the Regent hit knocks out Controller after Vector Pulse damage, Controller's lower-initiative committed intent is canceled through the existing knockout behavior.
 
-The test should pin the tactical facts rather than incidental event counts:
+Do not use a seed sweep. Do not bypass `BattleState::attack`, `resolve_push`, or `resolve_enemy_phase()` with test-only mutation shortcuts.
 
-- Vector Pulse performs real player damage + push onto `(5,8)`.
-- Regent still resolves the weapon/profile/footprint committed before player movement.
-- The displaced Controller is damaged by the Regent before its own lower-initiative intent.
-- The explosive at `(5,8)` is damaged/triggered by the same committed footprint.
-- No retargeting occurs after the player vacates the original target cell.
+The regression pins tactical facts rather than incidental total event counts:
+
+- `UnitPushed { unit: CONTROLLER, to: (5,7) }` is emitted; `(5,7)` is not a prop cell.
+- Regent's committed weapon/profile/footprint are unchanged by player movement.
+- Regent damages the displaced Controller before Controller's own intent can resolve.
+- `ExplosiveDamaged` and `ExplosionTriggered` name explosive cell `(3,7)`, not Controller cell `(5,7)`.
+- No retargeting occurs after Vanguard leaves `(4,7)`.
+- The test never requires changing occupancy semantics.
 
 ### Objectives and rewards
 
@@ -174,15 +184,13 @@ Base reward: 1000 credits
 Optional reward: 300 credits
 ```
 
-The optional objective adds pressure using an existing rule. It does not require a new score/rank system and is never required for progression.
-
-There is no separate hard failure turn limit. If the encounter is too long, tune HP/placements/enemy count before adding another rule.
+There is no separate hard-failure turn limit. If pacing is poor, tune HP/placement/enemy count before adding another rule.
 
 ### Story
 
 Reuse existing VN backgrounds and portraits only.
 
-Pre-mission scene:
+Pre-mission:
 
 1. Control: “The last command node is ahead. The Regent is broadcasting firing solutions to everything still standing.”
 2. Vanguard: “Then we make its final order point the wrong way.”
@@ -194,31 +202,31 @@ Aftermath/ending lead-in:
 2. Control: “Relay Nine is secure. Bring everyone home.”
 3. Vanguard: “Copy. Mission complete.”
 
-No new narrative engine or ending art is required.
+No narrative engine or ending art is added.
 
 ## Campaign completion
 
-### Replace the Seven handoff with an authored final mission
+### Author Seven and make terminality explicit
 
 Register `MissionId::Seven` in `mission_definition` and add `mission_seven.rs`.
 
-Change `MissionDefinition.unlocks` from `MissionId` to `Option<MissionId>`:
+Change:
+
+```rust
+pub unlocks: MissionId,
+```
+
+to:
 
 ```rust
 pub unlocks: Option<MissionId>,
 ```
 
-Missions One–Six use `Some(next)`. Mission Seven uses:
+Missions One–Six use `Some(next)`. Mission Seven uses `None`.
 
-```rust
-unlocks: None
-```
+### Persist completion once
 
-This is clearer than introducing a fake Mission Eight or having Mission Seven unlock itself.
-
-### Persist completion explicitly
-
-Add one field to `CampaignState`:
+Add exactly one field:
 
 ```rust
 pub completed: bool,
@@ -226,9 +234,9 @@ pub completed: bool,
 
 `CampaignState::new_game()` sets it to `false`.
 
-No `#[serde(default)]`, version field, converter, or migration is added. Existing pre-HPA-386 saves may stop loading; the project explicitly does not preserve pre-release save compatibility.
+Do not add `#[serde(default)]`, a version field, converter, or migration. Existing pre-HPA-386 saves may stop loading; pre-release backward compatibility is explicitly out of scope.
 
-Update mission completion as follows:
+`CampaignState::complete_mission` becomes:
 
 ```rust
 if self.completed {
@@ -241,20 +249,25 @@ if self.next_mission != definition.id {
     return Err(CampaignError::AlreadyAdvanced { ... });
 }
 
-// award once
+let optional_reward = if result.optional_complete {
+    definition.optional_reward
+} else {
+    0
+};
+let total_reward = definition.base_reward + optional_reward;
+self.credits += total_reward;
+
 match definition.unlocks {
     Some(next) => self.next_mission = next,
     None => self.completed = true,
 }
 ```
 
-For Mission 7, `next_mission` remains `Seven` and `completed` becomes true after the reward is applied. A second completion attempt fails before awarding credits, so campaign completion is idempotent exactly once.
+For Mission 7, `next_mission` remains Seven while `completed` becomes true. A second completion attempt fails before reward mutation, proving exactly-once terminal completion.
 
 ### Ending flow
 
-The current `NextMission` screen exists only to represent the unauthored Mission 7 handoff. Once Seven is authored, rename it to `Ending` rather than keep a misleading terminal-sentinel name.
-
-Game screens become:
+Rename the old sentinel-oriented `GameScreen::NextMission` to `GameScreen::Ending`.
 
 ```text
 Title
@@ -272,16 +285,16 @@ Routing:
 New Game -> Mission 1 story
 Continue, completed == true -> Ending
 Continue, Mission 1 -> Mission 1 story
-Continue, Missions 2–7 -> Upgrade
+Continue, unfinished Missions 2–7 -> Upgrade
 Aftermath, completed == false -> Upgrade
 Aftermath, completed == true -> Ending
 Proceed from Upgrade -> current mission story
 Ending -> Return to Title
 ```
 
-The final mission intentionally skips the post-Mission-7 upgrade screen. Its reward is still persisted and displayed in the aftermath/ending totals, but there is no future mission to upgrade for.
+Mission 7 intentionally skips a post-final upgrade screen. Its reward is persisted and appears in aftermath/ending totals, but there is no future battle to upgrade for.
 
-Ending copy stays small:
+Ending copy:
 
 ```text
 CAMPAIGN COMPLETE
@@ -289,53 +302,68 @@ Relay Nine secured.
 
 Final credits: <credits>
 
-Vanguard  <levels>
-Gunner    <levels>
+Vanguard    <HP ARMOR MOBILITY WEAPON levels>
+Gunner      <levels>
 Interceptor <levels>
 
 RETURN TO TITLE
 ```
 
-A completed save keeps Continue enabled and reopens the ending rather than trying to construct another battle.
+A completed save keeps Continue enabled and reopens Ending instead of attempting another battle.
 
 ## Board-first presentation finish
 
-HPA-386 should not reimplement presentation that already works. Keep the current selection/reachable tiles, telegraph overlays, intent guides, movement/push animation, impact pulse, target shake, and KO shrink.
+Do not replace presentation that already works. Keep the current selection/reachable tiles, telegraph overlays, intent guides, movement/push motion, 3D impact mesh, target shake, and KO shrink.
 
-Add only the concrete gaps visible in the current event playback path:
+Add only the concrete gaps below.
 
 ### Attack motion
 
-When an `AttackRolled` event begins, give the attacker a short pulse/forward emphasis using the existing event timer. This is a presentation-only transform effect; no projectile entity is required for every weapon.
+On `BattleEvent::AttackRolled`, pulse the attacker's existing `UnitVisual` forward/scale briefly using the current playback timer. No projectile entity or weapon-animation registry is required.
 
-Existing impact effects remain the primary hit feedback.
+### Damage numbers — reuse existing battle UI text
 
-### Damage numbers
+Do **not** add `Text2d` or a `Camera2d`.
 
-On `BattleEvent::DamageApplied`, spawn one transient world-space `Text2d` child at the target cell:
+Keep `spawn_event_effect` unchanged for the existing 3D `DamageApplied` impact. In addition, spawn one short-lived Bevy UI `Text` child under the existing `HudRoot`:
 
 ```text
 -7
 -12
 ```
 
-The number rises slightly during the existing event duration and despawns with the event effect. Use the event's `amount`; do not add a second damage-calculation path or a new domain event.
+Use the event's `amount`; do not calculate damage again.
 
-### Modest boss/signature camera emphasis
+Position the UI node by projecting the target's world position through the existing 3D battle camera:
 
-Mark the battle camera with a small component that retains its authored rest transform. During an `AttackRolled` from `Dreadnought` or `Regent`, apply a deterministic low-amplitude sinusoidal offset and restore the camera to the rest transform when the event ends.
+```rust
+let viewport = camera.world_to_viewport(
+    camera_transform,
+    grid_to_world(target.position) + Vec3::Y * 0.8,
+)?;
+```
 
-Keep the amplitude small enough that the board and telegraphs remain readable. Do not create a cinematic camera controller, cut-in, zoom timeline, or battle-animation scene.
+Set an absolute UI `Node.left/top` from that viewport position, then move it slightly upward during the same event fraction and despawn it when the event finishes.
 
-The three player pilot skills already receive command/status feedback and ordinary attack events. HPA-386 does not add a general signature-animation framework solely to specialize each skill.
+This reuses the existing camera + Bevy UI text stack, preserves the current 3D impact mesh, and adds no second rendering pipeline.
+
+### Modest boss camera emphasis
+
+Tag the existing `Camera3d` with a small `BattleCamera { rest: Transform }` component. During `AttackRolled` from Dreadnought or Regent, apply a deterministic low-amplitude sinusoidal offset from `rest`; restore exactly to `rest` whenever that event finishes or no boss attack is active.
+
+Do not add a camera controller, cut-in, zoom timeline, or battle-animation scene.
+
+### Pilot skills
+
+The three pilot skills already receive command/status feedback and normal attack events. Do not build a signature-animation framework solely to specialize them.
 
 ### Audio
 
-Skip sound cues in HPA-386. The repository has no existing audio path, and adding one would be a new subsystem for optional polish rather than MVP closeout.
+Skip sound cues. There is no existing audio seam.
 
 ## Regent visual
 
-Append one final scene to the existing checked-in glTF.
+Append one final scene to the existing checked-in glTF:
 
 ```text
 Scene 14: Regent
@@ -343,11 +371,11 @@ Root node 77
 Part nodes 78–83
 Mesh/material 14
 Root scale 1.20
-Material name: Regent Violet
+Material: Regent Violet
 Base color: [0.42, 0.14, 0.78, 1.0]
 ```
 
-Final asset counts:
+Final counts:
 
 ```text
 15 scenes
@@ -357,13 +385,11 @@ Final asset counts:
 1 buffer
 ```
 
-Map `UnitArchetype::Regent -> scene 14` and raise `MISSION_ONE_SCENE_COUNT` to 15.
-
-Keep the same shared accessors/buffer, no new texture, animation, glTF file, generator, or asset pipeline.
+Map `UnitArchetype::Regent -> 14` and raise `MISSION_ONE_SCENE_COUNT` to 15. No new texture, animation, glTF file, generator, or asset pipeline.
 
 ## Whole-campaign tuning and validation
 
-HPA-386 is the one intentional end-to-end playtest ticket. Use a clean New Game save and play Missions 1–7 in order through the ending.
+HPA-386 is the intentional end-to-end playtest ticket. Start from a clean New Game save and play Missions 1–7 through Ending.
 
 Record one row per mission in `docs/validation/hpa-386.md`:
 
@@ -376,68 +402,62 @@ Also record:
 - total first-playthrough time;
 - credits before/after each mission;
 - upgrades purchased and when;
-- any telegraph/readability issue;
-- whether each boss threshold occurs at a useful point in the encounter.
+- telegraph/readability problems;
+- whether each boss threshold occurs at a useful encounter point.
 
 Acceptance for the ledger:
 
-- Total first-playthrough time is approximately 120–180 minutes. A small deviation is acceptable only if the ledger states the measured total and why further tuning would make the game worse.
-- At least **4 of 7** missions materially reward reading/manipulating committed intent rather than only maximizing player damage. This is the strict majority required by the ticket; the ledger should identify the concrete moment in each qualifying mission.
-- A base-reward-only campaign path must still afford meaningful upgrades. Automated coverage should prove the 3300 base credits available before Mission 7 can buy one chosen track to level 2 on each of the three mechs (600 credits per mech, 1800 total) without optional rewards.
-- Optional rewards remain acceleration/customization, never a prerequisite.
+- Total first-playthrough time is roughly 120–180 minutes, or the ledger documents a small justified deviation.
+- At least **4 of 7** authored encounters materially reward reading/manipulating committed intent rather than only maximizing damage.
+- The base-reward-only path has **3300 credits before Mission 7** and can buy one chosen track to level 2 on each mech: 600 per mech, 1800 total, without optional rewards.
+- Optional rewards accelerate/customize progression but are not required.
 
 ### Tuning policy
 
-Only tune values when the playtest shows a concrete problem. Prefer this order:
+Only tune after recorded evidence. Prefer this order:
 
 1. placement/opening geometry;
 2. enemy count;
 3. boss HP/threshold timing;
 4. authored round pressure;
-5. weapon hit/damage/EN values;
-6. rewards/upgrade costs or effects.
+5. weapon values;
+6. upgrade/reward values.
 
-Change one dimension at a time and replay the affected mission. Do not add mechanics to solve a tuning problem.
+Do not build analytics, difficulty modes, or a tuning data framework.
 
-## Test contract
+## Testing contract
 
-Automated coverage must prove at least:
+Automated coverage must prove:
 
-1. Regent uses Command Barrage above half HP and Rupture Beam at/below half HP.
-2. Dreadnought retains its existing 21/20 behavior after the shared selector is extended.
-3. Crossing the Regent threshold does not rewrite a committed intent; the next intent uses Rupture Beam.
-4. Regent initiative is 45 and is above Dreadnought 40 / Controller 35.
-5. Regent remains normally pushable.
-6. Mission 7 board dimensions, blockers, hazards, explosive, roster, exact opening rows, objective, rewards, boss stats/weapons, and opening legality are pinned.
-7. The authored opening manipulation line uses the real Vector Pulse action and normal `resolve_enemy_phase()`, demonstrating committed Regent fire damaging the displaced Controller/explosive without retargeting.
-8. Regent KO completes Mission 7 even if escorts remain alive.
-9. Mission Seven is authored and has `unlocks == None`; Missions One–Six have the expected `Some(next)` chain.
-10. Mission 7 completion sets `CampaignState.completed` and awards its reward exactly once; a second completion call is an atomic error/no-op.
-11. Save round-trip preserves `completed`, credits, and upgrades; no compatibility migration is expected.
-12. Continue on a completed save routes to Ending; Mission Seven before completion routes through Upgrade -> story -> battle.
-13. Final aftermath routes directly to Ending, while earlier aftermath still routes to Upgrade.
-14. The base-only 3300-credit pre-Mission-7 path can buy a level-2 track for all three mechs without optional rewards.
-15. The Regent glTF scene and final global asset counts are pinned.
-16. Focused presentation tests cover damage-number copy/lifetime behavior and boss-camera emphasis selection without snapshotting an entire rendered frame.
-17. Existing repository format, strict Clippy, coverage-backed tests, and release build gates stay green.
-
-## Documentation and closeout
-
-Update `README.md` and `CLAUDE.md` only where their current campaign description stops at Mission 6/Seven handoff or describes the old terminal screen. Do not turn HPA-386 into a documentation rewrite.
-
-The validation ledger is the source of truth for the final playthrough timing and any evidence-driven tuning changes.
+1. Dreadnought still switches exactly at 21/20 HP and Regent at 27/26 HP.
+2. Crossing either threshold never rewrites an already-committed intent.
+3. Regent initiative is 45 and exceeds Dreadnought 40 / Controller 35.
+4. Regent stays on ordinary single-cell attack-band movement and remains pushable.
+5. Mission 7 board/deployment/roster/opening/objective/reward/story values are pinned and `assert_opening_plan_is_legal` passes.
+6. The seed-2 public centerpiece performs a real Vector Pulse push `(6,7) -> (5,7)`, then the committed Regent barrage damages Controller and triggers the separate explosive at `(3,7)` through normal enemy resolution.
+7. No test or implementation changes `is_open_for` to permit live-explosive occupancy.
+8. `MissionDefinition.unlocks` is `Some(next)` for One–Six and `None` for Seven.
+9. Final completion sets `completed = true`, awards Mission 7 once, and a second attempt is an atomic `CampaignComplete` error.
+10. Completed save round-trip + Continue route to Ending; unfinished Seven resumes through Upgrade -> story -> battle.
+11. All direct `CampaignState` fixtures explicitly set `completed`; no compatibility default hides stale test data.
+12. Regent is included explicitly in every exhaustive `UnitArchetype` branch touched by the feature, including enemy movement/initiative, `HudSnapshot::can_pilot`, `HudSnapshot::pilot_label`, `CommandAction::PilotSkill`, and scene selection.
+13. Existing 3D impact effects remain for `DamageApplied`; a separate HUD `Text` damage number is spawned/projected and removed without `Text2d` or `Camera2d`.
+14. Boss camera emphasis always restores the exact rest transform.
+15. glTF tests pin final 15/84/15/15/1 counts and scene 14 Regent values.
+16. Base-only reward math proves 3300 credits before Seven can fund three level-2 tracks.
+17. Concrete regressions discovered during the final manual pass receive targeted automated tests.
+18. Repository format/lint/test/coverage/release-build gates pass at closeout.
 
 ## Risks
 
-- **Final completion idempotence.** A self-unlocking Mission 7 would allow duplicate rewards. Use `completed` + `unlocks: None` and test the second completion attempt.
-- **Save blast radius.** Adding `completed` intentionally breaks old JSON saves and every direct `CampaignState` fixture must be updated in the same implementation task. Do not add migration code to hide that fact.
-- **Mission registration blast radius.** `MissionId::Seven` changes from terminal/unauthored to authored. Existing Continue/Proceed/terminal assertions across campaign tests must move in the same task so no intermediate commit knowingly leaves `cargo test --all-targets` red.
-- **Boss selector generalization.** Generalize only the exact shared half-HP slot rule. Do not grow `unit_weapon` into threshold tables or callbacks.
-- **Opening density.** Five enemy telegraphs plus the explosive must remain readable. If the playtest is noisy, remove or reposition an escort before inventing overlay filtering.
-- **Presentation transform drift.** Attack pulses/camera shake must restore authored transforms after each event. Pin helper behavior and keep the effect deterministic.
-- **Asset append blast radius.** Existing glTF tests pin global counts; update all relevant count assertions together with the scene append.
-- **Closeout scope creep.** Whole-campaign playtesting may reveal ideas that are improvements rather than blockers. Record them outside this MVP rather than adding systems to HPA-386.
+- **Illegal push/prop overlap:** highest authored-risk. The Controller landing `(5,7)` must stay empty; explosive is `(3,7)`. Do not alter occupancy rules.
+- **Mission registration/terminal blast radius:** Seven changes from unauthored sentinel to playable terminal mission while `unlocks` and `CampaignState` change shape. Land those together.
+- **Exhaustive Regent matches:** compiler-visible `UnitArchetype` arms must be updated in the same first task, especially HUD pilot affordance and pilot command rejection.
+- **Damage-number rendering:** use existing UI `Text` + 3D camera projection. Do not introduce `Text2d`/`Camera2d`, and do not replace the current impact mesh.
+- **Camera restore:** shake must be computed from an immutable rest transform and restored deterministically.
+- **Asset append:** existing glTF tests pin global counts; update all relevant pins when scene 14 is appended.
+- **Tuning scope creep:** authored values only, backed by the recorded playtest.
 
 ## Scope guardrails
 
-No extra playable mech, seventh regular enemy, deployment/team composition, pilot leveling, Spirit Commands/SP, morale, parts/equipment, ammo, weapon-specific upgrades, elements, generic statuses, overwatch, permadeath, repair costs, procedural maps, branching routes, difficulty modes, rank/score system, achievements, New Game+, multiplayer, generic boss/threshold scripting, multi-tile boss, boss parts, invulnerability, cinematic battle scene, cut-in framework, audio subsystem, analytics/tuning framework, save migration, new dependency/crate, second glTF, or second PR.
+No new playable mech, seventh regular enemy, boss engine, generic threshold registry, phase scripting, parts, invulnerability, resistance, multi-tile occupancy, objective/status framework, AI policy framework, new hazard/prop type, battle-animation scene, cut-in framework, audio subsystem, analytics/tuning framework, save migration/versioning, New Game+, new progression track, dependency/crate, second glTF, asset pipeline, or second PR.
