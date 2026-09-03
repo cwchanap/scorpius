@@ -4,7 +4,7 @@
 
 **Goal:** Ship Mission 7, the Regent final boss, stable once-only campaign completion/Ending, focused board-first feedback improvements, and one evidence-driven seven-mission MVP tuning pass in the same HPA-386 PR.
 
-**Architecture:** Reuse Mission 6's half-HP weapon-slot seam for the second boss. Author Mission 7 as typed Rust content on the existing 9×9 board convention and current push/explosive/hazard rules. Replace the unauthored-Seven sentinel with `MissionDefinition.unlocks: Option<MissionId>` plus one persisted `CampaignState.completed` bit. Presentation changes stay on the existing event playback, Camera3d, 3D impact mesh, and HUD UI `Text` paths.
+**Architecture:** Reuse Mission 6's half-HP `unit_weapon` seam for the second boss. Author Mission 7 as typed Rust content on the existing 9x9 board convention and current push/explosive/hazard rules. Replace the unauthored-Seven sentinel with `MissionDefinition.unlocks: Option<MissionId>` plus one persisted `CampaignState.completed` bit. Keep presentation changes inside existing `EventPlayback`, Camera3d, 3D `EventEffect`, and HUD UI `Text` paths.
 
 **Tech Stack:** Rust 2024, Bevy 0.19, serde/serde_json, checked-in glTF, Cargo tests, existing Bevy `App` integration tests, GitHub Actions.
 
@@ -13,23 +13,25 @@
 ## Global Constraints
 
 - One HPA-386 ticket = one PR. Continue on `jack65786656/hpa-386-scorpius-m2-author-mission-7-and-finish-mvp`.
-- Keep exactly three playable mechs, six regular enemy archetypes, and two bosses.
+- Keep three playable mechs, six regular enemy archetypes, and exactly two bosses.
 - Regent is one normal single-cell `UnitState`; no boss runtime, stored phase, threshold registry, scripting, parts, invulnerability, multi-tile collision, or resistance.
 - Dreadnought and Regent share only the half-HP slot selector in `unit_weapon`; committed intents remain immutable.
 - Regent: HP52 / Armor4 / Move2 / Accuracy92 / Evasion8 / EN0 / Initiative45.
-- Command Barrage: range3–6 / Cross1 / damage9 / hit+10 / crit5% / no push.
-- Rupture Beam: range2–4 / Single / damage12 / hit+15 / crit10% / no push.
-- Mission 7 is 9×9. Controller push landing is `(5,7)`; explosive is separately at `(3,7)`. Never change `is_open_for` or `resolve_push` to allow standing on a live explosive.
-- Mission Seven is authored and terminal: One–Six `unlocks: Some(next)`, Seven `unlocks: None`.
-- Persist exactly one new field: `CampaignState.completed: bool`. No save migration/default/versioning.
+- Command Barrage: range3-6 / Cross1 / damage9 / hit+10 / crit5% / no push.
+- Rupture Beam: range2-4 / Single / damage12 / hit+15 / crit10% / no push.
+- Mission 7 is 9x9. Controller landing is `(5,7)`; explosive is separately `(3,7)`. Do not change `is_open_for` or `resolve_push`.
+- Mission Seven is authored and terminal: One-Six `unlocks: Some(next)`, Seven `unlocks: None`.
+- Persist exactly `CampaignState.completed: bool`; no save migration/default/versioning.
 - Rename `GameScreen::NextMission` to `Ending`.
+- Continue, final Aftermath, and Proceed all guard `completed` through one pure routing helper using the existing `CampaignUiAction` enum.
 - Skip audio.
-- Damage numbers use existing screen-space Bevy UI `Text` under `HudRoot`, projected through the existing Camera3d. Do not add `Text2d` or `Camera2d`.
-- Existing 3D `DamageApplied` impact mesh stays in place.
-- Keep `grid_to_world` unchanged; Mission 7 fits the current 9×9 centering.
-- Regent visual is scene 14 in the existing `assets/models/mission_one.gltf`; final counts 15 scenes / 84 nodes / 15 meshes / 15 materials / 1 buffer.
+- Keep `EventEffect` 3D-only. Damage numbers are parallel HUD UI `Text` feedback with their own component/query/lifecycle inside `play_battle_events`.
+- `world_to_viewport` failure skips the number only; `play_battle_events` remains non-`Result`.
+- Reuse `text_font` from `presentation/ui.rs` by making it `pub(crate)`.
+- Keep `grid_to_world` unchanged.
+- Regent visual is scene14 in the existing glTF; final counts are 15 scenes / 84 nodes / 15 meshes / 15 materials / 1 buffer.
 - Tune authored values only from recorded playtest evidence.
-- No new dependency/crate, generic boss/objective/status/AI/narrative framework, seventh regular enemy, new playable mech, new progression track, New Game+, analytics, second glTF, or second PR.
+- No new dependency/crate, generic boss/objective/status/AI/narrative framework, seventh regular enemy, new playable mech, new progression track, New Game+, analytics, second glTF, asset pipeline, or second PR.
 
 ---
 
@@ -46,9 +48,9 @@
 - Consumes: Dreadnought `unit_weapon`, `attack_band_destination`, `initiative`, `HudSnapshot`, `execute_command`.
 - Produces: `UnitArchetype::Regent`, shared half-HP selection, initiative45, ordinary enemy UI/pilot behavior.
 
-- [ ] **Step 1: Add the failing exact-threshold regression**
+- [ ] **Step 1: Add failing exact-threshold coverage**
 
-In `src/domain/enemy.rs` tests, add Regent fixture IDs:
+In `src/domain/enemy.rs` tests add fixture IDs:
 
 ```rust
 const REGENT: UnitId = UnitId(92);
@@ -57,7 +59,55 @@ const COMMAND_BARRAGE: WeaponId = WeaponId(292);
 const RUPTURE_BEAM: WeaponId = WeaponId(293);
 ```
 
-Build Regent with `squad::unit(... stats(52, 4, 2, 92, 8, 0) ...)` and the two locked weapons from Global Constraints. Add:
+Build the Regent fixture with:
+
+```rust
+squad::unit(
+    REGENT,
+    "Regent",
+    UnitArchetype::Regent,
+    Faction::Enemy,
+    squad::stats(52, 4, 2, 92, 8, 0),
+    GridPos::new(3, 1),
+    vec![COMMAND_BARRAGE, RUPTURE_BEAM],
+)
+```
+
+and weapons:
+
+```rust
+squad::weapon(
+    COMMAND_BARRAGE,
+    "Command Barrage",
+    3,
+    6,
+    WeaponShape::Cross1,
+    9,
+    10,
+    5,
+    0,
+    false,
+    false,
+)
+```
+
+```rust
+squad::weapon(
+    RUPTURE_BEAM,
+    "Rupture Beam",
+    2,
+    4,
+    WeaponShape::Single,
+    12,
+    15,
+    10,
+    0,
+    false,
+    false,
+)
+```
+
+Add one test that pins both bosses' boundaries:
 
 ```rust
 #[test]
@@ -65,18 +115,34 @@ fn both_bosses_switch_at_their_exact_half_hp_boundary() {
     let mut regent = regent_threshold_fixture();
     regent.apply_direct_damage(REGENT, 25, DamageSource::Collision);
     assert_eq!(regent.unit(REGENT).unwrap().hp, 27);
-    assert_eq!(unit_weapon(&regent, regent.unit(REGENT).unwrap()).unwrap().id, COMMAND_BARRAGE);
+    assert_eq!(
+        unit_weapon(&regent, regent.unit(REGENT).unwrap()).unwrap().id,
+        COMMAND_BARRAGE
+    );
     regent.apply_direct_damage(REGENT, 1, DamageSource::Collision);
     assert_eq!(regent.unit(REGENT).unwrap().hp, 26);
-    assert_eq!(unit_weapon(&regent, regent.unit(REGENT).unwrap()).unwrap().id, RUPTURE_BEAM);
+    assert_eq!(
+        unit_weapon(&regent, regent.unit(REGENT).unwrap()).unwrap().id,
+        RUPTURE_BEAM
+    );
 
     let mut dreadnought = dreadnought_threshold_fixture();
     dreadnought.apply_direct_damage(DREADNOUGHT, 19, DamageSource::Collision);
     assert_eq!(dreadnought.unit(DREADNOUGHT).unwrap().hp, 21);
-    assert_eq!(unit_weapon(&dreadnought, dreadnought.unit(DREADNOUGHT).unwrap()).unwrap().id, GRAVITON);
+    assert_eq!(
+        unit_weapon(&dreadnought, dreadnought.unit(DREADNOUGHT).unwrap())
+            .unwrap()
+            .id,
+        GRAVITON
+    );
     dreadnought.apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
     assert_eq!(dreadnought.unit(DREADNOUGHT).unwrap().hp, 20);
-    assert_eq!(unit_weapon(&dreadnought, dreadnought.unit(DREADNOUGHT).unwrap()).unwrap().id, OVERLOAD);
+    assert_eq!(
+        unit_weapon(&dreadnought, dreadnought.unit(DREADNOUGHT).unwrap())
+            .unwrap()
+            .id,
+        OVERLOAD
+    );
 }
 ```
 
@@ -106,54 +172,57 @@ cargo test --lib regent -- --nocapture
 
 Expected: compile failure because Regent does not exist.
 
-- [ ] **Step 4: Implement the minimal shared boss seam**
+- [ ] **Step 4: Extend the existing selector and movement path**
 
-Append `Regent` to `UnitArchetype` and change `unit_weapon` to:
+Append `Regent` to `UnitArchetype`.
+
+Change `unit_weapon` to:
 
 ```rust
-let index = match unit.archetype {
-    UnitArchetype::Dreadnought | UnitArchetype::Regent
-        if unit.hp * 2 <= unit.stats.max_hp => 1,
-    _ => 0,
-};
+pub(crate) fn unit_weapon<'a>(
+    battle: &'a BattleState,
+    unit: &UnitState,
+) -> Result<&'a WeaponSpec, BattleError> {
+    let index = match unit.archetype {
+        UnitArchetype::Dreadnought | UnitArchetype::Regent
+            if unit.hp * 2 <= unit.stats.max_hp => 1,
+        _ => 0,
+    };
+    let id = unit
+        .weapons
+        .get(index)
+        .copied()
+        .ok_or(BattleError::InvalidTarget(unit.position))?;
+    battle.weapon(id).ok_or(BattleError::UnknownWeapon(id))
+}
 ```
 
-Extend the normal attack-band arm with `UnitArchetype::Regent` and add Regent initiative45.
+Extend the attack-band branch:
 
-- [ ] **Step 5: Make every exhaustive presentation/pilot arm explicit**
+```rust
+UnitArchetype::Rifleman
+| UnitArchetype::Striker
+| UnitArchetype::Bulwark
+| UnitArchetype::Dreadnought
+| UnitArchetype::Regent => {
+    let weapon = unit_weapon(battle, unit)?;
+    Ok(attack_band_destination(&candidates, &players, weapon))
+}
+```
 
-In `src/presentation/battlefield.rs`, temporarily map Regent to scene13 until Task 3:
+Add `UnitArchetype::Regent => 45` to initiative.
+
+- [ ] **Step 5: Make exhaustive presentation/pilot arms explicit**
+
+Temporarily map Regent to scene13 until Task 3:
 
 ```rust
 UnitArchetype::Regent => 13,
 ```
 
-In both `HudSnapshot::can_pilot` and `HudSnapshot::pilot_label`, add Regent to the enemy-only arm. In `CommandAction::PilotSkill`, add Regent to the `PilotSkillWrongUnit` arm.
+Add Regent to the enemy-only branches in both `HudSnapshot::can_pilot` and `HudSnapshot::pilot_label`, and to `CommandAction::PilotSkill` rejection.
 
-The expected forms are:
-
-```rust
-| UnitArchetype::Dreadnought
-| UnitArchetype::Regent => false,
-```
-
-```rust
-| UnitArchetype::Dreadnought
-| UnitArchetype::Regent => "[P] PILOT",
-```
-
-```rust
-| UnitArchetype::Dreadnought
-| UnitArchetype::Regent => {
-    return Err(BattleError::PilotSkillWrongUnit(unit_id));
-}
-```
-
-Keep the existing regular-enemy variants in those same arms.
-
-- [ ] **Step 6: Extend initiative coverage**
-
-In `initiative_is_fixed_per_archetype_without_position`, construct Regent and pin:
+Pin initiative ordering:
 
 ```rust
 assert_eq!(initiative(&regent), 45);
@@ -161,7 +230,7 @@ assert!(initiative(&regent) > initiative(&dreadnought));
 assert!(initiative(&regent) > initiative(&controller));
 ```
 
-- [ ] **Step 7: Verify and commit**
+- [ ] **Step 6: Verify and commit**
 
 ```bash
 cargo fmt --check
@@ -175,7 +244,7 @@ git commit -m "feat: add Regent boss behavior"
 
 ---
 
-### Task 2: Author Mission 7 and add stable terminal campaign state
+### Task 2: Author Mission 7 and replace the Seven sentinel with stable completion
 
 **Files:**
 - Create: `src/mission/mission_seven.rs`
@@ -198,11 +267,13 @@ git commit -m "feat: add Regent boss behavior"
 
 **Interfaces:**
 - Consumes: Task 1 Regent, regular enemy factories, `build_player_squad`, current campaign/session flow.
-- Produces: `MISSION_SEVEN_DEFINITION`, legal seed2 final encounter, `unlocks: Option<MissionId>`, `completed`, `CampaignComplete`, `Ending`.
+- Produces: `MISSION_SEVEN_DEFINITION`, legal seed2 final encounter, `unlocks: Option<MissionId>`, `completed`, `CampaignComplete`, `Ending`, and one pure `campaign_destination` helper.
 
 This is one coordinated task because Seven changes from an unauthored sentinel into a playable terminal mission.
 
-- [ ] **Step 1: Write the final-completion regression first**
+- [ ] **Step 1: Write final-completion and routing tests first**
+
+Add:
 
 ```rust
 #[test]
@@ -233,7 +304,19 @@ fn final_mission_completion_is_persisted_and_idempotent() {
 
 Update every direct `CampaignState { ... }` fixture to set `completed` explicitly.
 
-- [ ] **Step 2: Write the Mission 7 board/opening tests before the factory**
+In `campaign_ui.rs` tests, pin the future routing truth table for `campaign_destination`:
+
+```text
+Continue + completed -> Ending
+Continue + unfinished One -> PreMissionStory
+Continue + unfinished Seven -> Upgrade
+AdvanceAftermath + completed -> Ending
+AdvanceAftermath + unfinished -> Upgrade
+Proceed + completed -> Ending
+Proceed + unfinished Seven -> PreMissionStory
+```
+
+- [ ] **Step 2: Write Mission 7 board/opening tests before the factory**
 
 Use authored IDs:
 
@@ -247,15 +330,17 @@ pub const COMMAND_BARRAGE: WeaponId = WeaponId(209);
 pub const RUPTURE_BEAM: WeaponId = WeaponId(210);
 ```
 
-Pin the 9×9 board:
+Pin:
 
 ```rust
 assert_eq!((battle.board().width(), battle.board().height()), (9, 9));
 assert_eq!(
     battle.board().blocking_cells().collect::<Vec<_>>(),
     vec![
-        GridPos::new(2, 4), GridPos::new(6, 4),
-        GridPos::new(2, 5), GridPos::new(6, 5),
+        GridPos::new(2, 4),
+        GridPos::new(6, 4),
+        GridPos::new(2, 5),
+        GridPos::new(6, 5),
     ]
 );
 assert_eq!(
@@ -277,47 +362,30 @@ let expected = [
 ];
 ```
 
-Also call:
+Also run `assert_opening_plan_is_legal(&mission_seven(1));`. If it fails, fix authored coordinates; do not change generic movement/opening rules.
 
-```rust
-assert_opening_plan_is_legal(&mission_seven(1));
-```
+- [ ] **Step 3: Copy Mission 6's public-path helper and add only the Gunner move**
 
-If this fails, fix authored coordinates. Do not change generic movement/opening rules.
+Create `redirected_opening_ready_to_resolve()` in `mission_seven.rs` by copying the structure of Mission 6's helper. Keep the same public action/RNG order and add the Gunner move between Vanguard and Interceptor.
 
-- [ ] **Step 3: Write the public seed2 manipulation regression before implementation is considered green**
-
-After `begin_round()`, assert Regent `Command Barrage` contains both distinct cells:
-
-```rust
-let regent_intent = battle.intent_for(ids::REGENT).unwrap().clone();
-assert_eq!(regent_intent.profile.weapon, ids::COMMAND_BARRAGE);
-assert!(regent_intent.footprint.contains(&GridPos::new(3, 7)));
-assert!(regent_intent.footprint.contains(&GridPos::new(5, 7)));
-assert!(battle.board().has_live_explosive(GridPos::new(3, 7)));
-assert!(!battle.board().has_live_explosive(GridPos::new(5, 7)));
-```
-
-Run real player actions:
+The sequence must be exactly:
 
 ```text
-Vanguard    (4,7) -> (4,5)
-Gunner      (3,8) -> (2,8)
+seed 2
+begin_round
+Vanguard (4,7) -> (4,5), Guard, finish
+Gunner (3,8) -> (2,8), Guard, finish
 Interceptor (5,8) -> (7,7)
-Vector Pulse Controller (6,7) -> (5,7)
+Vector Pulse Controller at (6,7)
+assert hit roll 11 and non-critical roll 27
+assert Controller push (6,7) -> (5,7)
+Interceptor Guard, finish
+Controller HP == 6
 ```
 
-Pin the push:
+Before player actions pin Regent's committed `Command Barrage` contains both `(3,7)` and `(5,7)`, that `(3,7)` holds a live explosive, and `(5,7)` does not.
 
-```rust
-assert!(pulse_events.iter().any(|event| matches!(
-    event,
-    BattleEvent::UnitPushed { unit, to, .. }
-        if *unit == ids::CONTROLLER && *to == GridPos::new(5, 7)
-)));
-```
-
-Finish reactions and call normal `resolve_enemy_phase()`. With seed2, pin Regent's ordinary hit and the separate prop trigger:
+Then add the resolution test using normal `resolve_enemy_phase()` and pin:
 
 ```rust
 assert!(events.iter().any(|event| matches!(
@@ -328,17 +396,32 @@ assert!(events.iter().any(|event| matches!(
         target,
         roll: 52,
         hit: true,
+        critical_roll: Some(37),
         critical: false,
         ..
     } if *attacker == ids::REGENT
         && *weapon == ids::COMMAND_BARRAGE
         && *target == ids::CONTROLLER
 )));
+```
+
+```rust
+assert!(events.iter().any(|event| matches!(
+    event,
+    BattleEvent::ExplosiveDamaged { position, .. }
+        if *position == GridPos::new(3, 7)
+)));
+```
+
+```rust
 assert!(events.iter().any(|event| matches!(
     event,
     BattleEvent::ExplosionTriggered { position, .. }
         if *position == GridPos::new(3, 7)
 )));
+```
+
+```rust
 assert!(events.iter().any(|event| matches!(
     event,
     BattleEvent::IntentCanceled { attacker }
@@ -346,9 +429,9 @@ assert!(events.iter().any(|event| matches!(
 )));
 ```
 
-This test must stay on `BattleState::attack` + `resolve_enemy_phase`; no seed sweep or direct push shortcut.
+Do not use a seed sweep, direct `resolve_push`, or test-only movement mutation to reconstruct the RNG sequence.
 
-- [ ] **Step 4: Verify red**
+- [ ] **Step 4: Verify the intended red state**
 
 ```bash
 cargo test --lib mission::mission_seven -- --nocapture
@@ -357,15 +440,15 @@ cargo test --test campaign_persistence final_mission_completion_is_persisted_and
 
 Expected: Mission Seven/terminal fields do not exist yet.
 
-- [ ] **Step 5: Change mission terminality atomically**
+- [ ] **Step 5: Change mission terminality and campaign state atomically**
 
-In `MissionDefinition`:
+Change `MissionDefinition`:
 
 ```rust
 pub unlocks: Option<MissionId>,
 ```
 
-Register Seven and update all definitions:
+Register Seven and update definitions:
 
 ```text
 One   -> Some(Two)
@@ -377,19 +460,15 @@ Six   -> Some(Seven)
 Seven -> None
 ```
 
-`mission_definition(MissionId::Seven)` now returns `Some(&MISSION_SEVEN_DEFINITION)`.
-
-- [ ] **Step 6: Add exactly-once persisted completion**
-
-In `CampaignState`:
+Add:
 
 ```rust
 pub completed: bool,
 ```
 
-`new_game()` sets false. Add `CampaignError::CampaignComplete` and check it before reward mutation.
+to `CampaignState`, set false in `new_game`, add `CampaignError::CampaignComplete`, and check it before reward mutation.
 
-After rewards:
+After awarding rewards:
 
 ```rust
 match definition.unlocks {
@@ -398,9 +477,9 @@ match definition.unlocks {
 }
 ```
 
-Do not add compatibility defaults or migrations.
+No compatibility defaults or migrations.
 
-- [ ] **Step 7: Implement Mission 7 exactly**
+- [ ] **Step 6: Implement Mission 7 exactly**
 
 Deployment:
 
@@ -419,8 +498,10 @@ BoardState::new(
     9,
     9,
     [
-        GridPos::new(2, 4), GridPos::new(6, 4),
-        GridPos::new(2, 5), GridPos::new(6, 5),
+        GridPos::new(2, 4),
+        GridPos::new(6, 4),
+        GridPos::new(2, 5),
+        GridPos::new(6, 5),
     ],
     [GridPos::new(3, 5), GridPos::new(5, 5)],
     [ExplosiveState {
@@ -435,17 +516,51 @@ Opening:
 
 ```rust
 static MISSION_SEVEN_OPENING: [EnemyOpening; 5] = [
-    EnemyOpening { unit: ids::REGENT, destination: GridPos::new(4, 2), target: Some(ids::VANGUARD) },
-    EnemyOpening { unit: ids::ARTILLERY, destination: GridPos::new(2, 2), target: Some(ids::GUNNER) },
-    EnemyOpening { unit: ids::CONTROLLER, destination: GridPos::new(6, 7), target: Some(ids::VANGUARD) },
-    EnemyOpening { unit: ids::BULWARK, destination: GridPos::new(2, 6), target: Some(ids::VANGUARD) },
-    EnemyOpening { unit: ids::FLANKER, destination: GridPos::new(1, 8), target: Some(ids::GUNNER) },
+    EnemyOpening {
+        unit: ids::REGENT,
+        destination: GridPos::new(4, 2),
+        target: Some(ids::VANGUARD),
+    },
+    EnemyOpening {
+        unit: ids::ARTILLERY,
+        destination: GridPos::new(2, 2),
+        target: Some(ids::GUNNER),
+    },
+    EnemyOpening {
+        unit: ids::CONTROLLER,
+        destination: GridPos::new(6, 7),
+        target: Some(ids::VANGUARD),
+    },
+    EnemyOpening {
+        unit: ids::BULWARK,
+        destination: GridPos::new(2, 6),
+        target: Some(ids::VANGUARD),
+    },
+    EnemyOpening {
+        unit: ids::FLANKER,
+        destination: GridPos::new(1, 8),
+        target: Some(ids::GUNNER),
+    },
 ];
 ```
 
-Regent uses local weapons 209/210 and `stats(52, 4, 2, 92, 8, 0)`. Escorts use existing factories.
+Regent unit:
 
-Dialogue arrays are exact and reuse existing portraits:
+```rust
+unit(
+    ids::REGENT,
+    "Regent",
+    UnitArchetype::Regent,
+    Faction::Enemy,
+    stats(52, 4, 2, 92, 8, 0),
+    GridPos::new(4, 1),
+    vec![ids::COMMAND_BARRAGE, ids::RUPTURE_BEAM],
+)
+```
+
+Use existing factories for Artillery, Controller, Bulwark, and Flanker. Define the two local Regent weapons with the locked Global Constraints values.
+
+Use exactly these dialogue arrays:
 
 ```rust
 static PRE_MISSION_LINES: [DialogueLine; 3] = [
@@ -465,7 +580,9 @@ static PRE_MISSION_LINES: [DialogueLine; 3] = [
         portrait: "vn/control_alert.png",
     },
 ];
+```
 
+```rust
 static AFTERMATH_LINES: [DialogueLine; 3] = [
     DialogueLine {
         speaker: "Vanguard",
@@ -492,7 +609,7 @@ pub const MISSION_SEVEN_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Seven,
     unlocks: None,
     build: mission_seven_for_campaign,
-    title: "Mission 7 — Last Command",
+    title: "Mission 7 - Last Command",
     primary_objective: "Destroy the Regent and break the command net.",
     optional_objective: "Final Push: destroy the Regent by the end of Round 6.",
     base_reward: 1000,
@@ -508,35 +625,51 @@ pub const MISSION_SEVEN_DEFINITION: MissionDefinition = MissionDefinition {
 };
 ```
 
-- [ ] **Step 8: Replace sentinel UI with Ending**
+- [ ] **Step 7: Add one pure terminal routing helper and use it in all three seams**
 
-Rename `GameScreen::NextMission` to `Ending`, and rename `setup_next_mission_screen` / `next_mission_copy` to `setup_ending_screen` / `ending_copy`.
-
-Continue routing:
+In `campaign_ui.rs` add:
 
 ```rust
-CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
-    Ok(_) if runtime.0.state.as_ref().is_some_and(|state| state.completed) => {
-        next_state.set(GameScreen::Ending)
+fn campaign_destination(
+    action: CampaignUiAction,
+    state: &CampaignState,
+) -> Option<GameScreen> {
+    match action {
+        CampaignUiAction::Continue if state.completed => Some(GameScreen::Ending),
+        CampaignUiAction::Continue if state.next_mission == MissionId::One => {
+            Some(GameScreen::PreMissionStory)
+        }
+        CampaignUiAction::Continue => Some(GameScreen::Upgrade),
+        CampaignUiAction::AdvanceAftermath if state.completed => Some(GameScreen::Ending),
+        CampaignUiAction::AdvanceAftermath => Some(GameScreen::Upgrade),
+        CampaignUiAction::Proceed if state.completed => Some(GameScreen::Ending),
+        CampaignUiAction::Proceed => Some(GameScreen::PreMissionStory),
+        _ => None,
     }
-    Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-    Ok(_) => next_state.set(GameScreen::Upgrade),
-    Err(error) => status.0 = error.to_string(),
-},
+}
 ```
 
-After final aftermath, route to Ending when `runtime.0.state.completed`; otherwise route to Upgrade. `Proceed` from Upgrade always goes to `PreMissionStory` because Seven is now authored.
+Rename `GameScreen::NextMission` to `Ending` and the terminal screen setup/copy helpers accordingly.
 
-- [ ] **Step 9: Update campaign blast-radius tests**
+After `continue_game` succeeds, route from the loaded state with `campaign_destination(CampaignUiAction::Continue, state)`.
+
+For `AdvanceAftermath`, compute the destination from the persisted state before calling `advance_dialogue`; the destination is used only when the last aftermath line advances.
+
+For `Proceed`, route with `campaign_destination(CampaignUiAction::Proceed, state)`. A completed save must go to Ending, never back into Mission 7 story.
+
+- [ ] **Step 8: Update campaign blast-radius tests**
 
 Pin:
 
 ```rust
-assert_eq!(mission_definition(MissionId::Six).unwrap().unlocks, Some(MissionId::Seven));
+assert_eq!(
+    mission_definition(MissionId::Six).unwrap().unlocks,
+    Some(MissionId::Seven)
+);
 assert_eq!(mission_definition(MissionId::Seven).unwrap().unlocks, None);
 ```
 
-Base credits before Seven remain:
+Pin base credits before Seven:
 
 ```rust
 let base_before_seven: u32 = [
@@ -553,19 +686,20 @@ let base_before_seven: u32 = [
 assert_eq!(base_before_seven, 3300);
 ```
 
-Integration routing must pin:
+Integration routing must cover:
 
 ```text
 unfinished Seven Continue -> Upgrade
 unfinished Seven Proceed -> PreMissionStory
 completed Continue -> Ending
-final aftermath -> Ending
+completed AdvanceAftermath -> Ending
+completed Proceed -> Ending
 Ending -> Title
 ```
 
 Persistence must round-trip both `completed: false` and `completed: true`.
 
-- [ ] **Step 10: Verify Task 2 with the geometry test first**
+- [ ] **Step 9: Verify Task 2 with risky tests first**
 
 ```bash
 cargo fmt --check
@@ -577,9 +711,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
 ```
 
-The Mission 7 manipulation regression must pass without modifying `src/domain/battle.rs` or `src/domain/environment.rs`.
+The Mission 7 public-path regression must pass without modifying `src/domain/battle.rs` or `src/domain/environment.rs`.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/mission src/campaign src/presentation/campaign_ui.rs src/presentation/interaction.rs src/app.rs tests/campaign_model.rs tests/campaign_flow.rs tests/campaign_persistence.rs tests/presentation_app.rs
@@ -588,7 +722,7 @@ git commit -m "feat: author Mission 7 and campaign ending"
 
 ---
 
-### Task 3: Append the Regent glTF scene
+### Task 3: Append the Regent glTF scene and update every global-count pin
 
 **Files:**
 - Modify: `assets/models/mission_one.gltf`
@@ -596,10 +730,12 @@ git commit -m "feat: author Mission 7 and campaign ending"
 - Modify: `src/presentation/battlefield.rs`
 
 **Interfaces:**
-- Consumes: existing single-buffer append pattern and Task 1 temporary scene13 mapping.
-- Produces: Regent scene14 and final 15/84/15/15/1 asset counts.
+- Consumes: existing one-buffer glTF append pattern and Task 1 temporary scene13 mapping.
+- Produces: Regent scene14 and final 15/84/15/15/1 counts.
 
-- [ ] **Step 1: Add the failing Regent asset test**
+- [ ] **Step 1: Add the failing Regent scene test**
+
+Add:
 
 ```rust
 #[test]
@@ -615,7 +751,10 @@ fn regent_scene_is_authored_as_the_final_violet_boss() {
     assert_eq!(scenes[14]["nodes"], serde_json::json!([77]));
     assert_eq!(nodes.len(), 84);
     assert_eq!(nodes[77]["scale"], serde_json::json!([1.20, 1.20, 1.20]));
-    assert_eq!(nodes[77]["children"], serde_json::json!([78, 79, 80, 81, 82, 83]));
+    assert_eq!(
+        nodes[77]["children"],
+        serde_json::json!([78, 79, 80, 81, 82, 83])
+    );
     for (index, part) in nodes.iter().enumerate().skip(78).take(6) {
         assert_eq!(part["mesh"], 14, "node {index} must use mesh 14");
     }
@@ -632,19 +771,37 @@ fn regent_scene_is_authored_as_the_final_violet_boss() {
 }
 ```
 
-Update existing global-count assertions to the same final counts.
+- [ ] **Step 2: Update every existing hard-coded global count in the same edit**
 
-- [ ] **Step 2: Verify red**
+Change all old `14` scene/mesh/material and `77` node global assertions to the final values in these existing tests:
 
-```bash
-cargo test --lib presentation::assets::tests::regent_scene_is_authored_as_the_final_violet_boss -- --nocapture
+```text
+flanker_scene_is_authored_with_own_mesh_material_and_root_scale
+bulwark_and_controller_scenes_are_authored_with_own_meshes_and_roots
+dreadnought_scene_is_authored_as_a_larger_crimson_unit
 ```
 
-Expected: current glTF has 14 scenes.
+Keep their scene indices/node ranges unchanged. All four tests, including the new Regent test, must agree on:
 
-- [ ] **Step 3: Append the scene without a new asset pipeline**
+```text
+scenes 15
+nodes 84
+meshes 15
+materials 15
+buffers 1
+```
 
-Append scene14 -> root77 -> part nodes78–83, mesh14, material14. Reuse current cube POSITION/NORMAL accessors and the one buffer. Material is `Regent Violet`, `[0.42, 0.14, 0.78, 1.0]`.
+- [ ] **Step 3: Verify red**
+
+```bash
+cargo test --lib presentation::assets -- --nocapture
+```
+
+Expected: current glTF has 14 scenes/77 nodes and no scene14.
+
+- [ ] **Step 4: Append Regent using the existing buffer/accessors**
+
+Append scene14 -> root77 -> parts78-83, mesh14, material14. Reuse existing cube POSITION/NORMAL accessors and the one buffer. Material is `Regent Violet`, base color `[0.42, 0.14, 0.78, 1.0]`.
 
 Set:
 
@@ -658,7 +815,7 @@ and final mapping:
 UnitArchetype::Regent => 14,
 ```
 
-- [ ] **Step 4: Verify and commit**
+- [ ] **Step 5: Verify and commit**
 
 ```bash
 cargo fmt --check
@@ -672,33 +829,38 @@ git commit -m "feat: add Regent battlefield visual"
 
 ---
 
-### Task 4: Extend existing playback/UI for final combat feedback
+### Task 4: Extend EventPlayback with parallel HUD damage-number lifecycle
 
 **Files:**
 - Modify: `src/presentation/battlefield.rs`
 - Modify: `src/presentation/playback.rs`
-- Modify: `tests/presentation_app.rs` only if the existing integration-test module is the clearer home for the UI-entity assertion
+- Modify: `src/presentation/ui.rs`
+- Test: `src/presentation/playback.rs`
+- Test: `tests/presentation_app.rs` only if the existing App-level fixture is a clearer home for the Camera3d projection case
 
 **Interfaces:**
-- Consumes: `EventPlayback`, `UnitVisual`, `EventEffect`, `HudRoot`, Camera3d, `grid_to_world`.
-- Produces: attacker pulse, projected damage-number UI `Text`, boss camera shake with exact restore. Existing 3D impacts remain.
+- Consumes: `EventPlayback`, `EventEffect`, `UnitVisual`, `HudRoot`, `text_font`, Camera3d, `grid_to_world`.
+- Produces: attacker pulse, parallel `DamageNumberEffect`, boss camera shake with exact restore. Existing 3D impact feedback remains unchanged.
 
-- [ ] **Step 1: Add focused red tests for pure transform/copy behavior**
+- [ ] **Step 1: Add failing lifecycle helpers/tests**
+
+Add:
 
 ```rust
-fn damage_number_text(amount: i16) -> String {
-    format!("-{amount}")
+#[derive(Component)]
+struct DamageNumberEffect {
+    origin: Vec2,
 }
+```
 
+Add pure transform helpers:
+
+```rust
 fn attack_scale(progress: f32) -> f32 {
     let pulse = (progress * PI).sin();
     UNIT_SCALE * (1.0 + pulse * 0.10)
 }
 ```
-
-Pin `damage_number_text(7) == "-7"`, scale at progress0/1 equals `UNIT_SCALE`, midpoint is larger.
-
-Add:
 
 ```rust
 fn boss_camera_transform(rest: Transform, progress: f32) -> Transform {
@@ -710,7 +872,17 @@ fn boss_camera_transform(rest: Transform, progress: f32) -> Transform {
 }
 ```
 
-Pin progress0 and 1 exactly equal rest, midpoint differs.
+Pin start/end equal rest/base scale and midpoint differs.
+
+Add a small `App` test for the actual damage-number lifecycle. Spawn a `HudRoot`, call the same damage-number spawn helper used by playback with viewport `(320,240)` and amount 7, run the same animation helper at fraction 0.5, then invoke the same cleanup helper called from the finished branch. Assert:
+
+```text
+Text is "-7"
+Node.top moved above 240
+DamageNumberEffect entity no longer exists after cleanup
+```
+
+Do not satisfy Task 4 with a string-only formatting test.
 
 - [ ] **Step 2: Verify red**
 
@@ -718,11 +890,26 @@ Pin progress0 and 1 exactly equal rest, midpoint differs.
 cargo test --lib presentation::playback -- --nocapture
 ```
 
-Expected: helpers/component do not exist.
+Expected: `DamageNumberEffect`, lifecycle helpers, and `BattleCamera` do not exist.
 
-- [ ] **Step 3: Tag the existing Camera3d, not a new camera**
+- [ ] **Step 3: Reuse the existing font helper**
 
-In `battlefield.rs`:
+Change in `src/presentation/ui.rs`:
+
+```rust
+pub(crate) fn text_font(size: f32) -> TextFont {
+    TextFont {
+        font_size: FontSize::Px(size),
+        ..default()
+    }
+}
+```
+
+Import `ui::{HudRoot, text_font}` in `playback.rs`. Do not create another font helper or font asset.
+
+- [ ] **Step 4: Tag the existing Camera3d, not a new camera**
+
+In `battlefield.rs` add:
 
 ```rust
 #[derive(Component, Clone, Copy)]
@@ -731,7 +918,7 @@ pub(crate) struct BattleCamera {
 }
 ```
 
-Use the existing camera configuration exactly:
+Spawn the existing camera with the same projection and a stored rest transform:
 
 ```rust
 let rest = Transform::from_xyz(10.8, 12.4, 12.2).looking_at(Vec3::ZERO, Vec3::Y);
@@ -749,92 +936,105 @@ commands.spawn((
 ));
 ```
 
-- [ ] **Step 4: Add attacker pulse without deleting target feedback**
+- [ ] **Step 5: Extend `play_battle_events` with a sibling UI query**
 
-For `AttackRolled`, apply `attack_scale(progress)` to the attacker visual. Preserve the existing hit-target pulse, `DamageApplied` shake, KO shrink, and counter pulse.
-
-- [ ] **Step 5: Keep `spawn_event_effect` intact and add a separate HUD-number helper**
-
-Do not replace its `DamageApplied` impact branch.
-
-Add:
+Keep `EventEffectQuery` unchanged and add a separate query type:
 
 ```rust
-#[derive(Component)]
-struct DamageNumberEffect {
-    origin: Vec2,
-}
+type DamageNumberQuery<'w, 's> = Query<
+    'w,
+    's,
+    (Entity, &'static DamageNumberEffect, &'static mut Node),
+>;
 ```
 
-Add a helper that takes an already-projected viewport position and spawns actual Bevy UI:
-
-```rust
-fn spawn_damage_number(
-    commands: &mut Commands,
-    hud_root: Entity,
-    viewport: Vec2,
-    amount: i16,
-) {
-    commands.spawn((
-        Text::new(damage_number_text(amount)),
-        TextFont {
-            font_size: FontSize::Px(28.0),
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(viewport.x),
-            top: px(viewport.y),
-            ..default()
-        },
-        DamageNumberEffect { origin: viewport },
-        Pickable::IGNORE,
-        ChildOf(hud_root),
-    ));
-}
-```
-
-When `DamageApplied` starts, project the target through the existing 3D battle camera:
-
-```rust
-let viewport = camera.world_to_viewport(
-    camera_global_transform,
-    grid_to_world(target.position) + Vec3::Y * 0.8,
-)?;
-```
-
-Then call `spawn_damage_number`. Animate `Node.top` from `origin.y` to `origin.y - 24.0` over the current event fraction and despawn on event completion.
-
-No `Text2d`, `Camera2d`, font asset, or second damage calculation.
-
-- [ ] **Step 6: Test the actual UI entity helper**
-
-Create a minimal `App`/World with a `HudRoot`, call `spawn_damage_number(..., Vec2::new(320.0, 240.0), 7)`, apply deferred commands, and assert one child entity has:
+When a current event is active:
 
 ```text
-Text("-7")
-DamageNumberEffect { origin: (320,240) }
-Node.position_type == Absolute
+tick timer
+animate_unit_event
+animate_effects on EventEffect only
+animate_damage_numbers on DamageNumberEffect only
+apply/restore boss camera
 ```
 
-The Task 5 rendered playtest validates that the real `world_to_viewport` placement is visually correct.
+In the existing `if finished` branch:
 
-- [ ] **Step 7: Add boss-only camera emphasis and exact restoration**
+```rust
+for (entity, _) in &mut effects {
+    commands.entity(entity).despawn();
+}
+for (entity, _, _) in &mut damage_numbers {
+    commands.entity(entity).despawn();
+}
+playback.current = None;
+```
 
-During `AttackRolled`, inspect attacker archetype. For Dreadnought or Regent use:
+Do not tag damage numbers as `EventEffect`; that would send a UI node through the 3D `Transform` animation path.
+
+- [ ] **Step 6: Spawn a damage number in addition to the existing 3D impact**
+
+Leave the existing call unchanged:
+
+```rust
+spawn_event_effect(&mut commands, root, &event, &battle, &mission_assets);
+```
+
+For `BattleEvent::DamageApplied { target, amount, .. }`, resolve the target position and call:
+
+```rust
+if let Ok(viewport) = camera.world_to_viewport(
+    camera_global_transform,
+    grid_to_world(target.position) + Vec3::Y * 0.8,
+) {
+    spawn_damage_number(&mut commands, hud_root, viewport, *amount);
+}
+```
+
+`play_battle_events` remains `fn ... {}`. Do not use `?`; projection failure skips only the number.
+
+The spawn helper must use:
+
+```rust
+commands.spawn((
+    Text::new(format!("-{amount}")),
+    text_font(28.0),
+    TextColor(Color::WHITE),
+    Node {
+        position_type: PositionType::Absolute,
+        left: px(viewport.x),
+        top: px(viewport.y),
+        ..default()
+    },
+    DamageNumberEffect { origin: viewport },
+    Pickable::IGNORE,
+    ChildOf(hud_root),
+));
+```
+
+Animate only `Node.top`:
+
+```rust
+node.top = px(effect.origin.y - 24.0 * progress);
+```
+
+- [ ] **Step 7: Add attacker pulse and boss camera restore**
+
+On `AttackRolled`, apply `attack_scale(progress)` to the attacker without deleting the existing target-hit pulse.
+
+For Dreadnought/Regent attacks set:
 
 ```rust
 *camera_transform = boss_camera_transform(camera.rest, timer.fraction());
 ```
 
-For every non-boss event and after event completion:
+For all non-boss events and after the current event finishes:
 
 ```rust
 *camera_transform = camera.rest;
 ```
 
-- [ ] **Step 8: Verify and commit**
+- [ ] **Step 8: Verify Task 4**
 
 ```bash
 cargo fmt --check
@@ -842,8 +1042,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --lib presentation::playback -- --nocapture
 cargo test --test presentation_app -- --nocapture
 cargo test --all-targets
+```
 
-git add src/presentation/battlefield.rs src/presentation/playback.rs tests/presentation_app.rs
+The focused lifecycle test must prove the damage-number entity is removed by the same cleanup helper used from `play_battle_events`' finished branch.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/presentation/battlefield.rs src/presentation/playback.rs src/presentation/ui.rs tests/presentation_app.rs
 git commit -m "feat: polish board-first combat feedback"
 ```
 
@@ -857,7 +1063,7 @@ git commit -m "feat: polish board-first combat feedback"
 - Add a targeted regression beside every mechanical tuning change
 
 **Interfaces:**
-- Consumes: complete Tasks 1–4 flow.
+- Consumes: complete Tasks 1-4 flow.
 - Produces: measured full-campaign evidence and only justified authored tuning.
 
 - [ ] **Step 1: Create the validation ledger before playing**
@@ -897,11 +1103,11 @@ Add sections for total time, boss-threshold timing, telegraph readability, and p
 
 Do not seed later missions for the acceptance timing run. Record wall-clock minutes, rounds, restarts, credits, purchases, and bonus result immediately after each mission.
 
-- [ ] **Step 3: Record intent-manipulation evidence per mission**
+- [ ] **Step 3: Record concrete intent-manipulation evidence**
 
-A `yes` requires a concrete move/event where reading or manipulating committed intent materially changes the outcome. At least 4 of 7 rows must be `yes` for acceptance.
+A `yes` requires a move/event where reading or manipulating committed intent materially changes the tactical outcome. At least 4 of 7 rows must be `yes`.
 
-- [ ] **Step 4: Validate the corrected Mission 7 geometry manually**
+- [ ] **Step 4: Validate corrected Mission 7 geometry**
 
 Confirm:
 
@@ -909,27 +1115,42 @@ Confirm:
 Regent footprint contains explosive (3,7) and empty push cell (5,7)
 Vector Pulse moves Controller to (5,7)
 explosive remains at (3,7)
-Regent barrage damages Controller and triggers explosive
-telegraphs remain readable
+Regent barrage damages Controller
+ExplosiveDamaged and ExplosionTriggered both name (3,7)
+Controller intent cancels after knockout
 ```
 
 If this fails, tune authored Mission 7 coordinates only.
 
-- [ ] **Step 5: Validate presentation polish**
+- [ ] **Step 5: Validate campaign terminal guard**
+
+Confirm through real UI and focused fixtures:
+
+```text
+final Aftermath -> Ending
+completed Continue -> Ending
+completed Proceed fixture -> Ending, never Mission 7 story
+unfinished Seven Continue -> Upgrade
+unfinished Seven Proceed -> PreMissionStory
+```
+
+- [ ] **Step 6: Validate EventPlayback feedback lifecycle**
 
 Confirm:
 
 ```text
-existing impact mesh still appears
-damage UI number appears near target and clears
-attacker pulse does not leave stale scale
-boss shake is modest and returns exactly to rest
-no Camera2d/Text2d exists in battle presentation
+existing 3D impact mesh still appears
+HUD damage number appears near target
+number rises and disappears after its DamageApplied event
+damage numbers do not accumulate
+attacker pulse leaves no stale scale
+boss shake is modest and camera returns exactly to rest
+no battle Camera2d/Text2d exists
 ```
 
 If number placement is poor, tune only UI offset/font/rise distance.
 
-- [ ] **Step 6: Tune only from recorded evidence**
+- [ ] **Step 7: Tune only from recorded evidence**
 
 Use this order:
 
@@ -942,7 +1163,7 @@ Use this order:
 6. upgrade/reward values
 ```
 
-For every mechanical tuning edit, add a focused regression and then run:
+For every mechanical tuning edit, add a focused regression and run:
 
 ```bash
 cargo fmt --check
@@ -950,7 +1171,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
 ```
 
-- [ ] **Step 7: Commit the playtest pass**
+- [ ] **Step 8: Commit the playtest pass**
 
 If tuning changed source/tests:
 
@@ -989,12 +1210,12 @@ Document:
 Mission 7 -> Campaign Complete -> Return to Title
 completed Continue -> Ending
 board-first battle presentation
-no mission select, NG+, or dedicated battle-animation scene
+no mission select, New Game+, or dedicated battle-animation scene
 ```
 
 Remove text saying Seven is an unauthored handoff.
 
-- [ ] **Step 2: Add the final gate ledger headings**
+- [ ] **Step 2: Add final gate ledger headings**
 
 ```markdown
 ## Final automated gates
@@ -1029,22 +1250,26 @@ Verify against code + ledger:
 ```text
 Seven authored and unlocks None
 completion persisted exactly once
+Continue/Aftermath/Proceed completed routes all end at Ending
 all seven missions have primary + optional objective + VN context
 regular roster six; bosses two
 New Game -> Ending recorded
 measured first-playthrough time recorded
 >=4/7 intent-manipulation rows yes
 base-only 3300-before-Seven progression test passes
+one level-2 track per mech costs 1800 total
 Regent 27/26 and Dreadnought 21/20 tests pass
-Controller push (5,7) + explosive trigger (3,7) regression passes
-no Text2d/Camera2d added
+Controller push (5,7) + ExplosiveDamaged/ExplosionTriggered (3,7) pass
+DamageNumberEffect lifecycle spawn/animate/despawn test passes
+all old glTF global-count pins are 15/84/15/15/1
+no Text2d/Camera2d added to battle presentation
 ```
 
 - [ ] **Step 5: Check PR CI on the final head**
 
 Do not reuse an earlier CI result after a later source/test commit. Record `Build + lint` and `Unit test` only for the current final head.
 
-- [ ] **Step 6: Commit docs closeout and re-run final minimum gates**
+- [ ] **Step 6: Commit docs closeout and re-run minimum final gates**
 
 ```bash
 git add README.md CLAUDE.md docs/validation/hpa-386.md
@@ -1060,18 +1285,24 @@ Do not mark HPA-386 Done or make the PR ready-for-review until the final head's 
 
 ---
 
-## Plan self-review checklist
+## Plan Self-Review Checklist
 
-- Mission 7 is 9×9 everywhere; no y=9 coordinate exists.
+- Mission 7 is 9x9 everywhere; no y=9 coordinate exists.
 - Explosive `(3,7)` and Controller landing `(5,7)` are distinct committed-footprint cells.
 - `src/domain/battle.rs` and `src/domain/environment.rs` are not Mission 7 implementation files.
-- Seed2 regression uses real `BattleState::attack` + `resolve_enemy_phase`.
+- Mission 7 copies Mission 6's public helper order and adds only the Gunner move before the same Vector Pulse RNG sequence.
+- Seed2 pins Vector Pulse hit11/noncrit27, Regent hit52/noncrit37.
+- `ExplosiveDamaged` and `ExplosionTriggered` both pin `(3,7)`.
 - Dreadnought 21/20 and Regent 27/26 thresholds are tested together.
-- Task 1 explicitly lists `HudSnapshot::can_pilot`, `HudSnapshot::pilot_label`, and `CommandAction::PilotSkill` Regent arms.
 - `unlocks` becomes `Option<MissionId>` once in Task 2.
 - `completed` is explicit in direct fixtures; no compatibility default exists.
-- `Ending` replaces `NextMission` after Task 2.
+- One `campaign_destination` helper covers completed routing for Continue, AdvanceAftermath, and Proceed without a new routing enum.
+- Completed Proceed goes to Ending, never back into Mission 7.
 - Regent maps temporarily to scene13 only until Task 3; final scene is14.
-- Damage numbers are HUD UI `Text` plus existing Camera3d projection; no `Text2d`/`Camera2d`.
-- Existing 3D impact effect remains.
+- Every old hard-coded glTF global count is updated in Task 3.
+- `EventEffect` remains 3D-only.
+- `DamageNumberEffect` has a sibling query, Node animation, and shared finished-branch cleanup.
+- `world_to_viewport` uses `if let Ok`; `play_battle_events` does not become `Result`.
+- `text_font` is reused via `pub(crate)`.
+- Damage-number tests cover cleanup, not only formatting.
 - No step creates a second PR.
