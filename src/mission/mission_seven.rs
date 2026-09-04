@@ -341,7 +341,7 @@ mod tests {
         let mut battle = mission_seven(2);
         battle.begin_round().unwrap();
 
-        let regent_intent = battle.intent_for(ids::REGENT).unwrap();
+        let regent_intent = battle.intent_for(ids::REGENT).unwrap().clone();
         assert_eq!(regent_intent.profile.weapon, ids::COMMAND_BARRAGE);
         assert!(regent_intent.footprint.contains(&GridPos::new(3, 7)));
         assert!(regent_intent.footprint.contains(&GridPos::new(5, 7)));
@@ -406,6 +406,9 @@ mod tests {
         );
         // Vector Pulse damage applied: Controller is at 6 HP, not its start 9.
         assert_eq!(battle.unit(ids::CONTROLLER).unwrap().hp, 6);
+        // Committed intent is the core invariant: player movement and the
+        // pushed Controller must not retarget the Regent's locked barrage.
+        assert_eq!(battle.intent_for(ids::REGENT).unwrap(), &regent_intent);
         battle
     }
 
