@@ -13,7 +13,7 @@ use crate::{
         battlefield::{rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_aftermath_screen,
-            setup_briefing_screen, setup_next_mission_screen, setup_pre_mission_story,
+            setup_briefing_screen, setup_ending_screen, setup_pre_mission_story,
             setup_title_screen, setup_upgrade_screen, update_campaign_status_text,
             update_dialogue_screen, update_upgrade_screen,
         },
@@ -44,7 +44,7 @@ pub enum GameScreen {
     Battle,
     Aftermath,
     Upgrade,
-    NextMission,
+    Ending,
 }
 
 impl Plugin for ScorpiusPlugin {
@@ -185,8 +185,8 @@ impl Plugin for ScorpiusPlugin {
             Update,
             update_upgrade_screen.run_if(in_state(GameScreen::Upgrade)),
         )
-        .add_systems(OnEnter(GameScreen::NextMission), setup_next_mission_screen)
-        .add_systems(OnExit(GameScreen::NextMission), despawn_campaign_screen);
+        .add_systems(OnEnter(GameScreen::Ending), setup_ending_screen)
+        .add_systems(OnExit(GameScreen::Ending), despawn_campaign_screen);
     }
 }
 

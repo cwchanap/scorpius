@@ -149,7 +149,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
 
 pub const MISSION_FIVE_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Five,
-    unlocks: MissionId::Six,
+    unlocks: Some(MissionId::Six),
     build: mission_five_for_campaign,
     title: "Mission 5 — Crossfire Break",
     primary_objective: "Break the assault and destroy all enemies.",
@@ -522,14 +522,14 @@ mod tests {
         assert_eq!(
             mission_definition(MissionId::Five)
                 .map(|definition| (definition.id, definition.unlocks)),
-            Some((MissionId::Five, MissionId::Six))
+            Some((MissionId::Five, Some(MissionId::Six)))
         );
         assert_eq!(
             mission_definition(MissionId::Six)
                 .map(|definition| (definition.id, definition.unlocks)),
-            Some((MissionId::Six, MissionId::Seven))
+            Some((MissionId::Six, Some(MissionId::Seven)))
         );
-        assert!(mission_definition(MissionId::Seven).is_none());
+        assert!(mission_definition(MissionId::Seven).is_some());
     }
 
     #[test]
@@ -548,7 +548,7 @@ mod tests {
             (definition.base_reward, definition.optional_reward),
             (700, 200)
         );
-        assert_eq!(definition.unlocks, MissionId::Six);
+        assert_eq!(definition.unlocks, Some(MissionId::Six));
 
         // Dialogue reuses only existing VN assets with the spec's exact lines.
         assert_eq!(definition.pre_mission.background, "vn/relay_nine_bg.png");

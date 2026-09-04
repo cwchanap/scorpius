@@ -13,6 +13,7 @@ use scorpius::{
     mission::mission_five::mission_five,
     mission::mission_four::mission_four,
     mission::mission_one::{ids, mission_one},
+    mission::mission_seven::mission_seven,
     mission::mission_three::{self, mission_three},
     mission::mission_two::mission_two,
     mission::{MissionId, mission_definition},
@@ -294,6 +295,23 @@ fn mission_four_target_hud_pins_the_gate_bulwark() {
             name: "Gate Bulwark",
             hp: 16,
             max_hp: 16
+        })
+    );
+}
+
+#[test]
+fn mission_seven_target_hud_pins_the_regent() {
+    let mut battle = mission_seven(7);
+    battle.begin_round().unwrap();
+    let hud =
+        HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::Seven).unwrap());
+
+    assert_eq!(
+        hud.objective_track,
+        Some(ObjectiveTrackSnapshot::Target {
+            name: "Regent",
+            hp: 52,
+            max_hp: 52
         })
     );
 }

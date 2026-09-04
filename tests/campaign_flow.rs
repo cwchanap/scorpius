@@ -20,7 +20,7 @@ use scorpius::mission::mission_three;
 use scorpius::mission::{DialogueLine, MissionId};
 use scorpius::presentation::campaign_ui::{
     CampaignStatus, CampaignUiAction, DialogueCursor, aftermath_reward_copy, apply_campaign_action,
-    briefing_copy, dialogue_snapshot, next_mission_copy, upgrade_row_copy,
+    briefing_copy, dialogue_snapshot, ending_copy, upgrade_row_copy,
 };
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
@@ -107,6 +107,7 @@ fn battle_entry_builds_the_active_mission_with_campaign_upgrades() {
                 },
                 ..Default::default()
             },
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("battle-entry")),
         last_completion: None,
@@ -137,6 +138,7 @@ fn mission_two_entry_and_restart_run_the_shared_definition_path_with_upgrades() 
                 },
                 ..Default::default()
             },
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("entry-restart-two")),
         last_completion: None,
@@ -218,6 +220,7 @@ fn mission_three_entry_builds_through_the_shared_definition_path_with_upgrades()
                 },
                 ..Default::default()
             },
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("entry-three")),
         last_completion: None,
@@ -268,6 +271,7 @@ fn mission_four_entry_builds_through_the_shared_definition_path_with_upgrades() 
                 },
                 ..Default::default()
             },
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("entry-four")),
         last_completion: None,
@@ -314,6 +318,7 @@ fn mission_five_entry_builds_through_the_shared_definition_path_with_upgrades() 
                 },
                 ..Default::default()
             },
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("entry-five")),
         last_completion: None,
@@ -613,6 +618,7 @@ fn completing_three_four_and_five_advances_to_six_then_six_advances_to_seven_at_
             // Base rewards of One and Two already banked.
             credits: 300 + 400,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("completion-through-four")),
         last_completion: None,
@@ -682,6 +688,7 @@ fn completing_three_four_and_five_advances_to_six_then_six_advances_to_seven_at_
             next_mission: MissionId::Six,
             credits: 2500,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("completion-through-six-optional")),
         last_completion: None,
@@ -809,6 +816,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
             next_mission: MissionId::Two,
             credits: 400,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         })
         .unwrap();
     let mut next = NextState::Unchanged;
@@ -834,6 +842,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
             next_mission: MissionId::One,
             credits: 0,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         })
         .unwrap();
     let mut next = NextState::Unchanged;
@@ -1034,6 +1043,7 @@ fn advancing_aftermath_walks_lines_then_opens_upgrade() {
             next_mission: MissionId::Two,
             credits: 300,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("advance-aftermath")),
         last_completion: Some(AFTERMATH_FIXTURE_RECEIPTS[0]),
@@ -1076,6 +1086,7 @@ fn purchase_upgrade_action_persists_and_reports_failures() {
             next_mission: MissionId::Two,
             credits: 500,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("purchase")),
         last_completion: None,
@@ -1146,6 +1157,7 @@ fn upgrade_row_copy_lists_level_effects_cost_and_max() {
                 weapon: 3,
             },
         },
+        completed: false,
     };
 
     let row = upgrade_row_copy(&state, PlayerMech::Vanguard, UpgradeTrack::Hp);
@@ -1174,6 +1186,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
             next_mission: MissionId::Two,
             credits: 400,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("handoff")),
         last_completion: None,
@@ -1185,6 +1198,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
             next_mission: MissionId::Two,
             credits: 400,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         })
         .unwrap();
     let mut cursor = DialogueCursor(0);
@@ -1220,7 +1234,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
 }
 
 #[test]
-fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff() {
+fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
     let route_continue = |next_mission| {
         let mut runtime = CampaignRuntime(CampaignSession {
             state: None,
@@ -1234,6 +1248,7 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
                 next_mission,
                 credits: 0,
                 upgrades: SquadUpgrades::default(),
+                completed: false,
             })
             .unwrap();
         let mut next = NextState::Unchanged;
@@ -1251,10 +1266,8 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
     assert_eq!(route_continue(MissionId::Four), Some(GameScreen::Upgrade));
     assert_eq!(route_continue(MissionId::Five), Some(GameScreen::Upgrade));
     assert_eq!(route_continue(MissionId::Six), Some(GameScreen::Upgrade));
-    assert_eq!(
-        route_continue(MissionId::Seven),
-        Some(GameScreen::NextMission)
-    );
+    // Seven is authored: an unfinished save continues into its Upgrade pass.
+    assert_eq!(route_continue(MissionId::Seven), Some(GameScreen::Upgrade));
 
     // PROCEED at the Three handoff opens Mission 3's story.
     let mut runtime = CampaignRuntime(CampaignSession {
@@ -1262,6 +1275,7 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
             next_mission: MissionId::Three,
             credits: 900,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("proceed-three")),
         last_completion: None,
@@ -1283,6 +1297,7 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
             next_mission: MissionId::Four,
             credits: 1200,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("proceed-four")),
         last_completion: None,
@@ -1304,6 +1319,7 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
             next_mission: MissionId::Five,
             credits: 2000,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("proceed-five")),
         last_completion: None,
@@ -1325,6 +1341,7 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
             next_mission: MissionId::Six,
             credits: 1200,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("proceed-six")),
         last_completion: None,
@@ -1340,12 +1357,13 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
     );
     assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
 
-    // PROCEED at the Seven handoff stays on the handoff screen.
+    // PROCEED at the Seven handoff opens Mission 7's story — Seven is authored.
     let mut runtime = CampaignRuntime(CampaignSession {
         state: Some(CampaignState {
             next_mission: MissionId::Seven,
             credits: 1200,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }),
         save: SaveFile::new(temp_save_path("proceed-seven")),
         last_completion: None,
@@ -1359,7 +1377,109 @@ fn continue_and_proceed_route_four_and_five_to_upgrade_and_seven_to_the_handoff(
         &mut CampaignStatus::default(),
         &mut next,
     );
-    assert_eq!(pending(&next), Some(GameScreen::NextMission));
+    assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
+}
+
+#[test]
+fn completed_campaign_routes_continue_aftermath_and_proceed_to_ending() {
+    // Seed and persist a completed campaign through the real Seven completion.
+    let path = temp_save_path("completed-ending");
+    {
+        let mut session = CampaignSession {
+            state: Some(CampaignState {
+                next_mission: MissionId::Seven,
+                credits: 3300,
+                upgrades: SquadUpgrades::default(),
+                completed: false,
+            }),
+            save: SaveFile::new(path.clone()),
+            last_completion: None,
+        };
+        complete_current_mission(
+            &mut session,
+            mission_definition(MissionId::Seven).unwrap(),
+            MissionResult {
+                victory: true,
+                optional_complete: false,
+                rounds: 4,
+            },
+        )
+        .unwrap();
+        let state = session.state.as_ref().unwrap();
+        assert!(state.completed);
+        assert_eq!(state.next_mission, MissionId::Seven);
+    }
+
+    let mut cursor = DialogueCursor(0);
+    let mut status = CampaignStatus::default();
+
+    // Completed Continue -> Ending.
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: None,
+        save: SaveFile::new(path.clone()),
+        last_completion: None,
+    });
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Continue,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Ending));
+
+    // Completed AdvanceAftermath -> Ending: the final aftermath walks its
+    // three lines, then the last advance lands on Ending.
+    let active_mission = ActiveMission(mission_definition(MissionId::Seven).unwrap());
+    for expected_cursor in [1, 2] {
+        next = NextState::Unchanged;
+        apply_campaign_action(
+            CampaignUiAction::AdvanceAftermath,
+            &mut runtime,
+            Some(&active_mission),
+            &mut cursor,
+            &mut status,
+            &mut next,
+        );
+        assert_eq!(pending(&next), None);
+        assert_eq!(cursor, DialogueCursor(expected_cursor));
+    }
+    next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::AdvanceAftermath,
+        &mut runtime,
+        Some(&active_mission),
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Ending));
+
+    // Completed Proceed -> Ending, never back into Mission 7 story.
+    next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Proceed,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Ending));
+
+    // Ending -> Title.
+    next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::ReturnToTitle,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Title));
 }
 
 #[test]
@@ -1424,12 +1544,12 @@ fn mission_six_briefing_and_dialogue_match_the_spec() {
 }
 
 #[test]
-fn next_mission_copy_announces_each_authored_mission() {
+fn ending_copy_announces_each_authored_mission() {
     let two = CampaignState {
         next_mission: MissionId::Three,
         ..CampaignState::new_game()
     };
-    let copy = next_mission_copy(&two);
+    let copy = ending_copy(&two);
     assert!(copy.contains("MISSION 3 UNLOCKED"), "handoff copy: {copy}");
     assert!(
         !copy.contains("MISSION 2"),
@@ -1442,13 +1562,13 @@ fn next_mission_copy_announces_each_authored_mission() {
         next_mission: MissionId::Five,
         ..CampaignState::new_game()
     };
-    let copy = next_mission_copy(&five);
+    let copy = ending_copy(&five);
     assert!(copy.contains("MISSION 5 UNLOCKED"), "handoff copy: {copy}");
     assert!(copy.contains("Credits:"), "handoff copy: {copy}");
 }
 
 #[test]
-fn next_mission_copy_lists_credits_and_all_upgrade_levels() {
+fn ending_copy_lists_credits_and_all_upgrade_levels() {
     let state = CampaignState {
         next_mission: MissionId::Two,
         credits: 400,
@@ -1467,9 +1587,10 @@ fn next_mission_copy_lists_credits_and_all_upgrade_levels() {
                 ..Default::default()
             },
         },
+        completed: false,
     };
 
-    let copy = next_mission_copy(&state);
+    let copy = ending_copy(&state);
     for expected in [
         "MISSION 2 UNLOCKED",
         "Campaign progress saved.",

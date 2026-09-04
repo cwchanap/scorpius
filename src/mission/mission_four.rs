@@ -147,7 +147,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
 
 pub const MISSION_FOUR_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Four,
-    unlocks: MissionId::Five,
+    unlocks: Some(MissionId::Five),
     build: mission_four_for_campaign,
     title: "Mission 4 — Breach the Gate",
     primary_objective: "Destroy the Gate Bulwark; escorts may be ignored.",
@@ -393,9 +393,9 @@ mod tests {
         assert_eq!(
             mission_definition(MissionId::Four)
                 .map(|definition| (definition.id, definition.unlocks)),
-            Some((MissionId::Four, MissionId::Five))
+            Some((MissionId::Four, Some(MissionId::Five)))
         );
-        assert!(mission_definition(MissionId::Seven).is_none());
+        assert!(mission_definition(MissionId::Seven).is_some());
     }
 
     #[test]
@@ -414,7 +414,7 @@ mod tests {
             (definition.base_reward, definition.optional_reward),
             (600, 150)
         );
-        assert_eq!(definition.unlocks, MissionId::Five);
+        assert_eq!(definition.unlocks, Some(MissionId::Five));
 
         // Dialogue reuses only existing VN assets with the spec's exact lines.
         assert_eq!(definition.pre_mission.background, "vn/relay_nine_bg.png");

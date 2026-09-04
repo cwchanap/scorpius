@@ -76,6 +76,7 @@ pub struct CampaignState {
     pub next_mission: MissionId,
     pub credits: u32,
     pub upgrades: SquadUpgrades,
+    pub completed: bool,
 }
 
 impl CampaignState {
@@ -84,6 +85,7 @@ impl CampaignState {
             next_mission: MissionId::One,
             credits: 0,
             upgrades: SquadUpgrades::default(),
+            completed: false,
         }
     }
 }

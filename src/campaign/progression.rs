@@ -20,6 +20,7 @@ pub struct CompletionReceipt {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CampaignError {
     MissionNotWon,
+    CampaignComplete,
     AlreadyAdvanced {
         expected: MissionId,
         actual: MissionId,
@@ -35,6 +36,7 @@ impl fmt::Display for CampaignError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CampaignError::MissionNotWon => write!(f, "mission was not won"),
+            CampaignError::CampaignComplete => write!(f, "campaign already complete"),
             CampaignError::AlreadyAdvanced { expected, actual } => write!(
                 f,
                 "campaign already advanced past {expected:?} (now at {actual:?})"
@@ -60,6 +62,9 @@ impl CampaignState {
         if !result.victory {
             return Err(CampaignError::MissionNotWon);
         }
+        if self.completed {
+            return Err(CampaignError::CampaignComplete);
+        }
         if self.next_mission != definition.id {
             return Err(CampaignError::AlreadyAdvanced {
                 expected: definition.id,
@@ -73,7 +78,10 @@ impl CampaignState {
         };
         let total_reward = definition.base_reward + optional_reward;
         self.credits += total_reward;
-        self.next_mission = definition.unlocks;
+        match definition.unlocks {
+            Some(next) => self.next_mission = next,
+            None => self.completed = true,
+        }
         Ok(CompletionReceipt {
             mission: definition.id,
             base_reward: definition.base_reward,

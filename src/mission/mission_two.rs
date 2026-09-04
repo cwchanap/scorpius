@@ -155,7 +155,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
 
 pub const MISSION_TWO_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Two,
-    unlocks: MissionId::Three,
+    unlocks: Some(MissionId::Three),
     build: mission_two_for_campaign,
     title: "Mission 2 — Hold Relay Nine",
     primary_objective: "Protect Gunner through the end of Round 3, or eliminate all attackers.",
@@ -426,11 +426,11 @@ mod tests {
         );
         let two = mission_definition(MissionId::Two).unwrap();
         assert_eq!(two.id, MissionId::Two);
-        assert_eq!(two.unlocks, MissionId::Three);
+        assert_eq!(two.unlocks, Some(MissionId::Three));
         let three = mission_definition(MissionId::Three).unwrap();
         assert_eq!(three.id, MissionId::Three);
-        assert_eq!(three.unlocks, MissionId::Four);
-        assert!(mission_definition(MissionId::Seven).is_none());
+        assert_eq!(three.unlocks, Some(MissionId::Four));
+        assert!(mission_definition(MissionId::Seven).is_some());
     }
 
     #[test]
@@ -449,6 +449,6 @@ mod tests {
             (definition.base_reward, definition.optional_reward),
             (400, 100)
         );
-        assert_eq!(definition.unlocks, MissionId::Three);
+        assert_eq!(definition.unlocks, Some(MissionId::Three));
     }
 }
