@@ -1017,7 +1017,7 @@ fn format_track(track: &ObjectiveTrackSnapshot) -> String {
     }
 }
 
-fn text_font(size: f32) -> TextFont {
+pub(crate) fn text_font(size: f32) -> TextFont {
     TextFont {
         font_size: FontSize::Px(size),
         ..default()
