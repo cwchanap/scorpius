@@ -1544,27 +1544,20 @@ fn mission_six_briefing_and_dialogue_match_the_spec() {
 }
 
 #[test]
-fn ending_copy_announces_each_authored_mission() {
-    let two = CampaignState {
-        next_mission: MissionId::Three,
+fn ending_copy_announces_campaign_complete() {
+    // The Ending screen is reachable only when the campaign is complete
+    // (a completed save always has next_mission == Mission Seven).
+    let state = CampaignState {
+        next_mission: MissionId::Seven,
+        completed: true,
         ..CampaignState::new_game()
     };
-    let copy = ending_copy(&two);
-    assert!(copy.contains("MISSION 3 UNLOCKED"), "handoff copy: {copy}");
+    let copy = ending_copy(&state);
+    assert!(copy.contains("CAMPAIGN COMPLETE"), "ending copy: {copy}");
     assert!(
-        !copy.contains("MISSION 2"),
-        "unlock heading must follow the runtime's next mission"
+        !copy.contains("UNLOCKED"),
+        "nothing is being unlocked: {copy}"
     );
-
-    // The handoff heading follows the runtime's next mission generically —
-    // definition-independent copy, exercised here with Five.
-    let five = CampaignState {
-        next_mission: MissionId::Five,
-        ..CampaignState::new_game()
-    };
-    let copy = ending_copy(&five);
-    assert!(copy.contains("MISSION 5 UNLOCKED"), "handoff copy: {copy}");
-    assert!(copy.contains("Credits:"), "handoff copy: {copy}");
 }
 
 #[test]
@@ -1592,7 +1585,7 @@ fn ending_copy_lists_credits_and_all_upgrade_levels() {
 
     let copy = ending_copy(&state);
     for expected in [
-        "MISSION 2 UNLOCKED",
+        "CAMPAIGN COMPLETE",
         "Campaign progress saved.",
         "Credits: 400",
         "Vanguard 1 0 2 0",

@@ -311,8 +311,8 @@ pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
     })
 }
 
-/// Ending screen copy; the heading follows the runtime's next mission —
-/// for a completed campaign that is the terminal Mission Seven.
+/// Ending screen copy; the screen is only reachable once the campaign is
+/// complete, so the heading is the constant campaign-complete announcement.
 /// `Vanguard/Gunner/Interceptor` lines
 /// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
 pub fn ending_copy(state: &CampaignState) -> String {
@@ -320,9 +320,8 @@ pub fn ending_copy(state: &CampaignState) -> String {
         let l = state.upgrades.levels(mech);
         format!("{} {} {} {}", l.hp, l.armor, l.mobility, l.weapon)
     };
-    let heading = format!("MISSION {} UNLOCKED", state.next_mission);
     format!(
-        "{heading}\n\nCampaign progress saved.\n\nCredits: {}\n\nVanguard {}\nGunner {}\nInterceptor {}\n\nHP / ARMOR / MOBILITY / WEAPON",
+        "CAMPAIGN COMPLETE\n\nCampaign progress saved.\n\nCredits: {}\n\nVanguard {}\nGunner {}\nInterceptor {}\n\nHP / ARMOR / MOBILITY / WEAPON",
         state.credits,
         levels(PlayerMech::Vanguard),
         levels(PlayerMech::Gunner),
