@@ -42,7 +42,7 @@ After victory, the **Aftermath** screen shows the exact persisted receipt (base,
 
 Purchases are validated before mutation: unaffordable or already-maxed purchases are no-ops and never write the save. A valid purchase is serialized to the save file before the in-memory session state is replaced, so a failed write never advances in-memory state ahead of disk; a crash mid-write surfaces as a save-file error on the next load. Upgrade effects apply the next time the mission is built.
 
-Victory in Mission 7 completes the campaign: the final aftermath's **CONTINUE** lands on the **CAMPAIGN COMPLETE** ending screen, whose **RETURN TO TITLE** button starts a fresh campaign. A completed save resumed via **CONTINUE** also lands on the ending — never back into Mission 7.
+Victory in Mission 7 completes the campaign: the final aftermath's **CONTINUE** lands on the **CAMPAIGN COMPLETE** ending screen, whose **RETURN TO TITLE** button returns to the title screen. From there **NEW GAME** starts a fresh campaign; **CONTINUE** remains available and resumes the completed save back at the ending — never back into Mission 7.
 
 ## Mission flow
 

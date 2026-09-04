@@ -498,3 +498,33 @@ fn failed_purchase_store_leaves_memory_unchanged() {
     assert_eq!(session.state.as_ref().unwrap().credits, 400);
     assert_eq!(session.state.as_ref().unwrap().upgrades.vanguard.hp, 0);
 }
+
+#[test]
+fn legacy_save_without_completed_field_loads_as_not_completed() {
+    // A save written before the `completed` field existed (e.g. by an earlier
+    // MVP build) must still load instead of surfacing as a corrupted save.
+    // `#[serde(default)]` on `completed` makes serde treat the missing field
+    // as `false`.
+    let legacy_json = serde_json::json!({
+        "next_mission": "Seven",
+        "credits": 3300,
+        "upgrades": {
+            "vanguard": {"hp": 1, "armor": 0, "mobility": 0, "weapon": 0},
+            "gunner": {"hp": 0, "armor": 1, "mobility": 0, "weapon": 0},
+            "interceptor": {"hp": 0, "armor": 0, "mobility": 1, "weapon": 0},
+        },
+    });
+    let bytes = serde_json::to_vec(&legacy_json).unwrap();
+
+    let path = temp_path();
+    std::fs::write(&path, &bytes).unwrap();
+    let save = SaveFile::new(path);
+
+    let loaded = save.load().unwrap().expect("legacy save should load");
+    assert_eq!(loaded.next_mission, MissionId::Seven);
+    assert_eq!(loaded.credits, 3300);
+    assert!(!loaded.completed, "missing completed must default to false");
+    assert_eq!(loaded.upgrades.vanguard.hp, 1);
+    assert_eq!(loaded.upgrades.gunner.armor, 1);
+    assert_eq!(loaded.upgrades.interceptor.mobility, 1);
+}
