@@ -29,6 +29,36 @@ fn mission_result(victory: bool, optional_complete: bool) -> MissionResult {
 }
 
 #[test]
+fn final_mission_completion_is_persisted_and_idempotent() {
+    let mut state = CampaignState {
+        next_mission: MissionId::Seven,
+        credits: 3300,
+        upgrades: SquadUpgrades::default(),
+        completed: false,
+    };
+    let definition = mission_definition(MissionId::Seven).unwrap();
+    let result = mission_result(true, true);
+
+    let receipt = state.complete_mission(definition, result).unwrap();
+    assert_eq!(receipt.total_reward, 1300);
+    assert_eq!(state.credits, 4600);
+    assert_eq!(state.next_mission, MissionId::Seven);
+    assert!(state.completed);
+
+    let snapshot = state.clone();
+    assert!(matches!(
+        state.complete_mission(definition, result),
+        Err(CampaignError::CampaignComplete)
+    ));
+    assert_eq!(state, snapshot);
+
+    // The terminal completed state round-trips with `completed: true`.
+    let save = SaveFile::new(temp_path());
+    save.store(&state).unwrap();
+    assert_eq!(save.load().unwrap(), Some(state));
+}
+
+#[test]
 fn completion_advances_once_from_the_supplied_definition() {
     let mut state = CampaignState::new_game();
     let definition = mission_definition(MissionId::One).unwrap();
@@ -95,10 +125,10 @@ fn campaign_progresses_through_four_on_base_rewards_alone() {
 
     assert_eq!(state.credits, 1200);
     assert_eq!(state.next_mission, MissionId::Four);
-    // Missions One–Six are authored as of HPA-524; Seven is the terminal handoff.
+    // All seven missions are authored as of HPA-386; Seven is the terminal.
     assert!(mission_definition(MissionId::Five).is_some());
     assert!(mission_definition(MissionId::Six).is_some());
-    assert!(mission_definition(MissionId::Seven).is_none());
+    assert!(mission_definition(MissionId::Seven).is_some());
 }
 
 #[test]
@@ -122,6 +152,7 @@ fn seven_terminal_state_round_trips_with_upgrades_and_credits() {
                 weapon: 2,
             },
         },
+        completed: false,
     };
     save.store(&state).unwrap();
     assert_eq!(save.load().unwrap(), Some(state));

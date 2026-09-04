@@ -139,7 +139,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
 
 pub const MISSION_THREE_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Three,
-    unlocks: MissionId::Four,
+    unlocks: Some(MissionId::Four),
     build: mission_three_for_campaign,
     title: "Mission 3 — Intercept Courier",
     primary_objective: "Intercept Courier before extraction or the end of Round 5.",
@@ -518,9 +518,9 @@ mod tests {
         assert_eq!(
             mission_definition(MissionId::Three)
                 .map(|definition| (definition.id, definition.unlocks)),
-            Some((MissionId::Three, MissionId::Four))
+            Some((MissionId::Three, Some(MissionId::Four)))
         );
-        assert!(mission_definition(MissionId::Seven).is_none());
+        assert!(mission_definition(MissionId::Seven).is_some());
     }
 
     #[test]
@@ -539,7 +539,7 @@ mod tests {
             (definition.base_reward, definition.optional_reward),
             (500, 150)
         );
-        assert_eq!(definition.unlocks, MissionId::Four);
+        assert_eq!(definition.unlocks, Some(MissionId::Four));
 
         // The definition builds the same battle as the direct constructor.
         let battle = (definition.build)(7, &SquadUpgrades::default());

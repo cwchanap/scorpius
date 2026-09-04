@@ -173,7 +173,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
 
 pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Six,
-    unlocks: MissionId::Seven,
+    unlocks: Some(MissionId::Seven),
     build: mission_six_for_campaign,
     title: "Mission 6 — Break the Dreadnought",
     primary_objective: "Destroy the Dreadnought; escorts may be ignored.",
@@ -497,8 +497,8 @@ mod tests {
         assert_eq!(
             mission_definition(MissionId::Six)
                 .map(|definition| (definition.id, definition.unlocks)),
-            Some((MissionId::Six, MissionId::Seven))
+            Some((MissionId::Six, Some(MissionId::Seven)))
         );
-        assert!(mission_definition(MissionId::Seven).is_none());
+        assert!(mission_definition(MissionId::Seven).is_some());
     }
 }

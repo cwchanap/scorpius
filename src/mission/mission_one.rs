@@ -145,7 +145,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
 
 pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::One,
-    unlocks: MissionId::Two,
+    unlocks: Some(MissionId::Two),
     build: mission_one_for_campaign,
     title: "Mission 1 — Turnabout at Relay Nine",
     primary_objective: "Eliminate all enemies.",

@@ -15,6 +15,7 @@ pub mod enemies;
 pub mod mission_five;
 pub mod mission_four;
 pub mod mission_one;
+pub mod mission_seven;
 pub mod mission_six;
 pub mod mission_three;
 pub mod mission_two;
@@ -64,7 +65,7 @@ pub struct DialogueScene {
 #[derive(Clone, Copy, Debug)]
 pub struct MissionDefinition {
     pub id: MissionId,
-    pub unlocks: MissionId,
+    pub unlocks: Option<MissionId>,
     pub build: MissionBuilder,
     pub title: &'static str,
     pub primary_objective: &'static str,
@@ -98,7 +99,7 @@ pub fn mission_definition(id: MissionId) -> Option<&'static MissionDefinition> {
         MissionId::Four => Some(&mission_four::MISSION_FOUR_DEFINITION),
         MissionId::Five => Some(&mission_five::MISSION_FIVE_DEFINITION),
         MissionId::Six => Some(&mission_six::MISSION_SIX_DEFINITION),
-        MissionId::Seven => None,
+        MissionId::Seven => Some(&mission_seven::MISSION_SEVEN_DEFINITION),
     }
 }
 

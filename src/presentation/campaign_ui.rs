@@ -311,11 +311,11 @@ pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
     })
 }
 
-/// NextMission handoff copy; the heading follows the runtime's next mission —
-/// authored missions and the terminal Mission 7 handoff alike announce the unlock.
+/// Ending screen copy; the heading follows the runtime's next mission —
+/// for a completed campaign that is the terminal Mission Seven.
 /// `Vanguard/Gunner/Interceptor` lines
 /// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
-pub fn next_mission_copy(state: &CampaignState) -> String {
+pub fn ending_copy(state: &CampaignState) -> String {
     let levels = |mech: PlayerMech| {
         let l = state.upgrades.levels(mech);
         format!("{} {} {} {}", l.hp, l.armor, l.mobility, l.weapon)
@@ -617,11 +617,11 @@ pub fn update_upgrade_screen(
     }
 }
 
-pub fn setup_next_mission_screen(mut commands: Commands, runtime: Res<CampaignRuntime>) {
+pub fn setup_ending_screen(mut commands: Commands, runtime: Res<CampaignRuntime>) {
     commands.spawn(Camera2d);
     let root = commands
         .spawn((
-            Name::new("Next Mission Screen"),
+            Name::new("Ending Screen"),
             ScreenRoot,
             fullscreen_node(),
             BackgroundColor(Color::srgb(0.012, 0.016, 0.028)),
@@ -634,7 +634,7 @@ pub fn setup_next_mission_screen(mut commands: Commands, runtime: Res<CampaignRu
                 .0
                 .state
                 .as_ref()
-                .map_or_else(String::new, next_mission_copy),
+                .map_or_else(String::new, ending_copy),
         ),
         text_font(20.0),
         TextColor(Color::srgb(0.85, 0.9, 0.95)),
@@ -757,6 +757,26 @@ pub fn despawn_campaign_screen(
 /// Title actions go through the unified `FlowError` API, dialogue advancing
 /// walks the active scene, purchases persist via the session, and
 /// PROCEED/RETURN only change `GameScreen`.
+/// Pure terminal routing shared by Continue, the final Aftermath advance,
+/// and Proceed: completed campaigns land on Ending (never back into the
+/// Mission 7 story), unfinished One opens its story, and every other
+/// unfinished mission goes through the Upgrade screen. Returns `None` for
+/// actions that do not route screens.
+fn campaign_destination(action: CampaignUiAction, state: &CampaignState) -> Option<GameScreen> {
+    match action {
+        CampaignUiAction::Continue if state.completed => Some(GameScreen::Ending),
+        CampaignUiAction::Continue if state.next_mission == MissionId::One => {
+            Some(GameScreen::PreMissionStory)
+        }
+        CampaignUiAction::Continue => Some(GameScreen::Upgrade),
+        CampaignUiAction::AdvanceAftermath if state.completed => Some(GameScreen::Ending),
+        CampaignUiAction::AdvanceAftermath => Some(GameScreen::Upgrade),
+        CampaignUiAction::Proceed if state.completed => Some(GameScreen::Ending),
+        CampaignUiAction::Proceed => Some(GameScreen::PreMissionStory),
+        _ => None,
+    }
+}
+
 pub fn apply_campaign_action(
     action: CampaignUiAction,
     runtime: &mut CampaignRuntime,
@@ -771,12 +791,19 @@ pub fn apply_campaign_action(
             Err(error) => status.0 = error.to_string(),
         },
         CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
-            Ok(MissionId::One) => next_state.set(GameScreen::PreMissionStory),
-            Ok(id) => next_state.set(if mission_definition(id).is_some() {
-                GameScreen::Upgrade
-            } else {
-                GameScreen::NextMission
-            }),
+            Ok(_) => {
+                // Route from the loaded state: unfinished One opens its
+                // story, Seven and everything else goes through Upgrade,
+                // and a completed save lands on Ending.
+                if let Some(screen) = runtime
+                    .0
+                    .state
+                    .as_ref()
+                    .and_then(|state| campaign_destination(CampaignUiAction::Continue, state))
+                {
+                    next_state.set(screen);
+                }
+            }
             Err(error) => status.0 = error.to_string(),
         },
         CampaignUiAction::AdvanceDialogue => {
@@ -786,15 +813,23 @@ pub fn apply_campaign_action(
         }
         CampaignUiAction::StartMission => next_state.set(GameScreen::Battle),
         CampaignUiAction::AdvanceAftermath => {
-            // Aftermath walks `ActiveMission` — after completion the runtime
-            // already points at the unlocked mission, which has no definition.
+            // Aftermath walks `ActiveMission`. The destination is computed
+            // from the persisted state before advancing: a completed campaign
+            // lands on Ending, and it is used only when the last line
+            // advances.
             let Some(mission) = active_mission else {
                 return;
             };
+            let destination = runtime
+                .0
+                .state
+                .as_ref()
+                .and_then(|state| campaign_destination(CampaignUiAction::AdvanceAftermath, state))
+                .unwrap_or(GameScreen::Upgrade);
             advance_dialogue(
                 cursor,
                 mission.0.aftermath.lines.len(),
-                GameScreen::Upgrade,
+                destination,
                 next_state,
             );
         }
@@ -810,18 +845,16 @@ pub fn apply_campaign_action(
             }
         }
         CampaignUiAction::Proceed => {
-            // Authored next mission: straight into its pre-mission story.
-            // Seven is the terminal handoff state.
-            let authored = runtime
+            // Completed save: Ending, never back into the Mission 7 story.
+            // Unfinished: straight into the next mission's pre-mission story.
+            if let Some(screen) = runtime
                 .0
                 .state
                 .as_ref()
-                .is_some_and(|state| mission_definition(state.next_mission).is_some());
-            next_state.set(if authored {
-                GameScreen::PreMissionStory
-            } else {
-                GameScreen::NextMission
-            });
+                .and_then(|state| campaign_destination(CampaignUiAction::Proceed, state))
+            {
+                next_state.set(screen);
+            }
         }
         CampaignUiAction::ReturnToTitle => next_state.set(GameScreen::Title),
     }
@@ -956,5 +989,63 @@ fn text_font(size: f32) -> TextFont {
     TextFont {
         font_size: FontSize::Px(size),
         ..default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::campaign::model::SquadUpgrades;
+
+    fn state(completed: bool, next_mission: MissionId) -> CampaignState {
+        CampaignState {
+            next_mission,
+            credits: 0,
+            upgrades: SquadUpgrades::default(),
+            completed,
+        }
+    }
+
+    #[test]
+    fn campaign_destination_pins_the_terminal_routing_truth_table() {
+        let completed = state(true, MissionId::Seven);
+        let unfinished_seven = state(false, MissionId::Seven);
+        let unfinished_one = state(false, MissionId::One);
+
+        // Continue + completed -> Ending
+        assert_eq!(
+            campaign_destination(CampaignUiAction::Continue, &completed),
+            Some(GameScreen::Ending)
+        );
+        // Continue + unfinished One -> PreMissionStory
+        assert_eq!(
+            campaign_destination(CampaignUiAction::Continue, &unfinished_one),
+            Some(GameScreen::PreMissionStory)
+        );
+        // Continue + unfinished Seven -> Upgrade
+        assert_eq!(
+            campaign_destination(CampaignUiAction::Continue, &unfinished_seven),
+            Some(GameScreen::Upgrade)
+        );
+        // AdvanceAftermath + completed -> Ending
+        assert_eq!(
+            campaign_destination(CampaignUiAction::AdvanceAftermath, &completed),
+            Some(GameScreen::Ending)
+        );
+        // AdvanceAftermath + unfinished -> Upgrade
+        assert_eq!(
+            campaign_destination(CampaignUiAction::AdvanceAftermath, &unfinished_seven),
+            Some(GameScreen::Upgrade)
+        );
+        // Proceed + completed -> Ending
+        assert_eq!(
+            campaign_destination(CampaignUiAction::Proceed, &completed),
+            Some(GameScreen::Ending)
+        );
+        // Proceed + unfinished Seven -> PreMissionStory
+        assert_eq!(
+            campaign_destination(CampaignUiAction::Proceed, &unfinished_seven),
+            Some(GameScreen::PreMissionStory)
+        );
     }
 }
