@@ -120,8 +120,8 @@ fn mission_seven_enemy_units() -> Vec<UnitState> {
         ),
         enemies::artillery(ids::ARTILLERY, "Artillery", GridPos::new(2, 1)),
         enemies::controller(ids::CONTROLLER, "Controller", GridPos::new(8, 7)),
-        enemies::bulwark(ids::BULWARK, "Bulwark", GridPos::new(2, 7)),
-        enemies::flanker(ids::FLANKER, "Flanker", GridPos::new(0, 7)),
+        enemies::bulwark(ids::BULWARK, "Bulwark", GridPos::new(1, 6)),
+        enemies::flanker(ids::FLANKER, "Flanker", GridPos::new(0, 8)),
     ]
 }
 
@@ -287,8 +287,8 @@ mod tests {
                 GridPos::new(8, 7),
                 stats(9, 1, 2, 82, 15, 0),
             ),
-            (ids::BULWARK, GridPos::new(2, 7), stats(16, 4, 1, 76, 0, 0)),
-            (ids::FLANKER, GridPos::new(0, 7), stats(8, 0, 4, 82, 30, 0)),
+            (ids::BULWARK, GridPos::new(1, 6), stats(16, 4, 1, 76, 0, 0)),
+            (ids::FLANKER, GridPos::new(0, 8), stats(8, 0, 4, 82, 30, 0)),
         ];
         for (id, position, unit_stats) in roster {
             let enemy = battle.unit(id).unwrap();
