@@ -76,6 +76,10 @@ pub struct CampaignState {
     pub next_mission: MissionId,
     pub credits: u32,
     pub upgrades: SquadUpgrades,
+    // `#[serde(default)]` keeps saves written before `completed` existed
+    // loadable, treating them as not yet completed instead of failing with a
+    // corrupted-save error.
+    #[serde(default)]
     pub completed: bool,
 }
 
