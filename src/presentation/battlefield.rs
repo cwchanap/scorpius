@@ -45,6 +45,11 @@ impl BattlefieldVisualAssets {
     }
 }
 
+#[derive(Component, Clone, Copy)]
+pub(crate) struct BattleCamera {
+    pub rest: Transform,
+}
+
 pub fn mission_grid_cells(width: u8, height: u8) -> Vec<GridPos> {
     (0..height)
         .flat_map(|y| (0..width).map(move |x| GridPos::new(x, y)))
@@ -79,6 +84,7 @@ pub fn setup_mission_scene(
         brightness: 260.0,
         affects_lightmapped_meshes: true,
     });
+    let rest = Transform::from_xyz(10.8, 12.4, 12.2).looking_at(Vec3::ZERO, Vec3::Y);
     commands.spawn((
         Camera3d::default(),
         MeshPickingCamera,
@@ -88,7 +94,8 @@ pub fn setup_mission_scene(
             },
             ..OrthographicProjection::default_3d()
         }),
-        Transform::from_xyz(10.8, 12.4, 12.2).looking_at(Vec3::ZERO, Vec3::Y),
+        rest,
+        BattleCamera { rest },
     ));
     commands.spawn((
         DirectionalLight {
