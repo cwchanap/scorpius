@@ -179,7 +179,8 @@ pub fn execute_command(
                 | UnitArchetype::Flanker
                 | UnitArchetype::Bulwark
                 | UnitArchetype::Controller
-                | UnitArchetype::Dreadnought => {
+                | UnitArchetype::Dreadnought
+                | UnitArchetype::Regent => {
                     return Err(BattleError::PilotSkillWrongUnit(unit_id));
                 }
             }

@@ -26,6 +26,7 @@ pub enum UnitArchetype {
     Bulwark,
     Controller,
     Dreadnought,
+    Regent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

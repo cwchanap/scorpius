@@ -329,7 +329,8 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
         UnitArchetype::Rifleman
         | UnitArchetype::Striker
         | UnitArchetype::Bulwark
-        | UnitArchetype::Dreadnought => {
+        | UnitArchetype::Dreadnought
+        | UnitArchetype::Regent => {
             let weapon = unit_weapon(battle, unit)?;
             Ok(attack_band_destination(&candidates, &players, weapon))
         }
@@ -400,7 +401,7 @@ pub(crate) fn unit_weapon<'a>(
     unit: &UnitState,
 ) -> Result<&'a WeaponSpec, BattleError> {
     let index = match unit.archetype {
-        UnitArchetype::Dreadnought if unit.hp * 2 <= unit.stats.max_hp => 1,
+        UnitArchetype::Dreadnought | UnitArchetype::Regent if unit.hp * 2 <= unit.stats.max_hp => 1,
         _ => 0,
     };
     let id = unit
@@ -677,6 +678,7 @@ fn player_priority(unit: &UnitState) -> u8 {
 
 fn initiative(unit: &UnitState) -> i16 {
     match unit.archetype {
+        UnitArchetype::Regent => 45,
         UnitArchetype::Dreadnought => 40,
         UnitArchetype::Controller => 35,
         UnitArchetype::Striker => 30,
@@ -730,6 +732,10 @@ mod tests {
     const TEST_PLAYER: UnitId = UnitId(91);
     const GRAVITON: WeaponId = WeaponId(290);
     const OVERLOAD: WeaponId = WeaponId(291);
+    const REGENT: UnitId = UnitId(92);
+    const REGENT_PLAYER: UnitId = UnitId(93);
+    const COMMAND_BARRAGE: WeaponId = WeaponId(292);
+    const RUPTURE_BEAM: WeaponId = WeaponId(293);
 
     #[test]
     fn authored_opening_places_four_locked_threats() {
@@ -1119,6 +1125,18 @@ mod tests {
         );
         assert_eq!(initiative(&dreadnought), 40);
         assert!(initiative(&dreadnought) > initiative(&controller));
+        let regent = squad::unit(
+            REGENT,
+            "Regent",
+            UnitArchetype::Regent,
+            Faction::Enemy,
+            squad::stats(52, 4, 2, 92, 8, 0),
+            GridPos::new(3, 1),
+            vec![COMMAND_BARRAGE, RUPTURE_BEAM],
+        );
+        assert_eq!(initiative(&regent), 45);
+        assert!(initiative(&regent) > initiative(&dreadnought));
+        assert!(initiative(&regent) > initiative(&controller));
     }
 
     #[test]
@@ -1266,6 +1284,59 @@ mod tests {
     }
 
     #[test]
+    fn both_bosses_switch_at_their_exact_half_hp_boundary() {
+        let mut regent = regent_threshold_fixture();
+        regent.apply_direct_damage(REGENT, 25, DamageSource::Collision);
+        assert_eq!(regent.unit(REGENT).unwrap().hp, 27);
+        assert_eq!(
+            unit_weapon(&regent, regent.unit(REGENT).unwrap())
+                .unwrap()
+                .id,
+            COMMAND_BARRAGE
+        );
+        regent.apply_direct_damage(REGENT, 1, DamageSource::Collision);
+        assert_eq!(regent.unit(REGENT).unwrap().hp, 26);
+        assert_eq!(
+            unit_weapon(&regent, regent.unit(REGENT).unwrap())
+                .unwrap()
+                .id,
+            RUPTURE_BEAM
+        );
+
+        let mut dreadnought = dreadnought_threshold_fixture();
+        dreadnought.apply_direct_damage(DREADNOUGHT, 19, DamageSource::Collision);
+        assert_eq!(dreadnought.unit(DREADNOUGHT).unwrap().hp, 21);
+        assert_eq!(
+            unit_weapon(&dreadnought, dreadnought.unit(DREADNOUGHT).unwrap())
+                .unwrap()
+                .id,
+            GRAVITON
+        );
+        dreadnought.apply_direct_damage(DREADNOUGHT, 1, DamageSource::Collision);
+        assert_eq!(dreadnought.unit(DREADNOUGHT).unwrap().hp, 20);
+        assert_eq!(
+            unit_weapon(&dreadnought, dreadnought.unit(DREADNOUGHT).unwrap())
+                .unwrap()
+                .id,
+            OVERLOAD
+        );
+    }
+
+    #[test]
+    fn regent_threshold_crossing_changes_only_future_intents() {
+        let mut battle = regent_threshold_fixture();
+        battle.begin_round().unwrap();
+        let committed = battle.intent_for(REGENT).unwrap().clone();
+        assert_eq!(committed.profile.weapon, COMMAND_BARRAGE);
+
+        battle.apply_direct_damage(REGENT, 26, DamageSource::Collision);
+        assert_eq!(battle.intent_for(REGENT).unwrap(), &committed);
+
+        let future = build_intent(&battle, REGENT, Some(GridPos::new(3, 5))).unwrap();
+        assert_eq!(future.profile.weapon, RUPTURE_BEAM);
+    }
+
+    #[test]
     fn dreadnought_overload_closes_from_range_five() {
         let mut battle = dreadnought_close_pressure_fixture();
         battle.apply_direct_damage(DREADNOUGHT, 20, DamageSource::Collision);
@@ -1344,6 +1415,68 @@ mod tests {
 
     fn dreadnought_close_pressure_fixture() -> BattleState {
         dreadnought_fixture(GridPos::new(3, 0), GridPos::new(3, 5))
+    }
+
+    fn regent_fixture(boss_at: GridPos, player_at: GridPos) -> BattleState {
+        let board = BoardState::new(7, 7, [], [], []);
+        let units = vec![
+            squad::unit(
+                REGENT,
+                "Regent",
+                UnitArchetype::Regent,
+                Faction::Enemy,
+                squad::stats(52, 4, 2, 92, 8, 0),
+                boss_at,
+                vec![COMMAND_BARRAGE, RUPTURE_BEAM],
+            ),
+            squad::unit(
+                REGENT_PLAYER,
+                "Player",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                squad::stats(20, 3, 3, 78, 5, 7),
+                player_at,
+                vec![],
+            ),
+        ];
+        BattleState::new(
+            board,
+            units,
+            vec![
+                squad::weapon(
+                    COMMAND_BARRAGE,
+                    "Command Barrage",
+                    3,
+                    6,
+                    WeaponShape::Cross1,
+                    9,
+                    10,
+                    5,
+                    0,
+                    false,
+                    false,
+                ),
+                squad::weapon(
+                    RUPTURE_BEAM,
+                    "Rupture Beam",
+                    2,
+                    4,
+                    WeaponShape::Single,
+                    12,
+                    15,
+                    10,
+                    0,
+                    false,
+                    false,
+                ),
+            ],
+            eliminate_rules(),
+            7,
+        )
+    }
+
+    fn regent_threshold_fixture() -> BattleState {
+        regent_fixture(GridPos::new(3, 1), GridPos::new(3, 5))
     }
 
     fn planning_fixture(
