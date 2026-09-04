@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 pub const MISSION_ONE_GLTF: &str = "models/mission_one.gltf";
 pub const MISSION_ONE_GLTF_DISPLAY_PATH: &str = "assets/models/mission_one.gltf";
-pub const MISSION_ONE_SCENE_COUNT: usize = 14;
+pub const MISSION_ONE_SCENE_COUNT: usize = 15;
 
 #[derive(Resource)]
 pub struct MissionAssets {
@@ -89,11 +89,11 @@ mod tests {
         let gltf = mission_gltf();
 
         let scenes = gltf["scenes"].as_array().unwrap();
-        assert_eq!(scenes.len(), 14);
+        assert_eq!(scenes.len(), 15);
         assert_eq!(scenes[10]["name"], "Flanker");
 
         let nodes = gltf["nodes"].as_array().unwrap();
-        assert_eq!(nodes.len(), 77);
+        assert_eq!(nodes.len(), 84);
         // Node 49 is the Flanker root carrying the authored 0.72 scale; the
         // part nodes 50-55 hang beneath it and all reuse the shared mesh.
         assert_eq!(scenes[10]["nodes"], serde_json::json!([49]));
@@ -108,7 +108,7 @@ mod tests {
         }
 
         let meshes = gltf["meshes"].as_array().unwrap();
-        assert_eq!(meshes.len(), 14);
+        assert_eq!(meshes.len(), 15);
         assert_eq!(meshes[10]["name"], "Flanker Magenta");
         let primitive = &meshes[10]["primitives"][0];
         assert_eq!(primitive["material"], 10);
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(primitive["attributes"]["NORMAL"], 1);
 
         let materials = gltf["materials"].as_array().unwrap();
-        assert_eq!(materials.len(), 14);
+        assert_eq!(materials.len(), 15);
         assert_eq!(materials[10]["name"], "Flanker Magenta");
 
         assert_eq!(gltf["buffers"].as_array().unwrap().len(), 1);
@@ -131,12 +131,12 @@ mod tests {
         let gltf = mission_gltf();
 
         let scenes = gltf["scenes"].as_array().unwrap();
-        assert_eq!(scenes.len(), 14);
+        assert_eq!(scenes.len(), 15);
         assert_eq!(scenes[11]["name"], "Bulwark");
         assert_eq!(scenes[11]["nodes"], serde_json::json!([56]));
 
         let nodes = gltf["nodes"].as_array().unwrap();
-        assert_eq!(nodes.len(), 77);
+        assert_eq!(nodes.len(), 84);
         assert_eq!(nodes[56]["scale"], serde_json::json!([0.88, 0.88, 0.88]));
         assert_eq!(
             nodes[56]["children"],
@@ -158,7 +158,7 @@ mod tests {
         }
 
         let meshes = gltf["meshes"].as_array().unwrap();
-        assert_eq!(meshes.len(), 14);
+        assert_eq!(meshes.len(), 15);
         for mesh_index in [11, 12] {
             let primitive = &meshes[mesh_index]["primitives"][0];
             // Existing shared cube accessors, exactly like every other mesh.
@@ -167,7 +167,7 @@ mod tests {
         }
 
         let materials = gltf["materials"].as_array().unwrap();
-        assert_eq!(materials.len(), 14);
+        assert_eq!(materials.len(), 15);
         assert_eq!(materials[11]["name"], "Bulwark Ochre");
         assert_eq!(
             materials[11]["pbrMetallicRoughness"]["baseColorFactor"],
@@ -193,10 +193,10 @@ mod tests {
         let meshes = gltf["meshes"].as_array().unwrap();
         let materials = gltf["materials"].as_array().unwrap();
 
-        assert_eq!(scenes.len(), 14);
+        assert_eq!(scenes.len(), 15);
         assert_eq!(scenes[13]["name"], "Dreadnought");
         assert_eq!(scenes[13]["nodes"], serde_json::json!([70]));
-        assert_eq!(nodes.len(), 77);
+        assert_eq!(nodes.len(), 84);
         assert_eq!(nodes[70]["scale"], serde_json::json!([1.12, 1.12, 1.12]));
         assert_eq!(
             nodes[70]["children"],
@@ -205,14 +205,49 @@ mod tests {
         for (index, part) in nodes.iter().enumerate().skip(71).take(6) {
             assert_eq!(part["mesh"], 13, "node {index} must use mesh 13");
         }
-        assert_eq!(meshes.len(), 14);
+        assert_eq!(meshes.len(), 15);
         assert_eq!(meshes[13]["name"], "Dreadnought Crimson");
         assert_eq!(meshes[13]["primitives"][0]["material"], 13);
-        assert_eq!(materials.len(), 14);
+        assert_eq!(materials.len(), 15);
         assert_eq!(materials[13]["name"], "Dreadnought Crimson");
         assert_eq!(
             materials[13]["pbrMetallicRoughness"]["baseColorFactor"],
             serde_json::json!([0.55, 0.08, 0.12, 1.0])
+        );
+        assert_eq!(gltf["buffers"].as_array().unwrap().len(), 1);
+    }
+
+    /// The Regent scene is appended to the same single-buffer glTF as the
+    /// final violet boss: its own root (authored 1.20 scale), six part
+    /// children, mesh, and material, reusing the shared cube accessors.
+    #[test]
+    fn regent_scene_is_authored_as_the_final_violet_boss() {
+        let gltf = mission_gltf();
+        let scenes = gltf["scenes"].as_array().unwrap();
+        let nodes = gltf["nodes"].as_array().unwrap();
+        let meshes = gltf["meshes"].as_array().unwrap();
+        let materials = gltf["materials"].as_array().unwrap();
+
+        assert_eq!(scenes.len(), 15);
+        assert_eq!(scenes[14]["name"], "Regent");
+        assert_eq!(scenes[14]["nodes"], serde_json::json!([77]));
+        assert_eq!(nodes.len(), 84);
+        assert_eq!(nodes[77]["scale"], serde_json::json!([1.20, 1.20, 1.20]));
+        assert_eq!(
+            nodes[77]["children"],
+            serde_json::json!([78, 79, 80, 81, 82, 83])
+        );
+        for (index, part) in nodes.iter().enumerate().skip(78).take(6) {
+            assert_eq!(part["mesh"], 14, "node {index} must use mesh 14");
+        }
+        assert_eq!(meshes.len(), 15);
+        assert_eq!(meshes[14]["name"], "Regent Violet");
+        assert_eq!(meshes[14]["primitives"][0]["material"], 14);
+        assert_eq!(materials.len(), 15);
+        assert_eq!(materials[14]["name"], "Regent Violet");
+        assert_eq!(
+            materials[14]["pbrMetallicRoughness"]["baseColorFactor"],
+            serde_json::json!([0.42, 0.14, 0.78, 1.0])
         );
         assert_eq!(gltf["buffers"].as_array().unwrap().len(), 1);
     }

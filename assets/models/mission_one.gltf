@@ -131,6 +131,12 @@
       "nodes": [
         70
       ]
+    },
+    {
+      "name": "Regent",
+      "nodes": [
+        77
+      ]
     }
   ],
   "nodes": [
@@ -1219,6 +1225,106 @@
         0.28
       ],
       "name": "Dreadnought Right Wing Blade"
+    },
+    {
+      "scale": [
+        1.2,
+        1.2,
+        1.2
+      ],
+      "name": "Regent Root",
+      "children": [
+        78,
+        79,
+        80,
+        81,
+        82,
+        83
+      ]
+    },
+    {
+      "mesh": 14,
+      "translation": [
+        -0.16,
+        0.2,
+        0.0
+      ],
+      "scale": [
+        0.12,
+        0.42,
+        0.16
+      ],
+      "name": "Regent Left Leg"
+    },
+    {
+      "mesh": 14,
+      "translation": [
+        0.16,
+        0.2,
+        0.0
+      ],
+      "scale": [
+        0.12,
+        0.42,
+        0.16
+      ],
+      "name": "Regent Right Leg"
+    },
+    {
+      "mesh": 14,
+      "translation": [
+        0.0,
+        0.7,
+        0.0
+      ],
+      "scale": [
+        0.36,
+        0.52,
+        0.3
+      ],
+      "name": "Regent Torso"
+    },
+    {
+      "mesh": 14,
+      "translation": [
+        0.0,
+        1.1,
+        0.0
+      ],
+      "scale": [
+        0.22,
+        0.24,
+        0.22
+      ],
+      "name": "Regent Head"
+    },
+    {
+      "mesh": 14,
+      "translation": [
+        -0.5,
+        0.82,
+        0.08
+      ],
+      "scale": [
+        0.62,
+        0.08,
+        0.28
+      ],
+      "name": "Regent Left Wing Blade"
+    },
+    {
+      "mesh": 14,
+      "translation": [
+        0.5,
+        0.82,
+        0.08
+      ],
+      "scale": [
+        0.62,
+        0.08,
+        0.28
+      ],
+      "name": "Regent Right Wing Blade"
     }
   ],
   "meshes": [
@@ -1401,6 +1507,19 @@
           },
           "indices": 2,
           "material": 13
+        }
+      ]
+    },
+    {
+      "name": "Regent Violet",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1
+          },
+          "indices": 2,
+          "material": 14
         }
       ]
     }
@@ -1660,6 +1779,24 @@
         0.06,
         0.01,
         0.015
+      ]
+    },
+    {
+      "name": "Regent Violet",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.42,
+          0.14,
+          0.78,
+          1.0
+        ],
+        "metallicFactor": 0.25,
+        "roughnessFactor": 0.62
+      },
+      "emissiveFactor": [
+        0.05,
+        0.02,
+        0.09
       ]
     }
   ],
