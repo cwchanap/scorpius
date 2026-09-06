@@ -1,0 +1,66 @@
+{
+  "issue": "HPA-480",
+  "delivery": "one ticket, one branch, one PR",
+  "code_baseline": "cwchanap/scorpius@d981682840eb9147ba9eb7f7c56b2ceae88a3aed",
+  "source": {
+    "name": "Scorpius UI (offline).html",
+    "size_bytes": 12276571,
+    "sha256": "f3b74553a57e24d26cd42a5feeb842853aea774393930077771cdc37bc07d3ef",
+    "content_location": "JSON-encoded __bundler/template section, original line 393",
+    "available_at": "originating ChatGPT conversation attachment; not included as a repository binary"
+  },
+  "prior_scope": {
+    "name": "scorpius-ui-scope.md",
+    "sha256": "b8410e5c39518bffb4db972d1f2843cde7457084c0ddce45d536d476dc98c410",
+    "superseded_section": "Suggested delivery: three tickets, one PR per ticket",
+    "replacement": "HPA-480 and its existing draft PR contain design, implementation, tests and acceptance"
+  },
+  "reference_bundle": {
+    "name": "scorpius-ui-reference-screens.zip",
+    "size_bytes": 5172628,
+    "sha256": "3e471e242e167bca3460d45a68b0558950558d759b0e7f7a51f81db2ebe275ef",
+    "available_at": "originating conversation attachment",
+    "remote_upload_status": "Linear PUT failed: upload host could not resolve; no remote attachment was finalized",
+    "implementation_intake": "Transfer verified PNG references to durable project storage before pixel-matching; preserve originals and link their actual location in this PR",
+    "contains": "ten PNG references, reference-overview.jpg and reference-manifest.json; no fonts or executable bundles"
+  },
+  "capture": {
+    "renderer": "Chromium rendering of supplied HTML, not the native game",
+    "viewport_px": [1978, 1080],
+    "game_canvas_clip_px": [58, 0, 1920, 1080],
+    "device_scale_factor": 1,
+    "animations": "paused; exact pause instant was not recorded",
+    "recapture_requirement": "Set a recorded animation time before using pulsing pixels as deterministic goldens",
+    "result_note": "result.png is a forced prototype-rail victory preview, not proof of a legal terminal state"
+  },
+  "original_captures": [
+    {"file": "title.png", "sha256": "9ffe5075e6fc739144592d2bde74468a88b4ab932733ff8562cb762685f3c1bd"},
+    {"file": "story.png", "sha256": "f557e27b571bc2ebe8fa2603fd4eb811721dd659be1864cd36ed2a2489ae229a"},
+    {"file": "briefing.png", "sha256": "12a545c2c83f4ea1b7e1caf4bbc65b758d5066d1846362839fbb1f130979d3f2"},
+    {"file": "battle.png", "sha256": "85b0007d30a472b2517f57f354bea50d0c2866d67a1e10eebc702eb0ba6d9553"},
+    {"file": "battle-selected.png", "sha256": "4a87ce9ca131c6650319de0a7a9cf25b3e0873bf65b2f53bdb5ff97165f2e431"},
+    {"file": "battle-weapons.png", "sha256": "d899e8406e6f2d0d5ee5349f776e224fc746d38022ec83b98fa9bb862c79eb8f"},
+    {"file": "result.png", "sha256": "cb3c028271ef4b7eb32fd4703678a2ed01aa14d867a9633d059f896eed661876"},
+    {"file": "aftermath.png", "sha256": "acf0e5f5803ab1a39dfe8d36ca702ee0e13e2396cf32878d1e7269388265ed39"},
+    {"file": "hangar.png", "sha256": "7392d92cc9b76ac9de0eb414826f76f4e4bffadd1ca3ed4a57a1a70ebf682084"},
+    {"file": "ending.png", "sha256": "efbf958280b96d711db86718154accebc0adf019b313263989a513f49c5ebada"}
+  ],
+  "image_resources_to_import": [
+    {"resource_id": "keyArt", "destination": "assets/ui/key_art.png", "size_bytes": 2392369, "sha256": "69841ec2391b72ddade712afcd7adab03fe208f7f0fed7e8d2592a653f3c052d"},
+    {"resource_id": "briefArt", "destination": "assets/ui/briefing.png", "size_bytes": 931777, "sha256": "a287d54acbae419908cf3badb1d0207afb8fefbedc2efe72afa88e5cbab6aa42"},
+    {"resource_id": "mechVa", "destination": "assets/ui/vanguard.png", "size_bytes": 1703226, "sha256": "4f8ec53bb17781c15ed5d934d914b193749f8f9351042ddb5bb6456d459ac3f1"},
+    {"resource_id": "mechGu", "destination": "assets/ui/gunner.png", "size_bytes": 1518195, "sha256": "69dde08fe87fe2e93ad60fb7e2914f84b008f272e37f3beed5ea890dd087426f"},
+    {"resource_id": "mechIn", "destination": "assets/ui/interceptor.png", "size_bytes": 2032446, "sha256": "26201930d73e3e5a70264d3280433ebbf903bcd8740c7d5e7a408df247bd95bd"}
+  ],
+  "evidence_namespaces": {
+    "original": "Unmodified source screenshots",
+    "aligned": "Reference layout with documented data-only bindings matching legal native fixtures",
+    "extensions": "Same-style states absent from the supplied mockup, requiring review",
+    "native": "Actual Bevy game output at a named implementation commit",
+    "comparison": "Side-by-side, overlay and difference outputs without broad masks"
+  },
+  "native_validation": "not run; this draft is planning-only",
+  "primary_canvas_px": [1920, 1080],
+  "secondary_window_sizes": [[1280, 720], [1600, 900], [1600, 1000]],
+  "hidpi_check_required": true
+}
