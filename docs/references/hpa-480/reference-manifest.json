@@ -3,147 +3,200 @@
   "delivery": "one ticket, one branch, one PR",
   "code_baseline": "cwchanap/scorpius@d981682840eb9147ba9eb7f7c56b2ceae88a3aed",
   "source": {
+    "name": "Scorpius UI (offline)(1).html",
+    "size_bytes": 12278676,
+    "sha256": "04bbed2958cce4c3c2ddc665f5826fac32050f509db59f852a350acb299d6e19",
+    "role": "authoritative updated UI bundle; supersedes the flat Battle/Result layout wherever different",
+    "available_at": "originating ChatGPT conversation attachment; must be vendored/linked durably before implementation parity work"
+  },
+  "superseded_flat_source": {
     "name": "Scorpius UI (offline).html",
     "size_bytes": 12276571,
     "sha256": "f3b74553a57e24d26cd42a5feeb842853aea774393930077771cdc37bc07d3ef",
-    "content_location": "JSON-encoded __bundler/template section, original line 393",
-    "available_at": "originating ChatGPT conversation attachment; not included as a repository binary"
+    "status": "historical provenance only for superseded flat Battle geometry"
   },
-  "prior_scope": {
-    "name": "scorpius-ui-scope.md",
-    "sha256": "b8410e5c39518bffb4db972d1f2843cde7457084c0ddce45d536d476dc98c410",
-    "superseded_section": "Suggested delivery: three tickets, one PR per ticket",
-    "replacement": "HPA-480 and PR #7 contain design, implementation, tests and acceptance"
-  },
-  "reference_bundle": {
+  "superseded_flat_reference_bundle": {
     "name": "scorpius-ui-reference-screens.zip",
     "size_bytes": 5172628,
     "sha256": "3e471e242e167bca3460d45a68b0558950558d759b0e7f7a51f81db2ebe275ef",
-    "available_at": "originating conversation attachment; re-verified 2026-09-06",
-    "remote_upload_status": "Linear PUT previously failed: upload host could not resolve; no remote attachment was finalized",
-    "implementation_intake": "First implementation commit transfers verified reference bytes to durable project storage before theme/component work",
-    "contains": "ten PNG source references, reference-overview.jpg and reference-manifest.json; not native-game evidence"
+    "status": "campaign captures may be compared for unchanged composition; flat battle.png/battle-selected.png/battle-weapons.png/result.png are not final acceptance goldens",
+    "remote_upload_status": "Linear PUT previously failed; no remote binary attachment was finalized"
   },
-  "capture": {
-    "renderer": "Chromium rendering of supplied HTML, not the native game",
-    "viewport_px": [1978, 1080],
-    "game_canvas_clip_px": [58, 0, 1920, 1080],
-    "device_scale_factor": 1,
-    "animations": "paused; exact pause instant was not recorded",
-    "recapture_requirement": "Set and record animation time before pulsing pixels become deterministic goldens",
-    "result_note": "result.png is a forced prototype-rail victory preview, not proof of a legal terminal state"
+  "updated_reference_capture": {
+    "status": "pending Task 1 recapture from updated source",
+    "requirements": [
+      "1920x1080 game canvas crop with prototype rail excluded",
+      "device scale factor 1",
+      "recorded deterministic animation time for still goldens",
+      "source screenshots stored separately from aligned legal-data references",
+      "Battle/Result must come from the 2.5D source, never the superseded flat bundle"
+    ]
   },
-  "original_captures": [
-    {"file": "title.png", "sha256": "9ffe5075e6fc739144592d2bde74468a88b4ab932733ff8562cb762685f3c1bd"},
-    {"file": "story.png", "sha256": "f557e27b571bc2ebe8fa2603fd4eb811721dd659be1864cd36ed2a2489ae229a"},
-    {"file": "briefing.png", "sha256": "12a545c2c83f4ea1b7e1caf4bbc65b758d5066d1846362839fbb1f130979d3f2"},
-    {"file": "battle.png", "sha256": "85b0007d30a472b2517f57f354bea50d0c2866d67a1e10eebc702eb0ba6d9553"},
-    {"file": "battle-selected.png", "sha256": "4a87ce9ca131c6650319de0a7a9cf25b3e0873bf65b2f53bdb5ff97165f2e431"},
-    {"file": "battle-weapons.png", "sha256": "d899e8406e6f2d0d5ee5349f776e224fc746d38022ec83b98fa9bb862c79eb8f"},
-    {"file": "result.png", "sha256": "cb3c028271ef4b7eb32fd4703678a2ed01aa14d867a9633d059f896eed661876"},
-    {"file": "aftermath.png", "sha256": "acf0e5f5803ab1a39dfe8d36ca702ee0e13e2396cf32878d1e7269388265ed39"},
-    {"file": "hangar.png", "sha256": "7392d92cc9b76ac9de0eb414826f76f4e4bffadd1ca3ed4a57a1a70ebf682084"},
-    {"file": "ending.png", "sha256": "efbf958280b96d711db86718154accebc0adf019b313263989a513f49c5ebada"}
-  ],
   "image_resources_to_import": [
-    {"resource_id": "keyArt", "destination": "assets/ui/key_art.png", "size_bytes": 2392369, "sha256": "69841ec2391b72ddade712afcd7adab03fe208f7f0fed7e8d2592a653f3c052d"},
-    {"resource_id": "briefArt", "destination": "assets/ui/briefing.png", "size_bytes": 931777, "sha256": "a287d54acbae419908cf3badb1d0207afb8fefbedc2efe72afa88e5cbab6aa42"},
-    {"resource_id": "mechVa", "destination": "assets/ui/vanguard.png", "size_bytes": 1703226, "sha256": "4f8ec53bb17781c15ed5d934d914b193749f8f9351042ddb5bb6456d459ac3f1"},
-    {"resource_id": "mechGu", "destination": "assets/ui/gunner.png", "size_bytes": 1518195, "sha256": "69dde08fe87fe2e93ad60fb7e2914f84b008f272e37f3beed5ea890dd087426f"},
-    {"resource_id": "mechIn", "destination": "assets/ui/interceptor.png", "size_bytes": 2032446, "sha256": "26201930d73e3e5a70264d3280433ebbf903bcd8740c7d5e7a408df247bd95bd"}
+    {"resource_id":"keyArt","source_uuid":"b9dbb489-1cbd-4bf5-8750-0f2a757f7e0d","destination":"assets/ui/key_art.png","size_bytes":2392369,"sha256":"69841ec2391b72ddade712afcd7adab03fe208f7f0fed7e8d2592a653f3c052d"},
+    {"resource_id":"briefArt","source_uuid":"d28e9a3d-baf0-4cbe-9edc-3c677877b2dd","destination":"assets/ui/briefing.png","size_bytes":931777,"sha256":"a287d54acbae419908cf3badb1d0207afb8fefbedc2efe72afa88e5cbab6aa42"},
+    {"resource_id":"mechVa","source_uuid":"fa8670b9-b20c-49e3-a672-a3db7ffa379b","destination":"assets/ui/vanguard.png","size_bytes":1703226,"sha256":"4f8ec53bb17781c15ed5d934d914b193749f8f9351042ddb5bb6456d459ac3f1"},
+    {"resource_id":"mechGu","source_uuid":"fb942c5e-95d6-44c1-ae65-3ce3407eb899","destination":"assets/ui/gunner.png","size_bytes":1518195,"sha256":"69dde08fe87fe2e93ad60fb7e2914f84b008f272e37f3beed5ea890dd087426f"},
+    {"resource_id":"mechIn","source_uuid":"a628061a-0134-4f6f-b3cf-d9039ae75af2","destination":"assets/ui/interceptor.png","size_bytes":2032446,"sha256":"26201930d73e3e5a70264d3280433ebbf903bcd8740c7d5e7a408df247bd95bd"}
   ],
+  "reused_vn_assets": [
+    {"resource_id":"ctrlAlert","source_uuid":"a52692d3-608d-4c06-80fe-9cf09b60fbef","destination":"assets/vn/control_alert.png","size_bytes":43130,"sha256":"a435e58d9772ab736d1912d20052fb3dc368411a1be52923c990c25be235c4bf"},
+    {"resource_id":"ctrlNeutral","source_uuid":"6afa1f2c-4753-4861-a381-a73046dc5155","destination":"assets/vn/control_neutral.png","size_bytes":37310,"sha256":"d98c08a2426b5c371fea7d3daf7788eafda04faab497d8c46494a5448799bbc0"},
+    {"resource_id":"vanNeutral","source_uuid":"caa36b94-2c8d-4de3-9ead-f726fbae7c2a","destination":"assets/vn/vanguard_neutral.png","size_bytes":33613,"sha256":"94aab15bbf1d752221af56e223fcf26446fafb1cc31e0639b53d7be07171e8f6"}
+  ],
+  "font_policy": {
+    "source_of_truth": "committed native TTF files matching deterministic_ttf_sha256",
+    "woff2_role": "updated-source provenance only",
+    "regeneration": "not part of normal build/test; if a converter script is retained it must pin converter and version explicitly"
+  },
   "font_resources": [
-    {"family": "Chakra Petch", "weight": 400, "subset": "latin", "source_uuid": "94b8e84c-0198-4c22-8924-6f043446a2ae", "source_format": "woff2", "source_size_bytes": 9728, "source_sha256": "e592818029a919d578974df32686d415d6acd8401bc5420695de41a46eeae426", "native_destination": "assets/fonts/chakra-petch-400.ttf", "deterministic_ttf_sha256": "16287c1ec502f3cc21d71e834bf85eb92d87b9f91ae624bba4252aa0ec40016d"},
-    {"family": "Chakra Petch", "weight": 500, "subset": "latin", "source_uuid": "bf6d98ce-25dd-4f6a-bda4-fe50dfe08d42", "source_format": "woff2", "source_size_bytes": 9944, "source_sha256": "adf007cd277ef6dac0c8cecacfb60cc5e24e7c8bcce4db98aa233bd3a88ef5a3", "native_destination": "assets/fonts/chakra-petch-500.ttf", "deterministic_ttf_sha256": "c6fb07c769e6197c20d70fb92598ab3fbe773782709528001da7f0fbdda30fc3"},
-    {"family": "Chakra Petch", "weight": 600, "subset": "latin", "source_uuid": "2bdac3b9-87da-4fee-8469-8cebd4694de3", "source_format": "woff2", "source_size_bytes": 10040, "source_sha256": "4d6d5f0b31b3a471a843779c4ecada040e5bc291f96bca9805a94293fe8003fa", "native_destination": "assets/fonts/chakra-petch-600.ttf", "deterministic_ttf_sha256": "3b33df1a8baca33e97c1be75f78984689deacb5f005989870a144512ee925040"},
-    {"family": "Chakra Petch", "weight": 700, "subset": "latin", "source_uuid": "daceb4d8-7c0c-4b48-b768-4b7bd2476dd2", "source_format": "woff2", "source_size_bytes": 9868, "source_sha256": "3c2433eb167176cddcdb3eb2ea306d68c2a4ed4c6e78a0dc07b3853d8f6ae8e3", "native_destination": "assets/fonts/chakra-petch-700.ttf", "deterministic_ttf_sha256": "5556aa09fe35969df51865099f7432fcfbeb6fa3951cc7d7421a2c4a606eb4f1"},
-    {"family": "IBM Plex Mono", "weight": 400, "subset": "latin", "source_uuid": "7cd1d5a2-f357-4ab7-880b-e8c0a6239324", "source_format": "woff2", "source_size_bytes": 10052, "source_sha256": "c36f509c0a8f9f85f29cb44bc8701d8a9e0b14c499e77a884f789ead7093a7ac", "native_destination": "assets/fonts/ibm-plex-mono-400.ttf", "deterministic_ttf_sha256": "f1090b171f84e6f9cdb610763fa81729025be0786b96c4f5e2dbc8704b791915"},
-    {"family": "IBM Plex Mono", "weight": 500, "subset": "latin", "source_uuid": "d58e5c93-a7d6-4745-8423-1415f35ac840", "source_format": "woff2", "source_size_bytes": 10060, "source_sha256": "a76f53ca6612e7b3828eec2311098675b7f9849ae4169a8bcef6302aec02a6c0", "native_destination": "assets/fonts/ibm-plex-mono-500.ttf", "deterministic_ttf_sha256": "066b5d9883907bdc024f707e24adb0448e115847bfaa6cff0b02978044b23dae"},
-    {"family": "IBM Plex Mono", "weight": 600, "subset": "latin", "source_uuid": "6f00ee20-9ad0-4113-bf80-7b0233d98ab5", "source_format": "woff2", "source_size_bytes": 10120, "source_sha256": "ad4580d8cb4b5f627c2d18457656732f7f7b070f7837fbc380e08054157e6f6c", "native_destination": "assets/fonts/ibm-plex-mono-600.ttf", "deterministic_ttf_sha256": "57e371b751a0ff4da3e115d0559eb1bf9082c1ba14005374646c818d8ed26c23"}
+    {"family":"Chakra Petch","weight":400,"subset":"latin","source_uuid":"34b6633b-c5bf-4860-954a-cb3fe0a9ab0d","source_size_bytes":9728,"source_sha256":"e592818029a919d578974df32686d415d6acd8401bc5420695de41a46eeae426","native_destination":"assets/fonts/chakra-petch-400.ttf","deterministic_ttf_sha256":"16287c1ec502f3cc21d71e834bf85eb92d87b9f91ae624bba4252aa0ec40016d"},
+    {"family":"Chakra Petch","weight":500,"subset":"latin","source_uuid":"695f5155-2572-444a-96d5-9723e0277b67","source_size_bytes":9944,"source_sha256":"adf007cd277ef6dac0c8cecacfb60cc5e24e7c8bcce4db98aa233bd3a88ef5a3","native_destination":"assets/fonts/chakra-petch-500.ttf","deterministic_ttf_sha256":"c6fb07c769e6197c20d70fb92598ab3fbe773782709528001da7f0fbdda30fc3"},
+    {"family":"Chakra Petch","weight":600,"subset":"latin","source_uuid":"3a70d715-49ba-4065-b1bd-4d7df23dd124","source_size_bytes":10040,"source_sha256":"4d6d5f0b31b3a471a843779c4ecada040e5bc291f96bca9805a94293fe8003fa","native_destination":"assets/fonts/chakra-petch-600.ttf","deterministic_ttf_sha256":"3b33df1a8baca33e97c1be75f78984689deacb5f005989870a144512ee925040"},
+    {"family":"Chakra Petch","weight":700,"subset":"latin","source_uuid":"9cfd57fe-9440-4720-9b6e-6bdc8a52135d","source_size_bytes":9868,"source_sha256":"3c2433eb167176cddcdb3eb2ea306d68c2a4ed4c6e78a0dc07b3853d8f6ae8e3","native_destination":"assets/fonts/chakra-petch-700.ttf","deterministic_ttf_sha256":"5556aa09fe35969df51865099f7432fcfbeb6fa3951cc7d7421a2c4a606eb4f1"},
+    {"family":"IBM Plex Mono","weight":400,"subset":"latin","source_uuid":"86fc4be5-17ca-4906-b45e-abcb323f5b5f","source_size_bytes":10052,"source_sha256":"c36f509c0a8f9f85f29cb44bc8701d8a9e0b14c499e77a884f789ead7093a7ac","native_destination":"assets/fonts/ibm-plex-mono-400.ttf","deterministic_ttf_sha256":"f1090b171f84e6f9cdb610763fa81729025be0786b96c4f5e2dbc8704b791915"},
+    {"family":"IBM Plex Mono","weight":500,"subset":"latin","source_uuid":"c2cfb22f-0461-4836-8f15-52f4a8e36a76","source_size_bytes":10060,"source_sha256":"a76f53ca6612e7b3828eec2311098675b7f9849ae4169a8bcef6302aec02a6c0","native_destination":"assets/fonts/ibm-plex-mono-500.ttf","deterministic_ttf_sha256":"066b5d9883907bdc024f707e24adb0448e115847bfaa6cff0b02978044b23dae"},
+    {"family":"IBM Plex Mono","weight":600,"subset":"latin","source_uuid":"b29cabd7-45fd-48a7-9ef9-bad9c491807d","source_size_bytes":10120,"source_sha256":"ad4580d8cb4b5f627c2d18457656732f7f7b070f7837fbc380e08054157e6f6c","native_destination":"assets/fonts/ibm-plex-mono-600.ttf","deterministic_ttf_sha256":"57e371b751a0ff4da3e115d0559eb1bf9082c1ba14005374646c818d8ed26c23"}
   ],
-  "inline_vector_catalog": {
+  "updated_inline_vector_catalog": {
+    "normalization": "extract each inline <svg> block from decoded template, collapse whitespace to one ASCII space, sort unique exact blocks; for path catalog extract d attributes, collapse whitespace, sort unique values",
     "svg_occurrences": 55,
     "unique_exact_variants": 51,
-    "normalized_exact_catalog_sha256": "d50101110d2ee4258d7e8ec3c19d12613717a64f948f6ecc23659616cd5e2e30",
-    "unique_path_geometries": 40,
-    "normalized_geometry_catalog_sha256": "a209687fe153060e774b7b7e9370f02af2c1b38805eae0041850effb909fea76",
-    "native_atlas_destination": "assets/ui/icons.png",
-    "native_mapping": "closed Unit/UI icon enum in theme.rs; no runtime SVG",
-    "semantic_slots": [
-      "title-hex-emblem", "title-grid", "title-crosshair", "title-diagonal-arrow", "new-game-play", "continue-reset", "dialogue-next", "dialogue-skip", "credits-hex-slash", "briefing-grid", "enemy-warning", "bonus-crosshair", "primary-target", "bonus-cycle", "reward-hex", "ally-hex", "enemy-triangle", "awaiting-clock", "cycle-units", "objective-ring", "hp-plus", "energy-bolt", "armor-shield", "movement-axis", "evasion-curve", "no-inspection-hex-plus", "log-lines", "submenu-back", "weapon-target", "stance-shield", "cancel-x", "resolve-fast-forward", "preview-target", "preview-hit", "threat-arrow", "threat-cross", "result-check", "result-bonus-cycle", "hangar-home", "ending-hex-check"
-    ],
-    "export_rule": "first implementation commit renders the exact source geometry/stroke variants into the atlas and records the atlas SHA-256; no generic icon substitution"
+    "normalized_exact_catalog_sha256": "8f6ace9b83bda387aea239a3de753c27433142fa58f82c5465ff66b264cad1b0",
+    "unique_path_geometries": 39,
+    "normalized_geometry_catalog_sha256": "ba4df112a802049c1dc5b370f35ff780f080073d7aef8a3e1b8c87ac441c4424",
+    "native_ui_atlas_destination": "assets/ui/icons.png",
+    "native_ui_atlas_sha256": null,
+    "rule": "export exact updated-source geometry/strokes once; no runtime SVG and no generic icon/emoji fallback"
+  },
+  "board_atlas": {
+    "destination": "assets/ui/board.png",
+    "sha256": null,
+    "required_slots": [
+      "tile-even","tile-odd","blocker","hazard","explosive","move-highlight","attack-highlight","telegraph","selection-footprint","inspection-footprint","extraction"
+    ]
   },
   "battle_geometry": {
-    "canvas_px": [1920, 1080],
+    "canvas_px": [1920,1080],
     "outer_padding_px": 22,
     "header_height_px": 78,
     "major_gap_px": 14,
     "sidebar_width_px": 352,
     "middle_column_width_px": 1144,
-    "board_rect_px": [504, 130, 912, 912],
-    "cell_px": 96,
-    "cell_gap_px": 6,
-    "token_px": 86,
+    "stage_rect_px": [456,204,1008,764],
+    "stage_iso_origin_px": [504,190],
+    "design_iso_origin_px": [960,394],
+    "tile_px": [112,56],
+    "block_height_px": 26,
+    "token_px": [76,64],
     "grid_width": 9,
     "grid_height": 9,
-    "grid_origin": "GridPos(0,0) is visual top-left; y=8 is bottom row",
-    "current_missions_verified": [1, 2, 3, 4, 5, 6, 7]
+    "projection": "cx=960+(x-y)*56; cy=394+(x+y)*28 in design pixels",
+    "depth_key": "x+y",
+    "blocker_layer_equivalent": "10 + depth*3",
+    "token_layer_equivalent": "11 + depth*3",
+    "input": "single battle-stage UI observer -> stage-local point -> inverse isometric projection + diamond inclusion; token cards use ordinary UI observers; visual diamonds/terrain are Pickable::IGNORE",
+    "menu": "fixed in left 352px sidebar; no board anchoring and no clamp_menu",
+    "current_missions_verified_9x9": [1,2,3,4,5,6,7]
   },
-  "dialogue_line_counts": {
-    "mission_1": {"pre": 3, "aftermath": 2},
-    "mission_2": {"pre": 3, "aftermath": 2},
-    "mission_3": {"pre": 3, "aftermath": 2},
-    "mission_4": {"pre": 3, "aftermath": 2},
-    "mission_5": {"pre": 3, "aftermath": 2},
-    "mission_6": {"pre": 3, "aftermath": 2},
-    "mission_7": {"pre": 3, "aftermath": 3}
+  "snapshot_reuse": {
+    "objective": "extend existing ObjectiveTrackSnapshot in src/presentation/ui.rs; do not add PrimaryProgressSnapshot synonym",
+    "threat": "extend existing ThreatSnapshot; cells becomes Vec<GridPos>; do not add a second threat type",
+    "new_type": "InspectorSnapshot",
+    "campaign": "replace briefing_copy/upgrade_row_copy/ending_copy call sites in place with typed returns",
+    "log": "RecentBattleLog calls existing ui::format_event once per dequeued event"
   },
-  "capture_scenario_matrix": {
-    "title": ["title-no-save", "title-progress-m1", "title-progress-m4", "title-completed", "title-save-error"],
-    "story": {
-      "mission_1": ["story-m1-line1", "story-m1-line2", "story-m1-line3"],
-      "mission_2": ["story-m2-line1", "story-m2-line2", "story-m2-line3"],
-      "mission_3": ["story-m3-line1", "story-m3-line2", "story-m3-line3"],
-      "mission_4": ["story-m4-line1", "story-m4-line2", "story-m4-line3"],
-      "mission_5": ["story-m5-line1", "story-m5-line2", "story-m5-line3"],
-      "mission_6": ["story-m6-line1", "story-m6-line2", "story-m6-line3"],
-      "mission_7": ["story-m7-line1", "story-m7-line2", "story-m7-line3"]
-    },
-    "briefing": ["briefing-m1", "briefing-m2", "briefing-m3", "briefing-m4", "briefing-m5", "briefing-m6", "briefing-m7"],
-    "aftermath": {
-      "mission_1": ["aftermath-m1-line1", "aftermath-m1-line2"],
-      "mission_2": ["aftermath-m2-line1", "aftermath-m2-line2"],
-      "mission_3": ["aftermath-m3-line1", "aftermath-m3-line2"],
-      "mission_4": ["aftermath-m4-line1", "aftermath-m4-line2"],
-      "mission_5": ["aftermath-m5-line1", "aftermath-m5-line2"],
-      "mission_6": ["aftermath-m6-line1", "aftermath-m6-line2"],
-      "mission_7": ["aftermath-m7-line1", "aftermath-m7-line2", "aftermath-m7-line3"]
-    },
-    "hangar": ["hangar-affordable", "hangar-unaffordable", "hangar-purchased", "hangar-maxed", "hangar-save-error"],
-    "ending": ["ending-complete"],
-    "battle_core": [
-      "battle-idle", "battle-active-vanguard", "battle-inspect-enemy", "battle-inspect-finished-while-active", "battle-menu-root", "battle-menu-weapons", "battle-menu-stances", "battle-move-targeting", "battle-attack-targeting-empty", "battle-attack-targeting-occupied", "battle-aegis-targeting", "battle-aegis-invalid", "battle-focus-ready", "battle-focus-pending", "battle-focus-used", "battle-overdrive-ready", "battle-overdrive-active", "battle-overdrive-used", "battle-cancel-targeting", "battle-resolve-ready", "battle-playback", "result-victory-bonus", "result-victory-no-bonus", "result-defeat", "result-save-error", "asset-loading", "asset-error"
-    ],
-    "menu_edges": {
-      "menu_kinds": ["root", "weapons", "stances"],
-      "anchors": ["top-left", "top", "top-right", "left", "right", "bottom-left", "bottom", "bottom-right"],
-      "naming": "menu-{kind}-{anchor}",
-      "expanded_count": 24
-    },
-    "whole_campaign_extensions": [
-      "m2-protect-full", "m2-protect-low", "m2-round-cap", "m3-intercept-far", "m3-intercept-near", "m3-deadline", "m4-target-bulwark", "m4-chain-reaction", "m5-overlapping-threats", "m5-victory-by-round", "m6-boss-high", "m6-boss-low", "m7-boss-high", "m7-boss-low", "m7-victory-by-round", "roster-all-glyphs", "long-objective-copy", "max-threat-list"
-    ]
+  "capture_fixture_schema": {
+    "required": ["id","profile","actions","expect"],
+    "profile_fields": ["screen","mission","seed","upgrades","credits","save_state"],
+    "expect_fields": ["screen","phase","menu","mode","inspected","facts"],
+    "action_rule": "symbolic actions map to existing campaign/domain/interaction methods; capture code must not mutate renderer-only state to fake gameplay",
+    "synthetic_rule": "use BattleState::new or an existing test fixture only when authored content cannot produce the required renderer contract; never invent MissionId"
+  },
+  "capture_profiles": {
+    "campaign-m1": {"screen":"Title","mission":1,"seed":7,"upgrades":"default","credits":0,"save_state":"fresh-m1"},
+    "campaign-m4": {"screen":"Title","mission":4,"seed":7,"upgrades":"default","credits":900,"save_state":"progress-m4"},
+    "campaign-complete": {"screen":"Ending","mission":7,"seed":7,"upgrades":"levels-1-2-3","credits":1700,"save_state":"completed"},
+    "m1": {"screen":"Battle","mission":1,"seed":7,"upgrades":"default","credits":400,"save_state":"active-m1"},
+    "m2": {"screen":"Battle","mission":2,"seed":7,"upgrades":"default","credits":800,"save_state":"active-m2"},
+    "m3": {"screen":"Battle","mission":3,"seed":7,"upgrades":"default","credits":1200,"save_state":"active-m3"},
+    "m4": {"screen":"Battle","mission":4,"seed":7,"upgrades":"default","credits":1700,"save_state":"active-m4"},
+    "m5": {"screen":"Battle","mission":5,"seed":7,"upgrades":"default","credits":2300,"save_state":"active-m5"},
+    "m6": {"screen":"Battle","mission":6,"seed":7,"upgrades":"default","credits":3000,"save_state":"active-m6"},
+    "m7": {"screen":"Battle","mission":7,"seed":7,"upgrades":"default","credits":4000,"save_state":"active-m7"}
+  },
+  "capture_fixtures": [
+    {"id":"title-no-save","profile":"campaign-m1","actions":["remove-temp-save","enter:title"],"expect":{"screen":"Title","facts":["continue-disabled"]}},
+    {"id":"title-progress-m4","profile":"campaign-m4","actions":["persist-profile-save","enter:title"],"expect":{"screen":"Title","facts":["progress-pips-from-save","continue-enabled"]}},
+    {"id":"title-completed","profile":"campaign-complete","actions":["persist-profile-save","enter:title"],"expect":{"screen":"Title","facts":["all-seven-progress-pips","continue-enabled"]}},
+    {"id":"title-save-error","profile":"campaign-m1","actions":["install-failing-temp-save","enter:title"],"expect":{"screen":"Title","facts":["visible-save-error","continue-disabled"]}},
+    {"id":"story-m1-line1","profile":"campaign-m1","actions":["new-game","enter:pre-mission-story"],"expect":{"screen":"PreMissionStory","facts":["dialogue-line:1-of-3"]}},
+    {"id":"briefing-m1","profile":"campaign-m1","actions":["new-game","skip-dialogue"],"expect":{"screen":"Briefing","facts":["mission:1","enemy-count:4"]}},
+    {"id":"briefing-m7","profile":"campaign-complete","actions":["set-unfinished-m7-temp-save","continue","enter:briefing"],"expect":{"screen":"Briefing","facts":["mission:7","longest-real-objective-extension"]}},
+    {"id":"aftermath-m1-line1","profile":"campaign-m1","actions":["complete-m1-without-bonus","continue-victory"],"expect":{"screen":"Aftermath","facts":["dialogue-line:1-of-2","receipt-present"]}},
+    {"id":"aftermath-m7-line3","profile":"m7","actions":["win-regent","continue-victory","advance-aftermath","advance-aftermath"],"expect":{"screen":"Aftermath","facts":["dialogue-line:3-of-3","receipt-present"]}},
+    {"id":"hangar-affordable","profile":"campaign-m4","actions":["enter:upgrade"],"expect":{"screen":"Upgrade","facts":["at-least-one-affordable-row"]}},
+    {"id":"hangar-maxed","profile":"campaign-complete","actions":["set-all-upgrades-level-3","enter:upgrade-fixture"],"expect":{"screen":"Upgrade","facts":["all-rows-maxed"]}},
+    {"id":"hangar-save-error","profile":"campaign-m4","actions":["install-failing-temp-save","enter:upgrade","attempt-purchase"],"expect":{"screen":"Upgrade","facts":["purchase-not-mutated","visible-save-error"]}},
+    {"id":"ending-complete","profile":"campaign-complete","actions":["persist-profile-save","continue"],"expect":{"screen":"Ending","facts":["seven-complete-pips"]}},
+
+    {"id":"battle-idle","profile":"m1","actions":["enter:battle","begin-opening"],"expect":{"screen":"Battle","phase":"Player","menu":"Hidden","mode":"Inspect","inspected":null,"facts":["2.5d-stage","four-locked-threats"]}},
+    {"id":"battle-active-vanguard","profile":"m1","actions":["enter:battle","begin-opening","inspect:vanguard"],"expect":{"screen":"Battle","phase":"Player","menu":"Root","mode":"Inspect","inspected":"Vanguard","facts":["active:vanguard"]}},
+    {"id":"battle-inspect-enemy","profile":"m1","actions":["enter:battle","begin-opening","inspect:rifleman-left"],"expect":{"screen":"Battle","phase":"Player","menu":"Hidden","mode":"Inspect","inspected":"Rifleman L","facts":["no-active-unit"]}},
+    {"id":"battle-menu-root","profile":"m1","actions":["enter:battle","begin-opening","inspect:vanguard"],"expect":{"screen":"Battle","phase":"Player","menu":"Root","mode":"Inspect","inspected":"Vanguard","facts":["sidebar-menu"]}},
+    {"id":"battle-menu-weapons","profile":"m1","actions":["enter:battle","begin-opening","inspect:vanguard","command:attack-menu"],"expect":{"screen":"Battle","phase":"Player","menu":"Weapons","mode":"Inspect","inspected":"Vanguard"}},
+    {"id":"battle-menu-stances","profile":"m1","actions":["enter:battle","begin-opening","inspect:vanguard","command:stance-menu"],"expect":{"screen":"Battle","phase":"Player","menu":"Stances","mode":"Inspect","inspected":"Vanguard"}},
+    {"id":"battle-move-targeting","profile":"m1","actions":["enter:battle","begin-opening","inspect:vanguard","command:move"],"expect":{"screen":"Battle","phase":"Player","menu":"Hidden","mode":"Move","inspected":"Vanguard","facts":["sidebar-target-cancel","legal-move-diamonds"]}},
+    {"id":"battle-attack-targeting-occupied","profile":"m1","actions":["enter:battle","begin-opening","inspect:gunner","command:weapon:rail-rifle","hover:occupied-enemy-cell"],"expect":{"screen":"Battle","phase":"Player","menu":"Hidden","mode":"Attack","inspected":"Gunner","facts":["target-preview"]}},
+    {"id":"battle-aegis-targeting","profile":"m1","actions":["enter:battle","begin-opening","inspect:vanguard","command:pilot"],"expect":{"screen":"Battle","phase":"Player","menu":"Hidden","mode":"AegisTarget","inspected":"Vanguard","facts":["eligible-adjacent-allies"]}},
+    {"id":"battle-focus-pending","profile":"m1","actions":["enter:battle","begin-opening","inspect:gunner","command:pilot"],"expect":{"screen":"Battle","phase":"Player","menu":"Root","mode":"Inspect","inspected":"Gunner","facts":["focus-pending"]}},
+    {"id":"battle-overdrive-active","profile":"m1","actions":["enter:battle","begin-opening","inspect:interceptor","command:pilot"],"expect":{"screen":"Battle","phase":"Player","menu":"Root","mode":"Inspect","inspected":"Interceptor","facts":["overdrive-active","move-unspent"]}},
+    {"id":"battle-resolve-ready","profile":"m1","actions":["enter:battle","begin-opening","finish:vanguard:guard","finish:gunner:guard","finish:interceptor:guard"],"expect":{"screen":"Battle","phase":"Player","menu":"Hidden","mode":"Inspect","facts":["resolve-visible"]}},
+    {"id":"battle-playback","profile":"m1","actions":["enter:battle","begin-opening","finish-all:guard","resolve-enemy-phase"],"expect":{"screen":"Battle","facts":["playback-input-locked","recent-log-nonempty"]}},
+    {"id":"result-victory-bonus","profile":"m1","actions":["enter:battle","begin-opening","damage-enemy:enemy-source","ko-all-enemies:player-source","drain-playback"],"expect":{"screen":"Battle","phase":"Victory","facts":["result-overlay","optional-complete"]}},
+    {"id":"result-victory-no-bonus","profile":"m1","actions":["enter:battle","begin-opening","ko-all-enemies:player-source","drain-playback"],"expect":{"screen":"Battle","phase":"Victory","facts":["result-overlay","optional-incomplete"]}},
+    {"id":"result-defeat","profile":"m1","actions":["enter:battle","begin-opening","ko-all-players:enemy-source","drain-playback"],"expect":{"screen":"Battle","phase":"Defeat","facts":["result-overlay","retry-visible"]}},
+    {"id":"result-save-error","profile":"m1","actions":["enter:battle","begin-opening","ko-all-enemies:player-source","drain-playback","install-failing-temp-save","continue-victory"],"expect":{"screen":"Battle","phase":"Victory","facts":["result-stays-open","campaign-not-advanced","visible-save-error"]}},
+    {"id":"asset-loading","profile":"m1","actions":["enter:battle-with-assets-pending"],"expect":{"screen":"Battle","facts":["asset-loading-visible","input-disabled"]}},
+    {"id":"asset-error","profile":"m1","actions":["enter:battle-with-required-asset-failure"],"expect":{"screen":"Battle","facts":["asset-error-visible","input-disabled"]}},
+
+    {"id":"m2-protect-low","profile":"m2","actions":["enter:battle","begin-opening","damage:gunner-to-below-half-but-alive"],"expect":{"screen":"Battle","phase":"Player","facts":["protect-hp-progress","optional-incomplete","flanker-glyph"]}},
+    {"id":"m2-round-cap","profile":"m2","actions":["enter:battle","resolve-legal-rounds-to:3"],"expect":{"screen":"Battle","facts":["protect-round-cap","mission-terminal-or-round3-boundary"]}},
+    {"id":"m3-intercept-near","profile":"m3","actions":["enter:battle","resolve-legal-rounds-until-courier-near-exit"],"expect":{"screen":"Battle","facts":["courier-position","escape-marker","deadline-progress"]}},
+    {"id":"m3-deadline","profile":"m3","actions":["enter:battle","resolve-legal-rounds-through-deadline-with-courier-alive"],"expect":{"screen":"Battle","phase":"Defeat","facts":["intercept-deadline-result"]}},
+    {"id":"m4-target-bulwark","profile":"m4","actions":["enter:battle","begin-opening","inspect:gate-bulwark"],"expect":{"screen":"Battle","phase":"Player","facts":["target-hp-progress","bulwark-glyph","controller-glyph"]}},
+    {"id":"m5-overlapping-threats","profile":"m5","actions":["enter:battle","begin-opening"],"expect":{"screen":"Battle","phase":"Player","facts":["overlapping-locked-footprints-preserved"]}},
+    {"id":"m6-boss-high","profile":"m6","actions":["enter:battle","begin-opening","inspect:dreadnought"],"expect":{"screen":"Battle","phase":"Player","facts":["dreadnought-glyph","boss-hp-high"]}},
+    {"id":"m6-boss-low","profile":"m6","actions":["enter:battle","begin-opening","damage:dreadnought-below-threshold","inspect:dreadnought"],"expect":{"screen":"Battle","phase":"Player","facts":["boss-hp-low","current-intent-not-retargeted"]}},
+    {"id":"m7-boss-high","profile":"m7","actions":["enter:battle","begin-opening","inspect:regent"],"expect":{"screen":"Battle","phase":"Player","facts":["regent-glyph","boss-hp-high"]}},
+    {"id":"m7-boss-low","profile":"m7","actions":["enter:battle","begin-opening","damage:regent-below-threshold","inspect:regent"],"expect":{"screen":"Battle","phase":"Player","facts":["boss-hp-low","controller-bulwark-flanker-glyphs-present"]}},
+    {"id":"m7-victory-by-round","profile":"m7","actions":["enter:battle","begin-opening","win-regent-by-round:6","drain-playback"],"expect":{"screen":"Battle","phase":"Victory","facts":["victory-by-round-complete"]}},
+    {"id":"letterbox-1600x1000","profile":"m1","actions":["enter:battle","set-window:1600x1000"],"expect":{"screen":"Battle","facts":["canvas-scale:0.8333333","canvas-offset:0,50","stage-input-aligned"]}}
+  ],
+  "removed_visual_goldens": [
+    "24 board-anchored menu edge cases: obsolete because updated menu is fixed-sidebar",
+    "every Story line and every Aftermath line: pure DialogueSnapshot content is covered by behavioral tests; keep representative states only",
+    "1280x720 and 1600x900 duplicate PNG goldens: CanvasLayout::fit pure tests cover them",
+    "long-objective-copy: no authored content requires a fabricated string; use real longest objective",
+    "roster-all-glyphs: exhaustive UnitArchetype atlas mapping test plus real mission captures cover it",
+    "max-threat-list: use authored Mission 5 overlapping threats plus bounded-list unit tests"
+  ],
+  "window_checks": {
+    "pure_fit_tests": [[1280,720],[1600,900],[1600,1000]],
+    "representative_letterbox_capture": [1600,1000],
+    "hidpi": "pointer-to-stage/cell alignment test; add a PNG only if a renderer-specific discrepancy is found"
+  },
+  "camera_contract": {
+    "rule": "campaign and battle cameras are explicitly marked/owned; cleanup never queries bare Camera2d",
+    "capture": "example-only examples/ui_capture.rs with test=false; no src/presentation/capture.rs library module"
   },
   "evidence_namespaces": {
-    "original": "Unmodified source screenshots",
-    "aligned": "Reference layout with documented data-only bindings matching legal native fixtures",
-    "extensions": "Same-style states absent from the supplied mockup, requiring review",
-    "native": "Actual Bevy game output at a named implementation commit",
-    "comparison": "Side-by-side, overlay and absolute-difference outputs without broad masks"
+    "source": "unmodified updated-source screenshots",
+    "aligned": "updated-source composition with documented data-only bindings matching legal native fixture data",
+    "extensions": "same-style states absent from the source and reviewed in this PR",
+    "native": "actual Bevy output at named implementation commit",
+    "comparison": "equal-size side-by-side, overlay, absolute difference; no broad masks"
   },
-  "native_validation": "not run; this draft is planning-only",
-  "primary_canvas_px": [1920, 1080],
-  "secondary_window_sizes": [[1280, 720], [1600, 900], [1600, 1000]],
-  "hidpi_check_required": true
+  "native_validation": "not run; branch remains planning-only",
+  "primary_canvas_px": [1920,1080]
 }
