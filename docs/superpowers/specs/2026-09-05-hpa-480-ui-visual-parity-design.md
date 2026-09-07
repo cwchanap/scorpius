@@ -1,68 +1,44 @@
 # HPA-480 — Complete native UI visual parity
 
-**Date:** 2026-09-05 (America/Vancouver)
-**Issue:** [HPA-480](https://linear.app/cwchanap/issue/HPA-480)
-**Branch:** `hpa-480-ui-visual-parity`
-**Status:** Design for implementation; native UI parity is not yet implemented or verified.
-**Baseline:** `d981682840eb9147ba9eb7f7c56b2ceae88a3aed` on `main`.
-**Plan:** [Implementation plan](../plans/2026-09-05-hpa-480-ui-visual-parity.md)
-**Reference record:** [Source identity and capture inventory](../../references/hpa-480/reference-manifest.json)
+**Date:** 2026-09-05 (America/Vancouver)  
+**Revised:** 2026-09-07 for the supplied 2.5D gameplay layout  
+**Issue:** [HPA-480](https://linear.app/cwchanap/issue/HPA-480)  
+**Branch:** `hpa-480-ui-visual-parity`  
+**Status:** Design for implementation; native UI parity is not yet implemented or verified.  
+**Baseline:** `d981682840eb9147ba9eb7f7c56b2ceae88a3aed` on `main`.  
+**Plan:** [Implementation plan](../plans/2026-09-05-hpa-480-ui-visual-parity.md)  
+**Reference record:** [Reference manifest](../../references/hpa-480/reference-manifest.json)
 
 ## 1. Delivery decision
 
-Deliver the complete visual overhaul as **one ticket, one branch, one PR**. The draft begins with this design and its implementation plan; implementation, tests, reference extensions, visual fixes, and acceptance evidence continue on the same branch and PR. Do not merge a planning-only PR, open dependent implementation/closeout PRs, or split plan phases into Linear sub-issues.
+Deliver the complete visual overhaul as **one ticket, one branch, one PR**. The draft contains the design and plan; implementation, tests, reference intake, discrepancy fixes, and acceptance evidence continue on this same branch and PR. Do not merge a planning-only head, create implementation/closeout PRs, or split plan phases into Linear sub-issues.
 
-Replace all eight presentation families: Title, Story, Briefing, Battle, Result, Aftermath, Hangar, and Ending. Include the missing interactions required by the design while preserving the existing seven-mission game. Completion means native visual parity plus functioning gameplay, not palette similarity.
+Keep Rust 2024, Bevy 0.19, one application crate, the existing `GameScreen` flow, domain/campaign state, combat rules, progression, and save semantics. Result remains a Battle overlay and Hangar remains `GameScreen::Upgrade`.
 
-This supersedes both the earlier three-ticket proposal and the old angled battlefield presentation constraint. Keep Bevy and the existing game rules; do not retain a selectable old renderer or add a WebView.
+The updated `Scorpius UI (offline)(1).html` supersedes the prior flat-battle reference wherever the two differ. The prior campaign-screen direction remains valid when unchanged, but the new bundle is the final source of truth for Battle/Result composition and shared chrome. Its simplified demo simulation remains non-authoritative; live Rust rules supply values and outcomes.
 
-### Source precedence
+## 2. Keep/reuse
 
-`Scorpius UI (offline).html` is authoritative for appearance and displayed interaction affordances. The prior `scorpius-ui-scope.md` remains the agreed feature scope except for its superseded three-ticket section. Existing Rust domain/campaign rules remain authoritative for values, legal actions, outcomes, rewards, and persistence.
-
-The HTML's simplified simulation, hardcoded credits, prototype screen rail, and forced result previews are not game rules. Later-mission states absent from the original require explicitly identified same-style extensions; they do not justify silently changing the reference or gameplay.
-
-## 2. Verified reuse and non-goals
-
-The current game already has Missions 1–7, three fixed player mechs, six regular enemy archetypes, two bosses, committed intents, reactions, environmental interactions, pilot skills, rewards, upgrades, saves, and campaign completion. HPA-632/635/637/523/524/386 are complete. This is a presentation replacement plus narrow interaction plumbing.
-
-| Existing seam | Use in this change |
+| Existing seam | Use in HPA-480 |
 | --- | --- |
-| `src/app.rs`: `GameScreen`, enter/exit systems, `enter_battle`, `teardown_battle_screen` | Keep screen flow. Result remains an overlay inside Battle; Hangar remains `GameScreen::Upgrade`. |
-| `src/domain/battle.rs`, `combat.rs`, `enemy.rs`, `environment.rs` | Keep authoritative rules, queries, previews, event generation, RNG order, and committed-intent semantics. |
-| `src/mission/*` | Read authored mission data and stable IDs. Do not move rules into presentation. |
-| `src/campaign/session.rs`, `progression.rs`, `save.rs` | Reuse New Game, Continue, `CompletionReceipt`, completion, purchases, and persistence. |
-| `src/presentation/campaign_ui.rs` | Reuse `apply_campaign_action`, `DialogueCursor`, `dialogue_snapshot`, `campaign_destination`, status/error routing, and persistence adapters; replace layout builders. |
-| `src/presentation/interaction.rs` | Reuse/extend `route_cell_click`, `execute_command`, `restart_battle`, `reset_transient_battle_state`, keyboard/observer adapters. |
-| `src/presentation/ui.rs`: `HudSnapshot::from_battle` | Replace string blobs with typed fields while retaining one derived snapshot path. |
-| `src/presentation/playback.rs` | Keep ordered `BattleEventQueue` consumption and `EventPlayback::input_locked`; change only presentation effects/logging. |
-| `src/presentation/assets.rs`: `AssetLoadStatus` | Keep one readiness/error gate; replace glTF-only asset contents. |
-| `tests/presentation_app.rs`, campaign tests, inline domain tests | Preserve behavioral coverage while replacing renderer-specific assertions. |
+| `src/app.rs`: `GameScreen`, enter/exit systems, `enter_battle`, `teardown_battle_screen` | Keep screen flow; replace presentation ownership/cleanup. |
+| `src/domain/*` | Keep authoritative movement, combat, intents, pilots, environment, RNG order, terminal rules. Domain remains Bevy-free. |
+| `src/mission/*` | Keep authored 9×9 missions and IDs. Presentation reads them; it does not re-author rules. |
+| `src/campaign/*` | Reuse New Game/Continue, `CompletionReceipt`, persistence, purchases, campaign completion. |
+| `src/presentation/campaign_ui.rs` | Reuse `apply_campaign_action`, `DialogueCursor`, `dialogue_snapshot`, `campaign_destination`; replace layout builders and string copy helpers in place. |
+| `src/presentation/interaction.rs` | Reuse `route_cell_click`, `execute_command`, restart/reset paths, keyboard/observer adapters. |
+| `src/presentation/ui.rs` | Extend existing `HudSnapshot`, `ObjectiveTrackSnapshot`, and `ThreatSnapshot`; do not create synonymous parallel snapshot families. |
+| `src/presentation/playback.rs` | Reuse ordered event consumption/input lock; add bounded log using the existing `ui::format_event`. |
+| `src/presentation/assets.rs` | Keep `AssetLoadStatus` as the single presentation readiness/error gate. |
 
-Keep one crate, Rust 2024, Bevy 0.19, domain Bevy-free, and one save model. Do **not** add a browser runtime, second UI framework, plugin/registry system, save migration, backward-compatibility layer, mission select, save slots, checkpoints, undo, inventory, new combat engine, MCP framework, generic E2E framework, or product Settings screen. Normal tests remain headless; native capture is opt-in.
+Do not add a WebView, second UI framework, selectable old renderer, generic UI/plugin registry, save migration, save slots, checkpoints, undo, inventory, new missions, Settings page, MCP framework, or generic E2E framework.
 
-The old `MissionAssets`/15 glTF scenes, `Camera3d`, `MeshPickingPlugin`, `grid_to_world`, world-space effects, and boss camera shake form one 3D presentation path. Retire them atomically with their new UI-grid replacements rather than preserving parallel paths.
+## 3. One fitted canvas for all eight screens
 
-## 3. Fixed visual geometry and coordinate model
-
-The production canvas is **1920 × 1080 design pixels**. It scales uniformly by `min(window_logical_width / 1920, window_logical_height / 1080)` and centers with letterboxing. Rendering, hit testing, token/menu anchoring, and screenshot cropping use the same `CanvasLayout`; physical/logical DPI conversion happens once at the window boundary.
-
-Battle is **Bevy UI under that fitted canvas**, not sprites or meshes in a second world coordinate system. The source battle root has 22 px padding, 14 px vertical/column gaps, a 78 px header, 352 px sidebars, and a centered 912 × 912 board. Therefore the board rect at 1920 × 1080 is fixed at design coordinates:
-
-```text
-left = 504
- top = 130
-width = 912
-height = 912
-```
-
-The middle grid column is 1144 px wide, which centers the 912 px board with 116 px on either side. The post-header content region is 944 px tall, which centers the board with 16 px above/below.
-
-Every current authored mission is 9 × 9. HPA-480 deliberately treats that as a presentation invariant rather than inventing a generic board engine. `layout.rs` exposes:
+All eight screen families live under one **1920×1080 design-pixel canvas root**. `CanvasLayout::fit` uniformly scales and centers it:
 
 ```rust
 pub const DESIGN_SIZE: Vec2 = Vec2::new(1920.0, 1080.0);
-pub const BOARD_SIZE: Vec2 = Vec2::splat(912.0);
 
 pub struct CanvasLayout {
     pub scale: f32,
@@ -73,33 +49,127 @@ impl CanvasLayout {
     pub fn fit(window_logical: Vec2) -> Self;
     pub fn to_design(&self, window_point: Vec2) -> Option<Vec2>;
 }
-
-pub const fn board_rect() -> Rect;
-pub fn cell_rect(pos: GridPos) -> Rect;
-pub fn clamp_menu(anchor: Vec2, menu_size: Vec2, bounds: Rect) -> Vec2;
 ```
 
-`board_rect()` is `Rect::from_corners(Vec2::new(504.0, 130.0), Vec2::new(1416.0, 1042.0))`. `cell_rect(GridPos { x, y })` is board-local `x * 102`, `y * 102` plus the board origin, with a 96 × 96 cell. Domain `GridPos(0,0)` is the **top-left** visual cell; `y = 8` is the bottom player row. Reject/loud-error if an active mission is not 9 × 9. Letterbox pixels are never board input.
+`to_design` is for canvas/letterbox boundary conversion and capture/input diagnostics. Do not create one scaling path for Battle and leave campaign screens at raw `percent(100)` sizing. Physical/logical DPI conversion happens once at the window boundary.
 
-One live screen owns one `Camera2d`. Enter/exit/restart tests must catch duplicate camera/root spawning before the 3D cutover proceeds.
+One live screen owns one marked `Camera2d`. Campaign and Battle teardown must target their camera/root markers rather than querying bare `Camera2d`, so one screen cannot delete another screen's camera during a transition.
 
-## 4. Typography, art, and icon contract
+## 4. 2.5D battle geometry
 
-Use the source values, not approximate replacements: Chakra Petch for interface copy; IBM Plex Mono for numeric/technical copy; cyan `#3ec7db`, background `#05080f`, panel `#0a1420`, red `#ff6b5c`, amber `#ffd175`, green `#7fdc9a`; source alpha/gradient/stroke/glow/spacing values elsewhere.
+### 4.1 Presentation model
 
-`theme.rs` becomes the **only** source of production text/font/color/panel/button/pip/bar helpers. Delete the current local `text_font` helpers in `campaign_ui.rs` and `ui.rs` during cutover. Fallback/default fonts are an asset error, not an acceptable baseline.
+The new gameplay reference is **2.5D/isometric presentation over the existing 9×9 logical grid**, not a return to a 3D simulation. Retire the old `Camera3d`, `MeshPickingPlugin`, 15-scene `MissionAssets`, `grid_to_world`, world-space effects, and boss camera shake atomically once their 2.5D UI replacements exist. Do not keep dual renderers.
 
-Reuse the four matching VN assets and import the five missing PNGs: title key art, briefing illustration, Vanguard, Gunner, and Interceptor art. The reference manifest now pins the exact seven Latin font resources actually needed by the English UI: Chakra Petch 400/500/600/700 and IBM Plex Mono 400/500/600. It records both the source WOFF2 hashes and deterministic TTF conversion hashes for Bevy-native assets. Implementation uses those exact bytes/converted outputs; it does not fetch an unpinned “current” font release.
+All seven authored missions are currently 9×9; HPA-480 treats that as a fixed presentation invariant and fails loudly for a non-9×9 active board rather than creating a generic board engine.
 
-The HTML contains 55 inline SVG occurrences, 51 exact variants, and 40 unique path geometries. The reference manifest pins both normalized catalog hashes and a closed semantic icon list. Task 1 exports them once into a static native atlas (plus fixed frame-corner decorations) and records the atlas hash. There is no runtime SVG/HTML dependency and no later emoji/generic-icon substitution.
+The reference battle keeps the existing 22px outer padding, 78px header, 14px gaps, and 352px sidebars. The middle column contains a centered **1008×764** battle stage. At 1920×1080 the stage is:
 
-Required images, font assets, and icon atlas entries must reach `AssetLoadStatus::Ready` before affected interaction/capture. Missing required assets show a visible error. The 58 px source rail and its editor controls remain prototype-only.
+```text
+left = 456
+top = 204
+width = 1008
+height = 764
+```
 
-## 5. Typed presentation data
+Stage-local constants from the source are:
 
-The current presentation formats state into text blobs such as `selected_summary`, `round_phase`, `ThreatSnapshot.cells`, `briefing_copy`, `aftermath_reward_copy`, `ending_copy`, and `upgrade_row_copy`. The new card/bar/pip layouts must not parse those strings or bypass the snapshot layer. Replace them with the following closed typed view data.
+```text
+TILE_WIDTH = 112
+TILE_HEIGHT = 56
+BLOCK_HEIGHT = 26
+ISO_ORIGIN_X = 504
+ISO_ORIGIN_Y = 190
+TOKEN_WIDTH = 76
+TOKEN_HEIGHT = 64
+```
 
-### Battle snapshots
+The logical-to-stage projection is fixed:
+
+```rust
+pub const fn battle_stage_rect() -> Rect;
+pub fn iso_center(pos: GridPos) -> Vec2;      // design-absolute center
+pub fn tile_bounds(pos: GridPos) -> Rect;     // visual bounds only
+pub fn depth_key(pos: GridPos) -> i16;        // x + y
+pub fn grid_from_stage_point(local: Vec2) -> Option<GridPos>;
+```
+
+Equivalent source projection:
+
+```text
+stage_cx = 504 + (x - y) * 56
+stage_cy = 190 + (x + y) * 28
+depth = x + y
+```
+
+Therefore `GridPos(0,0)` is the top-center diamond, +X descends down-right, and +Y descends down-left. Do not describe `(0,0)` as visual top-left.
+
+### 4.2 Rendering and depth
+
+Use native Bevy UI under the fitted canvas. The board is not a sprite/world-space scene. A small source-derived board atlas supplies transparent diamond/raised-face assets needed for exact source geometry: alternating base diamonds, blocker top/faces, hazard, explosive, movement/attack highlights, committed telegraph, selection/inspection footprint, and extraction extension. Dynamic HP/text/glows remain native UI.
+
+Raised blockers use the source 26px vertical face. Upright unit tokens are 76×64, with a diamond footprint/shadow beneath. Visual stacking is deterministic: flat tiles/telegraphs remain below raised objects; blockers use a depth base equivalent to `10 + (x+y)*3`; units use the next layer equivalent to `11 + (x+y)*3`. Later roster glyphs are same-style extensions.
+
+Do **not** introduce a `UnitGlyph` enum that mirrors `UnitArchetype`. `theme.rs` maps `UnitArchetype -> atlas rect/style` with one exhaustive match and no fallback.
+
+### 4.3 One board hit path
+
+Per-cell Bevy UI picking is not the production hit model for the isometric board: adjacent 112×56 cell nodes have overlapping rectangular UI bounds. Instead:
+
+- the **single battle-stage pick surface** converts its pointer hit to stage-local coordinates and calls `grid_from_stage_point`;
+- `grid_from_stage_point` uses the inverse isometric projection plus a diamond-inclusion check and returns one legal `GridPos` or `None`;
+- upright token cards retain ordinary UI observers and resolve their current `unit.position` into the same `route_cell_click` path while targeting;
+- blockers, shadows, telegraphs, highlights, and other board decorations are `Pickable::IGNORE`;
+- targeting has precedence over inspection exactly once per click.
+
+This is the sole cell picker. Do not also attach independent clickable rectangular `CellVisual` nodes or restore mesh/sprite picking.
+
+Fold the old `SelectedCell` presentation resource into `InteractionState.hovered_cell`/inspection; `sync.rs` must not retain a second selected-cell state after cutover.
+
+## 5. Sidebar command layout
+
+The updated source moved contextual commands into the fixed **left 352px sidebar** below the inspector. There is no board-anchored contextual menu and therefore no `clamp_menu` requirement.
+
+`MenuState` remains `Hidden | Root | Weapons | Stances` because it still models useful chrome state. Root contains Move, Attack, Stance, Skill, Wait. Weapons/Stances replace the root rows in the same sidebar region; Back returns to Root. During Move/Attack/Aegis targeting, the menu region becomes the source-style targeting/Cancel panel.
+
+Delete the old 24 `menu-{kind}-{edge}` acceptance cases. They belonged to the superseded flat contextual menu.
+
+## 6. Interaction composition
+
+```rust
+pub struct InteractionState {
+    pub inspected_unit: Option<UnitId>,
+    pub hovered_cell: Option<GridPos>,
+    pub mode: InteractionMode, // Inspect | Move | Attack(WeaponId) | AegisTarget
+    pub menu: MenuState,       // Hidden | Root | Weapons | Stances
+    pub preview: Option<AttackPreview>,
+}
+```
+
+`inspected_unit` is view-only. Every mutating command derives its subject from `battle.active_unit()`; replace `require_selected_active_unit` with an active-unit validator. Inspecting another unit never changes activation authority.
+
+| Menu | Targeting mode | Inspected | Mutation subject |
+| --- | --- | --- | --- |
+| Hidden | Inspect | none / last | none |
+| Root / Weapons / Stances | Inspect | active player | `battle.active_unit()` |
+| Hidden | Move / Attack / AegisTarget | active player | `battle.active_unit()` |
+| Hidden | Inspect | enemy / finished / inactive player | none; inspector only |
+
+Clicking a ready player begins activation only when no activation exists. While another activation exists it is inspection-only. Next-ready uses Vanguard/Gunner/Interceptor order; while an activation exists it re-focuses that unit. After a **successful** Wait/`FinishUnit`, begin/focus the next living unfinished unit. All finished exposes Resolve.
+
+Add `CommandAction::Cancel` so pointer Cancel and Escape share one guarded command path. Invalid Move/Attack/Aegis targets keep targeting active and do not spend resources. `route_cell_click` changes targeting state only after domain success. Background deselection is UI-only; it never undoes movement/action/stance.
+
+Aegis, Focus, and Overdrive remain the existing domain mechanics. No UI-local consumption or formulas.
+
+Restart remains a narrow flow extension: allowed only in idle Player phase and idle Defeat/Retry, rejected during loading/playback/planning/resolution/Victory/pending transition. It rebuilds the current authored mission with current upgrades and a fresh seed, without rewards/progression mutation.
+
+## 7. Typed presentation data: extend, do not fork
+
+The current HUD already owns `ObjectiveTrackSnapshot` and `ThreatSnapshot`. Extend those types in place rather than creating parallel `PrimaryProgressSnapshot`/replacement threat families.
+
+### 7.1 Battle
+
+Add the genuinely new inspector type:
 
 ```rust
 pub struct InspectorSnapshot {
@@ -121,192 +191,92 @@ pub struct InspectorSnapshot {
     pub stance: Option<Reaction>,
     pub active: bool,
 }
+```
 
-pub struct ThreatSnapshot {
-    pub attacker: UnitId,
-    pub attacker_name: &'static str,
-    pub weapon: WeaponId,
-    pub weapon_name: &'static str,
-    pub cells: Vec<GridPos>,
-    pub intended_occupant: Option<UnitId>,
-    pub normal_damage: i16,
-    pub hit_chance: u8,
-}
+Grow existing `ObjectiveTrackSnapshot` to cover all primary cases:
 
-pub enum PrimaryProgressSnapshot {
+```rust
+pub enum ObjectiveTrackSnapshot {
     EliminateAll { remaining: usize },
     Protect { target: UnitId, name: &'static str, hp: i16, max_hp: i16, round: u16, cap: u16 },
     Intercept { target: UnitId, name: &'static str, position: GridPos, escape: GridPos, distance: u8, round: u16, deadline: u16 },
-    EliminateTarget { target: UnitId, name: &'static str, hp: i16, max_hp: i16 },
-}
-
-pub enum OptionalProgressSnapshot {
-    Turnabout { complete: bool },
-    ProtectTargetAtHalfHp { target: UnitId, hp: i16, max_hp: i16, complete: bool },
-    VictoryByRound { current: u16, cap: u16, complete: bool },
+    Target { target: UnitId, name: &'static str, hp: i16, max_hp: i16 },
 }
 ```
 
-`HudSnapshot` carries `round: u16`, `phase: BattlePhase`, optional round cap, `inspector: Option<InspectorSnapshot>`, typed primary/optional progress, typed weapon/pilot availability, `Vec<ThreatSnapshot>`, terminal/result fields, and resolve/restart availability. Display strings are generated only in leaf rendering helpers.
+Add `OptionalProgressSnapshot` beside it, mirroring the existing closed `OptionalObjective` variants. Keep existing `ThreatSnapshot`; change `cells: String` to `Vec<GridPos>` and add attacker/weapon/intended-occupant IDs as needed. Do not ship a second threat struct.
 
-The battle menu uses typed `WeaponSnapshot` rows (`WeaponId`, name, range, `WeaponShape`, base damage, EN cost, push, counter-weapon, enabled) and typed pilot state (`Ready`, `Active`, `Used`, `Ineligible`). No combat formula is duplicated in UI.
+`HudSnapshot::from_battle` remains the single battle snapshot builder. Leaf renderers format strings. The battle menu receives typed weapon/pilot rows; no combat formula is duplicated.
 
-`RecentBattleLog` stores at most six already-formatted entries, newest first. `playback.rs` calls the existing `ui::format_event` (made `pub(crate)`) once when an event is dequeued; do not create a second event formatter or second event queue.
+`RecentBattleLog` stores six formatted entries newest-first. `playback.rs` calls the existing `ui::format_event` once when an event is dequeued; do not add a second event formatter or queue.
 
-### Campaign snapshots
+### 7.2 Campaign
 
-```rust
-pub struct BriefingSnapshot {
-    pub mission: MissionId,
-    pub title: &'static str,
-    pub board_width: u8,
-    pub board_height: u8,
-    pub enemy_count: usize,
-    pub primary: &'static str,
-    pub optional: &'static str,
-    pub base_reward: u32,
-    pub optional_reward: u32,
-    pub credits: u32,
-}
+Replace campaign string helpers **in place** with typed return values/call sites rather than adding parallel copy functions:
 
-pub struct UpgradeRowSnapshot {
-    pub mech: PlayerMech,
-    pub track: UpgradeTrack,
-    pub level: u8,
-    pub current_bonus: u16,
-    pub next_bonus: Option<u16>,
-    pub cost: Option<u32>,
-    pub affordable: bool,
-}
+- `briefing_copy` -> `briefing_snapshot` returning mission/title/enemy count/objectives/rewards/credits;
+- `upgrade_row_copy` -> `upgrade_row_snapshot`;
+- `ending_copy` -> typed ending fields;
+- Aftermath renders `CompletionReceipt` fields directly;
+- `DialogueSnapshot` stays unchanged.
 
-pub struct HangarSnapshot {
-    pub credits: u32,
-    pub rows: Vec<UpgradeRowSnapshot>,
-}
-```
+The 9×9 board size is a presentation invariant, not repeated `BriefingSnapshot` data. Derive briefing `enemy_count` from one deterministic `definition.build` at screen entry; do not hardcode prototype flavor data.
 
-Aftermath renders `CompletionReceipt` fields directly; it does not turn the receipt into one multiline string. Ending uses typed credits and upgrade levels per `PlayerMech`. Title/save progress uses `CampaignState.next_mission/completed` rather than a formatted summary. `DialogueSnapshot` remains as-is.
+## 8. Campaign navigation
 
-## 6. Screen requirements
+Add `CampaignUiAction::SkipDialogue`, legal only in `GameScreen::PreMissionStory`. Aftermath has no Skip.
 
-| Screen | Required appearance | Live behavior/data |
-| --- | --- | --- |
-| Title | Key art, shading, spaced wordmark, paired hex emblems, decorative glyphs, reference buttons, seven save pips | Existing New Game/Continue; missing/unreadable save disabled; completed Continue goes to Ending. |
-| Story | Background treatment, 300 × 300 portrait, frame corners, speaker, 212 px dialogue band, line pips, next arrow, Skip | Current pre-mission `DialogueSnapshot`; Skip is legal only here and goes once to Briefing. |
-| Briefing | Mission header/pips, credits badge, illustration, map/enemy/bonus metadata, objective cards, reward tiles, Deploy | `BriefingSnapshot`; illustration is never collision data. |
-| Battle | UI grid/tokens/terrain, header, inspector/log, anchored menus, threat/preview column, Resolve | Typed battle snapshots and interaction composition below. |
-| Result | Full-canvas scrim, 760 px card, 168 px ring, outcome icon/color, primary badge, bonus state, Continue/Retry | Real terminal result/objective; Continue persists once, Retry does not pay. |
-| Aftermath | Story framing plus Base/Bonus/Total/Credits receipt | Just-completed `ActiveMission` dialogue plus `CompletionReceipt`; no Skip. |
-| Hangar | Three illustrated mech columns, four tracks, level pips, next effect, cost, affordable/unaffordable/MAX, Next Drop | `HangarSnapshot`; purchases still use `persist_purchase`. Mobility remains evasion. |
-| Ending | Completion emblem, campaign heading, seven complete pips, three upgrade summaries, Title | Completed saved state; completed Continue reopens Ending. |
+Hoist one `screen_transition_pending(&NextState<GameScreen>)` predicate and reuse it in `apply_campaign_action` plus victory Continue. Do not add a pending-transition resource or a third ad-hoc check. A queued transition makes a duplicate click a no-op/status result without state mutation.
 
-## 7. Battle interaction composition
+## 9. Typography and asset provenance
 
-`InteractionState` remains the single presentation interaction resource but its fields are made explicit:
+`theme.rs` is the sole production `TextFont`/palette/icon helper. Delete the two local `text_font` helpers during cutover. Chakra Petch and IBM Plex Mono weights are exact source-derived assets; fallback fonts are an asset error.
 
-```rust
-pub struct InteractionState {
-    pub inspected_unit: Option<UnitId>,
-    pub hovered_cell: Option<GridPos>,
-    pub mode: InteractionMode, // Inspect | Move | Attack(WeaponId) | AegisTarget
-    pub menu: MenuState,       // Hidden | Root | Weapons | Stances
-    pub preview: Option<AttackPreview>,
-}
-```
+The updated bundle has source SHA-256 `04bbed2958cce4c3c2ddc665f5826fac32050f509db59f852a350acb299d6e19` and size `12,278,676` bytes. The five major art PNG bytes and seven required Latin WOFF2 font bytes match the prior bundle by SHA-256 even though resource UUIDs changed.
 
-`inspected_unit` is **view-only**. Every mutating command derives its subject from `battle.active_unit()`; `require_selected_active_unit` is replaced with a helper that validates/returns the domain active unit. Inspection never owns or changes activation authority.
+The **first implementation commit must vendor the verified source/reference bytes and native assets** needed to build the PR from git. Committed native TTF files matching the manifest hashes are the source of truth for Bevy; WOFF2 entries are provenance only. Normal builds/tests do not regenerate fonts, so acceptance does not depend on an ambient fonttools/woff2 version. If a regeneration script is retained, it must pin its converter/version explicitly.
 
-| Chrome (`MenuState`) | Targeting (`InteractionMode`) | Inspected ID | Mutating commands use |
-| --- | --- | --- | --- |
-| Hidden | Inspect | none / last inspected | none |
-| Root / Weapons / Stances | Inspect | active living player | `battle.active_unit()` |
-| Hidden | Move / Attack / AegisTarget | active living player | `battle.active_unit()` |
-| Hidden | Inspect | enemy or finished/inactive player | none; inspector explains active unit remains authoritative |
+The updated source's vector catalog must be re-exported from this bundle, not reused by old UUID/path identity. Board visuals get a separate source-derived board atlas; ordinary UI icons remain in the UI atlas. Record final atlas hashes after export.
 
-Clicking an enemy or finished/inactive player in Inspect mode changes inspection only. Clicking a ready player starts activation only when `battle.active_unit()` is `None`; while another activation exists it is inspection-only. Re-focusing the active unit restores Root. At battle entry no unit is inspected.
+## 10. Screen requirements
 
-Next-ready uses stable Vanguard/Gunner/Interceptor order. If an activation exists, next-ready re-focuses that active unit rather than starting another. After a **successful** `FinishUnit`/Wait, it starts/focuses the next living unfinished unit. All finished means no next unit and Resolve becomes available.
+| Screen | Requirement |
+| --- | --- |
+| Title | Key art, wordmark/emblems, New Game/Continue, save pips/errors. |
+| Story | Source dialogue composition, portrait, pips, Next, pre-mission Skip. |
+| Briefing | Mission metadata/objectives/rewards/Deploy from typed snapshot. |
+| Battle | Updated 2.5D isometric stage, upright tokens, raised blockers, fixed left command area, inspector/log, right threat/preview column, header/Resolve. |
+| Result | Updated source Battle overlay; real terminal/result persistence. |
+| Aftermath | Source dialogue layout + persisted receipt; no Skip. |
+| Hangar | Three mech columns/four tracks/typed purchase states. |
+| Ending | Completion treatment and typed upgrade summary. |
 
-### Menu, targeting, and Cancel
+Later missions extend the same visual language for Flanker, Bulwark, Controller, Dreadnought, Regent, extraction markers, protect/intercept/target objectives, overlapping threats, and boss threshold states. No unknown-archetype fallback.
 
-Root contains Move, Attack, Stance, Skill, Wait. Weapons/Stances are submenus. Back returns to Root. Introduce `CommandAction::Cancel` so pointer Cancel and Escape use the same guarded dispatch; there is no keyboard-only cancellation path.
+## 11. Capture and acceptance strategy
 
-Move/Attack/Aegis targeting state changes **only after the domain call succeeds**. Invalid move/attack/Aegis targets retain their targeting mode/preview context and show an error; an invalid Aegis click no longer drops `AegisTarget`. Successful target execution returns to Inspect/Root as appropriate. Cancel clears only tentative target/preview state; it never restores spent movement/action or undoes a committed attack.
+Capture is an **example-only**, opt-in native tool in `examples/ui_capture.rs` (`test = false`). Do not add a `src/presentation/capture.rs` library module that pulls window/capture concerns into the normal all-features test graph. `tools/compare_ui.py` remains dev-only.
 
-Targeting takes precedence over inspection: token clicks resolve to the token's `unit.position` and call the same cell route. One click emits at most one command. UI controls, scrims, and disabled controls block board input. Decorations do not steal their owning cell/button hit target. Menu anchors and hit testing use `board_rect`/`cell_rect` under the same canvas fit.
+The reference manifest owns a closed fixture table. Every retained screenshot ID maps to deterministic mission/seed/upgrades/credits/actions and expected phase/menu/mode/inspection/critical HP state. Synthetic states use `BattleState::new` or an existing test fixture from capture code; never invent a fake `MissionId`.
 
-Keep existing M, 1/2/3, P, C/G/E, F, Space, R mirrors. Escape maps to `CommandAction::Cancel` and therefore cannot bypass asset readiness, playback, terminal state, or command availability.
+Do not create visual goldens that merely re-test pure helpers:
 
-Aegis highlights only legal living orthogonal allies; Focus and Overdrive retain their real timing/consumption rules. No UI-local skill consumption.
+- no 24 menu-edge screenshots (the updated menu is fixed-sidebar anyway);
+- one representative Story and one ordinary Aftermath plus Mission 7's final-line state, rather than every dialogue line;
+- one representative non-16:9 letterbox visual plus pure `CanvasLayout::fit` tests for all declared sizes;
+- HiDPI is primarily an input-alignment test, not another PNG set;
+- drop synthetic `long-objective-copy`; capture the longest real authored objective instead;
+- do not create `roster-all-glyphs`/`max-threat-list` synthetic goldens when exhaustive atlas tests and real mission captures cover those contracts.
 
-## 8. Campaign transition guard and restart
+Keep the richer Battle/HUD/objective/result matrix because those states materially change composition.
 
-The existing `NextState<GameScreen>` already represents whether a screen transition is queued, so HPA-480 does **not** add a duplicate pending-transition resource. Add one small shared predicate over `NextState` and use it before any transition-causing action.
+Primary parity is 1920×1080. Also test `CanvasLayout::fit` for 1280×720, 1600×900, and 1600×1000; use 1600×1000 as the representative letterbox capture. Verify HiDPI pointer-to-stage alignment separately.
 
-`CampaignUiAction::SkipDialogue` is legal only when the current screen is `PreMissionStory`; otherwise it sets a `CampaignStatus` error and leaves state unchanged. If `NextState` is already pending, Skip/Advance/Continue/Proceed are no-ops before cursor, save, reward, or purchase mutation. `apply_campaign_action` receives the current `GameScreen` (or an equivalent explicit guard input) so this rule is testable instead of relying on which button happened to be rendered.
+Final evidence uses source/aligned/extension/native namespaces, side-by-side, overlay, absolute difference, and motion review. The old flat `battle*.png`/`result.png` captures are superseded and cannot be final Battle goldens.
 
-Victory Continue in `interaction.rs` uses the same pending check **before** `complete_current_mission`. This preserves the existing `AlreadyAdvanced` guard as a backstop without intentionally invoking it on duplicate same-frame clicks. Hangar Proceed and last-line dialogue advance use the same guard.
+## 12. Final gates
 
-Permit Restart during idle Player and Retry during idle Defeat. Reject during loading, queued/active playback, enemy planning/resolution, Victory, or pending screen transition. Reuse `restart_battle`/`reset_transient_battle_state`; rebuild current mission with current upgrades/fresh seed, run opening planning once, clear interaction/menu/log/preview/effects, and preserve campaign/save/credits.
-
-## 9. Flat board, glyphs, playback, and whole-campaign states
-
-Cells, terrain, props, extraction, unit tokens, telegraphs, intent markers, target guides, HP bars, awaiting dots, selection/inspection rings, and finished dimming are Bevy UI children of the fitted canvas/board. Cell nodes carry `CellVisual(GridPos)` and token nodes carry `UnitVisual(UnitId)`. Token clicks map to the unit's current `GridPos`; occupancy remains domain-only.
-
-Replace `scene_index(UnitArchetype)` with an equally exhaustive `glyph_for(UnitArchetype) -> UnitGlyph` match covering all eleven current archetypes: Vanguard, Gunner, Interceptor, Rifleman, Striker, Artillery, Flanker, Bulwark, Controller, Dreadnought, Regent. No fallback glyph.
-
-`play_battle_events` preserves ordering/input lock and moves effects into board-local UI coordinates. `RecentBattleLog` receives `format_event` output once per dequeued event. Remove Camera3d/glTF transforms, world-to-viewport damage text, and boss camera shake in the same Task 3 cutover. Re-entry/restart must leave exactly one Camera2d and one battle root.
-
-Objective adapters cover elimination count, protect target HP/round cap, courier position/escape/deadline, target HP, Turnabout completion, protect-at-half-HP, and `VictoryByRound { current, cap }`. Overlapping committed footprints render independently. Controller damage-only degraded intents and future-only boss threshold changes remain untouched.
-
-Same-style extensions are required for Flanker/Bulwark/Controller/Dreadnought/Regent glyphs, objective/exit cards, Aegis targeting, loading/save errors, disabled interactions, and text overflow. Long text/threat lists use bounded scroll/detail regions, not font shrinkage or silent truncation.
-
-## 10. Closed native capture scenario matrix
-
-The scenario set is fixed **now**, before capture tooling exists. The manifest carries the same matrix. A `CaptureScenario` parser/type may group these dimensions, but it must accept exactly this closed set and reject unknown names.
-
-### Campaign scenarios
-
-- Title: `title-no-save`, `title-progress-m1`, `title-progress-m4`, `title-completed`, `title-save-error`.
-- Story: `story-m1-line1..3` through `story-m7-line1..3` (all seven pre-mission scenes have exactly three lines).
-- Briefing: `briefing-m1` through `briefing-m7`.
-- Aftermath: `aftermath-m1-line1..2` through `aftermath-m6-line1..2`, plus `aftermath-m7-line1..3`.
-- Hangar: `hangar-affordable`, `hangar-unaffordable`, `hangar-purchased`, `hangar-maxed`, `hangar-save-error`.
-- Ending: `ending-complete`.
-
-### Battle core scenarios
-
-`battle-idle`, `battle-active-vanguard`, `battle-inspect-enemy`, `battle-inspect-finished-while-active`, `battle-menu-root`, `battle-menu-weapons`, `battle-menu-stances`, `battle-move-targeting`, `battle-attack-targeting-empty`, `battle-attack-targeting-occupied`, `battle-aegis-targeting`, `battle-aegis-invalid`, `battle-focus-ready`, `battle-focus-pending`, `battle-focus-used`, `battle-overdrive-ready`, `battle-overdrive-active`, `battle-overdrive-used`, `battle-cancel-targeting`, `battle-resolve-ready`, `battle-playback`, `result-victory-bonus`, `result-victory-no-bonus`, `result-defeat`, `result-save-error`, `asset-loading`, `asset-error`.
-
-### Menu-clamp scenarios
-
-For each menu kind `root`, `weapons`, `stances`, capture all eight anchor classes: `top-left`, `top`, `top-right`, `left`, `right`, `bottom-left`, `bottom`, `bottom-right`. Scenario names are `menu-{kind}-{anchor}`. These 24 cases are part of acceptance, not Task 6 discovery work.
-
-### Whole-campaign battle extensions
-
-`m2-protect-full`, `m2-protect-low`, `m2-round-cap`; `m3-intercept-far`, `m3-intercept-near`, `m3-deadline`; `m4-target-bulwark`, `m4-chain-reaction`; `m5-overlapping-threats`, `m5-victory-by-round`; `m6-boss-high`, `m6-boss-low`; `m7-boss-high`, `m7-boss-low`, `m7-victory-by-round`; `roster-all-glyphs`; `long-objective-copy`; `max-threat-list`.
-
-Primary captures are 1920 × 1080 at deterministic seed/time. Secondary sizes 1280 × 720, 1600 × 900, 1600 × 1000 validate fit/letterboxing; HiDPI validates pointer alignment. Original, state-aligned, extension, native, and comparison evidence remain separately named.
-
-## 11. Implementation boundaries
-
-Keep `campaign_ui.rs` as action/state adapter and move only replaced layouts into `presentation/screens/{title,dialogue,briefing,hangar,ending}.rs`. Dialogue rendering is shared by Story/Aftermath; Skip is rendered only for Story. Keep interaction logic in `interaction.rs` rather than hiding it in screen files.
-
-Add only `presentation/theme.rs`, `layout.rs`, and a small `battle_menu.rs` as new runtime presentation modules. Adapt `battlefield.rs`, `ui.rs`, `sync.rs`, `playback.rs`, `assets.rs`, `mod.rs`, and `app.rs`; do not create parallel engines. Add repository-local opt-in capture code and a small comparison script only for HPA-480.
-
-Update README/CLAUDE after cutover. Preserve historical specs/validation as history.
-
-## 12. Acceptance contract
-
-Preserve original source captures separately from state-aligned references, approved extensions, and actual native captures. Recapture pulsing reference states at an explicit animation time before treating animated pixels as goldens. The original forced-result PNG is composition evidence only.
-
-For every scenario record seed, mission, upgrades, credits, inspected/active unit, menu/target state, viewport, canvas crop, DPI, animation time, asset-ready state, and implementation commit. Native captures must be actual Bevy output. Compare side-by-side, 50% overlay, and absolute difference at equal dimensions; do not rescale, broadly mask, or auto-approve by a loose percentage.
-
-There must be no unapproved differences in layout, typography, artwork/crops, color, borders, glyphs, pips, menus, overlays, or interaction state. Narrow rasterization-only exceptions must be documented individually. Review motion as well as stills.
-
-Functionally exercise New Game through all seven missions and Ending, reloads, bonus success/failure, purchases, save failures, restart/retry, duplicate transition clicks, target cancellation, inspection during an active unit, and completed Continue. Preserve domain regression tests for movement, previews, counters, pilots, environment, RNG order, and locked intents.
-
-Run at the final implementation head:
+At the implementation head:
 
 ```bash
 cargo fmt --check
@@ -316,4 +286,6 @@ cargo test --all-targets --all-features
 cargo build --release
 ```
 
-The ticket remains open and PR remains draft until the full scenario matrix, behavioral gates, and visual evidence are accepted. Documentation-only CI success is not implementation acceptance.
+Normal test execution remains headless. Windowed capture is invoked explicitly through the example and is not required just to run `cargo test`.
+
+The PR stays draft and HPA-480 stays incomplete until all eight screen families work with live data, 2.5D Battle/Result match the updated reference, all seven missions regress successfully, and native parity evidence is recorded in `docs/validation/hpa-480.md`.
