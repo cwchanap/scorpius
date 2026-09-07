@@ -1,99 +1,70 @@
 # HPA-480 — Native UI visual parity implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Delivery:** one Linear ticket, one branch, one PR. Continue on `hpa-480-ui-visual-parity` / PR #7. These tasks are internal checkpoints, not sub-issues or PRs.
 
-**Goal:** Match the supplied Scorpius UI across all eight screen families, implement its missing interactions, and preserve the working seven-mission game.
+**Goal:** Match the updated Scorpius UI, including the new 2.5D/isometric Battle layout, while preserving the complete seven-mission game.
 
-**Architecture:** Keep the existing domain/campaign state, commands, persistence, and `GameScreen` flow. Replace presentation with one 1920 × 1080 fitted Bevy UI canvas, a fixed 9 × 9 UI-board coordinate system, typed view snapshots, and one explicit interaction composition (`MenuState` + `InteractionMode` + view-only inspected ID). Retire the 3D/glTF/mesh-picking path atomically rather than keeping parallel renderers.
-
-**Tech stack:** Rust 2024, Bevy 0.19, existing serde/serde_json and headless Rust tests; exact source-derived TTF assets, one static icon atlas, an opt-in native capture example, and a development-only image comparison utility.
+**Architecture:** Keep canonical Rust domain/campaign state and `GameScreen`. Put all screens under one fitted 1920×1080 Bevy UI canvas. Battle uses a deterministic 2.5D projection of the existing 9×9 `GridPos`, one stage-level analytical cell picker, upright UI tokens, source-derived board/icon atlases, typed snapshot extensions, and the existing interaction/event/persistence paths. Retire the 3D/glTF/mesh-picking path atomically.
 
 **Spec:** [2026-09-05-hpa-480-ui-visual-parity-design.md](../specs/2026-09-05-hpa-480-ui-visual-parity-design.md)
 
 ## Global constraints
 
-- One ticket, one branch, one PR; implement and accept on `hpa-480-ui-visual-parity` / PR #7.
-- Do not merge the planning-only head or create implementation/closeout PRs or sub-issues.
-- Rust 2024, Bevy 0.19, one application crate, committed Cargo.lock.
-- Native Bevy presentation only; no WebView, second UI framework, physics engine, networking, generic ability/UI framework, MCP framework, or generic E2E framework.
-- `src/domain/` remains Bevy-free; `BattleRuntime` and `CampaignRuntime` remain authoritative.
-- Result remains an overlay inside Battle; Hangar remains `GameScreen::Upgrade`; Skip is pre-mission only.
-- One 1920 × 1080 logical canvas; uniform fit/letterbox. Current authored battle boards are deliberately fixed at 9 × 9 for this feature.
-- Preserve combat balance, authored missions, committed intents, pilot restrictions, RNG order, exactly-once rewards, purchases, and save semantics.
-- No save migration/backward compatibility, new save slots, checkpoints, undo, new missions, inventory, or Settings screen.
-- Existing normal tests remain headless; windowed capture is opt-in.
-- Full native visual parity is the final gate; unit tests alone cannot satisfy it.
+- Rust 2024, Bevy 0.19, one crate, domain Bevy-free.
+- One ticket/branch/PR; do not merge planning-only head.
+- Result remains Battle overlay; Hangar remains `GameScreen::Upgrade`.
+- One 1920×1080 fitted canvas for **all eight** screens.
+- Current boards are intentionally fixed at 9×9 for this feature.
+- 2.5D is presentation only; no `Camera3d`, physics, WebView, selectable renderer, or new simulation.
+- `InteractionMode` remains targeting; `MenuState` remains chrome; inspection is view-only; commands use `battle.active_unit()`.
+- Extend existing `ObjectiveTrackSnapshot` / `ThreatSnapshot` / campaign helper call sites in place; do not add synonymous parallel models.
+- Skip is PreMissionStory-only. Reuse `NextState<GameScreen>` as the pending transition signal.
+- No save migration, new slots, checkpoints, undo, Settings, plugin registry, MCP, or generic E2E framework.
+- Normal tests remain headless. Native capture is an example-only explicit command.
+- Full native visual parity with the updated source is the final gate.
 
-## 0. File ownership and contracts
+## 0. File ownership after HPA-480
 
-Baseline: `d981682840eb9147ba9eb7f7c56b2ceae88a3aed`. Read `CLAUDE.md`, the spec, and current files before editing.
-
-| Path | Responsibility after HPA-480 |
+| Path | Responsibility |
 | --- | --- |
-| `src/presentation/theme.rs` (new) | Only production font/color/panel/button/pip/bar/icon-atlas helpers. |
-| `src/presentation/layout.rs` (new) | Canvas fit, `board_rect`, `cell_rect`, pointer conversion, menu clamp. |
-| `src/presentation/assets.rs` | PNG/font/icon handles and `AssetLoadStatus`; no glTF catalog after cutover. |
-| `src/presentation/screens/{mod,title,dialogue,briefing,hangar,ending}.rs` (new) | Campaign layouts only; Story/Aftermath share dialogue. |
-| `src/presentation/campaign_ui.rs` | Campaign actions, transition guard, typed campaign snapshots, cursor, persistence, cleanup. |
-| `src/presentation/battlefield.rs`, `sync.rs` | Bevy UI board/cells/tokens/props/telegraphs and ID-based reconciliation. |
-| `src/presentation/ui.rs` | Typed `HudSnapshot`, inspector/objective/threat/result view data, `format_event`, HUD rendering. |
-| `src/presentation/battle_menu.rs` (new) | Root/Weapons/Stances menu rendering only. |
-| `src/presentation/interaction.rs` | `InteractionState`, click/command routing, next-ready, Cancel, restart, keyboard parity. |
-| `src/presentation/playback.rs` | Ordered event effects/input lock and six-entry `RecentBattleLog`, reusing `ui::format_event`. |
-| `src/presentation/mod.rs`, `src/app.rs` | Resources/components, one Camera2d per live screen, system order, 3D cutover. |
-| `assets/ui/`, `assets/fonts/`, existing `assets/vn/` | Exact source-derived art/font/icon assets. |
-| `tests/ui_layout.rs`, `ui_interaction.rs`, `ui_snapshots.rs` (new) | Deterministic helper/interaction/view-data coverage. |
-| Existing campaign/presentation/domain tests | Preserve behavior; replace representation-only 3D assertions. |
-| `src/presentation/capture.rs`, `examples/ui_capture.rs` (new, opt-in) | Named native capture fixtures using production rendering. |
-| `tools/compare_ui.py` (new) | Equal-size side-by-side/overlay/absolute-difference output. |
-| `docs/references/hpa-480/`, `docs/validation/hpa-480.md` | Provenance, scenario matrix, references/extensions/native evidence. |
-
-New helper names below are project contracts, not claims that Bevy exposes the same functions.
+| `src/presentation/theme.rs` (new) | Sole production font/palette/icon/unit-glyph/board-atlas helpers. |
+| `src/presentation/layout.rs` (new) | Canvas fit, battle stage constants, isometric projection/inverse hit test. |
+| `src/presentation/assets.rs` | PNG/font/UI-atlas/board-atlas handles and `AssetLoadStatus`; no glTF catalog after cutover. |
+| `src/presentation/screens/{mod,title,dialogue,briefing,hangar,ending}.rs` | Campaign layout construction only. |
+| `src/presentation/campaign_ui.rs` | Existing campaign actions/cursor/persistence; typed campaign helpers; pending transition predicate. |
+| `src/presentation/battlefield.rs`, `sync.rs` | 2.5D stage visuals, token/blocker/terrain reconciliation, no second selected-cell state. |
+| `src/presentation/ui.rs` | Extend existing HUD/objective/threat snapshots; add `InspectorSnapshot`; Battle HUD/Result. |
+| `src/presentation/battle_menu.rs` (new) | Fixed-left-sidebar Root/Weapons/Stances/targeting panel. |
+| `src/presentation/interaction.rs` | Inspection/target routing, active-unit commands, Cancel, next-ready, restart, keyboard parity. |
+| `src/presentation/playback.rs` | Ordered token/board effects, input lock, bounded log using `ui::format_event`. |
+| `src/presentation/mod.rs`, `src/app.rs` | Resources, camera/root markers, system order, 3D cutover. |
+| `examples/ui_capture.rs` | Opt-in deterministic native capture only; `test = false`. |
+| `tools/compare_ui.py` | Dev-only equal-size side-by-side/overlay/difference tool. |
+| `docs/references/hpa-480/`, manifest, `docs/validation/hpa-480.md` | Provenance, fixture table, source/extensions/native evidence. |
 
 ---
 
-## Task 1 — Verify source bytes, vendor presentation assets, then prove layout/typography
+## Task 1 — Vendor the updated source contract, then prove canvas/2.5D math
 
-**Files:** `docs/references/hpa-480/`, `docs/references/hpa-480/reference-manifest.json`, `assets/ui/`, `assets/fonts/`; then new `theme.rs`, `layout.rs`; additive `assets.rs`, `mod.rs`; new `tests/ui_layout.rs`.
+**Files:** reference manifest/directory, `assets/ui/`, `assets/fonts/`, new `theme.rs`, `layout.rs`, additive `assets.rs`/`mod.rs`, `tests/ui_layout.rs`.
 
-**Consumes:** current conversation HTML/ZIP whose SHA-256 values are already pinned in the manifest.
-**Produces:** durable exact source references, five art PNGs, seven native font files, icon atlas, and:
+### 1.1 Source and assets first
 
-```rust
-pub struct CanvasLayout {
-    pub scale: f32,
-    pub offset: Vec2,
-}
+- [ ] Verify updated HTML size `12,278,676` and SHA-256 `04bbed2958cce4c3c2ddc665f5826fac32050f509db59f852a350acb299d6e19`.
+- [ ] Preserve the old flat-source hash only as superseded provenance. Do not use old flat Battle/Result PNGs as final goldens.
+- [ ] Extract/verify the five major PNG art assets and four reused VN images. Their content hashes are unchanged even though updated bundle UUIDs differ.
+- [ ] Extract the seven exact Latin font resources from the **updated** UUIDs in the manifest. Vendor the native TTF bytes matching the recorded hashes. The committed TTFs become source of truth; WOFF2 is provenance. Normal build/test never regenerates fonts.
+- [ ] Re-export the updated source UI-vector catalog into `assets/ui/icons.png` and record final atlas hash.
+- [ ] Export a small `assets/ui/board.png` atlas for source-exact transparent board primitives: alternating diamond bases, blocker top/faces, hazard, explosive, move/attack highlight, committed telegraph, selection/inspection footprint, extraction extension. Record atlas rect mapping/hash.
+- [ ] Commit the verified binary/source assets **before** theme/layout/component work. Suggested commit: `chore: vendor HPA-480 2.5D reference assets`.
 
-impl CanvasLayout {
-    pub fn fit(window_logical: Vec2) -> Self;
-    pub fn to_design(&self, window_point: Vec2) -> Option<Vec2>;
-}
+### 1.2 Failing layout/projection tests
 
-pub const fn board_rect() -> Rect;
-pub fn cell_rect(pos: GridPos) -> Rect;
-pub fn clamp_menu(anchor: Vec2, menu_size: Vec2, bounds: Rect) -> Vec2;
-```
-
-- [ ] **Verify the exact source attachments before touching UI code.** Recompute SHA-256 for the HTML and ZIP and compare to `f3b74553...d3ef` and `3e471e24...75ef`. Copy the ten source PNGs into durable project/reference storage, keep their names/hashes unchanged, and link the actual storage location in the PR/manifest.
-
-- [ ] **Extract and verify the five named PNG art resources and four reused VN files.** Destinations and hashes are already in the manifest. No prototype JavaScript becomes runtime code.
-
-- [ ] **Extract the seven pinned Latin WOFF2 resources from the HTML manifest, convert them deterministically to the TTF destinations recorded in `reference-manifest.json`, and verify the recorded TTF SHA-256 values.** Do not fetch unpinned font versions. The needed set is Chakra Petch 400/500/600/700 and IBM Plex Mono 400/500/600. Commit the font/license assets as part of this implementation PR; do not add language subsets the current English game never renders.
-
-- [ ] **Export the source inline vectors once.** The HTML contains 55 SVG occurrences / 51 exact variants / 40 unique geometries with catalog hashes already recorded. Render the closed semantic list into `assets/ui/icons.png`, define the atlas rect mapping in `theme.rs`, record the finished atlas SHA-256 in the manifest, and verify all 40 semantic slots resolve. No generic icon or emoji fallback.
-
-- [ ] **Commit the verified reference/font/art/icon bytes before theme/layout implementation.** Suggested commit: `chore: vendor HPA-480 reference presentation assets`.
-
-- [ ] **Write failing layout tests.** Run `cargo test --test ui_layout` and confirm assertion failures after the symbols exist but before correct constants are filled in.
+Add `tests/ui_layout.rs` first and confirm bad constants/assertions fail.
 
 ```rust
-use bevy::prelude::{Rect, Vec2};
-use scorpius::domain::board::GridPos;
-use scorpius::presentation::layout::{CanvasLayout, board_rect, cell_rect, clamp_menu};
-
 #[test]
-fn fit_and_pointer_conversion_share_one_letterbox_transform() {
+fn all_screens_share_one_letterbox_transform() {
     let fit = CanvasLayout::fit(Vec2::new(1600.0, 1000.0));
     assert!((fit.scale - 5.0 / 6.0).abs() < 0.00001);
     assert!((fit.offset - Vec2::new(0.0, 50.0)).length() < 0.001);
@@ -102,36 +73,36 @@ fn fit_and_pointer_conversion_share_one_letterbox_transform() {
 }
 
 #[test]
-fn source_board_and_cell_coordinates_are_pinned() {
+fn updated_battle_stage_and_iso_centers_are_pinned() {
     assert_eq!(
-        board_rect(),
-        Rect::from_corners(Vec2::new(504.0, 130.0), Vec2::new(1416.0, 1042.0))
+        battle_stage_rect(),
+        Rect::from_corners(Vec2::new(456.0, 204.0), Vec2::new(1464.0, 968.0))
     );
-    assert_eq!(
-        cell_rect(GridPos::new(0, 0)),
-        Rect::from_corners(Vec2::new(504.0, 130.0), Vec2::new(600.0, 226.0))
-    );
-    assert_eq!(
-        cell_rect(GridPos::new(8, 8)),
-        Rect::from_corners(Vec2::new(1320.0, 946.0), Vec2::new(1416.0, 1042.0))
-    );
+    assert_eq!(iso_center(GridPos::new(0, 0)), Vec2::new(960.0, 394.0));
+    assert_eq!(iso_center(GridPos::new(8, 0)), Vec2::new(1408.0, 618.0));
+    assert_eq!(iso_center(GridPos::new(0, 8)), Vec2::new(512.0, 618.0));
+    assert_eq!(iso_center(GridPos::new(8, 8)), Vec2::new(960.0, 842.0));
 }
 
 #[test]
-fn menu_clamps_inside_the_board_rect() {
-    let bounds = Rect::from_corners(Vec2::ZERO, Vec2::splat(912.0));
-    assert_eq!(
-        clamp_menu(Vec2::new(900.0, 900.0), Vec2::new(236.0, 320.0), bounds),
-        Vec2::new(676.0, 592.0)
-    );
+fn inverse_iso_hit_test_returns_one_cell_or_none() {
+    let stage = battle_stage_rect();
+    let local = iso_center(GridPos::new(4, 7)) - stage.min;
+    assert_eq!(grid_from_stage_point(local), Some(GridPos::new(4, 7)));
+    assert_eq!(grid_from_stage_point(Vec2::new(4.0, 4.0)), None);
 }
 ```
 
-- [ ] **Implement `CanvasLayout`, exact board/cell geometry, and menu clamp.** `GridPos(0,0)` maps to visual top-left; `y=8` is the bottom row. A zero/minimized window yields no actionable canvas. Reject any active board not 9 × 9.
+Also test all 81 centers, each diamond quadrant, shared edges, outside-stage points, and 9×9 rejection. `grid_from_stage_point` uses inverse projection plus diamond inclusion; it must never return two cells.
 
-- [ ] **Implement `theme.rs` and asset readiness.** Centralize every production `TextFont` choice there and remove default-font assumptions from new components. Before replicating screen components, launch one typography-heavy Title state and one complex Battle card and visually verify font loading, tracking, weights, atlas icons, hover/disabled styling, and the fitted canvas.
+### 1.3 Theme/readiness proof
 
-- [ ] **Run foundation gates:**
+- [ ] Implement one fitted `CanvasRoot` used by every screen.
+- [ ] Implement `theme.rs` as the only production `TextFont`/palette/icon/unit-archetype atlas mapping path. No `UnitGlyph` enum; exhaustive `UnitArchetype -> atlas rect/style` match with no fallback.
+- [ ] Keep `AssetLoadStatus` as the one readiness/error gate.
+- [ ] Render one typography-heavy Title state and one Battle inspector/token/diamond proof in a native window before multiplying components.
+
+Run:
 
 ```bash
 cargo fmt --check
@@ -140,65 +111,36 @@ cargo test --test presentation_app
 cargo check --all-targets
 ```
 
-Commit `feat: add HPA-480 visual foundation`.
+Commit `feat: add HPA-480 2.5D visual foundation`.
 
 ---
 
-## Task 2 — Typed campaign snapshots and guarded campaign screens
+## Task 2 — Typed campaign helpers, guarded navigation, campaign screens
 
-**Files:** `campaign_ui.rs`, new `screens/`, `app.rs`, `mod.rs`; `tests/campaign_flow.rs`, `campaign_persistence.rs`, `ui_snapshots.rs`.
+**Files:** `campaign_ui.rs`, new `screens/`, `app.rs`, `mod.rs`; campaign tests and `tests/ui_snapshots.rs`.
 
-**Consumes:** Task 1 theme/layout/assets; existing `CampaignUiAction`, `CampaignRuntime`, `DialogueCursor`, `CompletionReceipt`, `persist_purchase`.
-**Produces:** `CampaignUiAction::SkipDialogue`, `screen_transition_pending`, typed campaign snapshots, six campaign layouts.
+### 2.1 Reuse current types/call sites
 
-- [ ] **Write failing transition tests** for Skip from every pre-mission line, Skip miswired from Aftermath, duplicate last-line advance, duplicate Continue/Proceed while `NextState` is already pending, missing/corrupt/completed saves, and aftermath reading the just-completed mission. Assert cursor, destination, receipt, and serialized state.
+- [ ] Replace `briefing_copy` **in place** with `briefing_snapshot`; do not create a second parallel copy API. Snapshot fields: mission/title/enemy count/primary/optional/base reward/optional reward/credits. Board size is not repeated because HPA-480 asserts 9×9 once.
+- [ ] Replace `upgrade_row_copy` in place with `UpgradeRowSnapshot` return data.
+- [ ] Replace `ending_copy` consumers with typed ending data. Render `CompletionReceipt` fields directly; keep `DialogueSnapshot`.
+- [ ] Derive briefing enemy count from one deterministic `definition.build` at screen entry. Do not hardcode HTML demo values or add board width/height fields to every mission definition.
 
-```rust
-fn screen_transition_pending(next: &NextState<GameScreen>) -> bool {
-    !matches!(next, NextState::Unchanged)
-}
+### 2.2 Transition guard
 
-#[test]
-fn a_queued_transition_rejects_a_second_campaign_action_without_mutation() {
-    let before = state.clone();
-    let mut next = NextState::Pending(GameScreen::Briefing);
-    apply_campaign_action(
-        GameScreen::PreMissionStory,
-        CampaignUiAction::SkipDialogue,
-        &mut runtime,
-        None,
-        &mut cursor,
-        &mut status,
-        &mut next,
-    );
-    assert_eq!(runtime.0.state.as_ref().unwrap(), &before);
-    assert_eq!(next, NextState::Pending(GameScreen::Briefing));
-}
-```
+- [ ] Add `CampaignUiAction::SkipDialogue`.
+- [ ] Hoist one `screen_transition_pending(&NextState<GameScreen>)` predicate and call it at the top of `apply_campaign_action`; reuse the same predicate for victory Continue. Do not add a resource or duplicate test-only implementations.
+- [ ] Skip succeeds only on `PreMissionStory`; Aftermath Skip returns status/no mutation.
+- [ ] Test duplicate last-line Advance, Skip, Continue, and Proceed with a pending transition; state and reward bytes must remain unchanged.
 
-- [ ] **Extend `apply_campaign_action` with explicit current-screen input and top-level pending guard.** `SkipDialogue` is legal only for `PreMissionStory`; otherwise set `CampaignStatus` and do nothing. Keep Skip off Aftermath. Reuse `NextState` itself—do not create a duplicate pending-transition resource.
+### 2.3 Screens under the shared canvas
 
-- [ ] **Replace campaign display blobs with typed snapshots.** Introduce exactly the spec types `BriefingSnapshot`, `UpgradeRowSnapshot`, `HangarSnapshot`; render `CompletionReceipt` fields directly; build Ending from typed credits/upgrade levels. Delete `briefing_copy`, `aftermath_reward_copy`, `ending_copy`, and `upgrade_row_copy` when their layouts no longer consume them.
+- [ ] Move layout construction only into `screens/`; keep campaign actions/persistence in `campaign_ui.rs`.
+- [ ] Implement Title, Story, Briefing, Aftermath, Hangar, Ending under the same fitted 1920×1080 root.
+- [ ] Introduce a campaign camera marker and stop `despawn_campaign_screen` from querying bare `Camera2d`.
+- [ ] Preserve purchase/save failure atomicity and completed Continue/Ending routing.
 
-```rust
-#[test]
-fn upgrade_snapshot_exposes_numbers_instead_of_formatted_copy() {
-    let row = upgrade_row_snapshot(&state, PlayerMech::Vanguard, UpgradeTrack::Mobility);
-    assert_eq!(row.level, 0);
-    assert_eq!(row.current_bonus, 0);
-    assert_eq!(row.next_bonus, Some(5));
-    assert_eq!(row.cost, Some(200));
-    assert_eq!(row.affordable, state.credits >= 200);
-}
-```
-
-- [ ] **Move only layout construction into `screens/`.** Implement Title, Story, Briefing, Aftermath, Hangar, Ending exactly from spec; share dialogue layout. Do not move interaction/persistence into screen modules.
-
-- [ ] **Render truthful campaign data.** Briefing uses current definition plus one deterministic mission build to read board/enemy metadata at screen entry, not every frame. Title progress derives from save state. Hangar derives costs/caps/effects from existing progression data. Mobility remains evasion.
-
-- [ ] **Keep failures atomic.** Failed purchase/save leaves levels/credits/screen unchanged; inert controls block pass-through. Completed Continue routes to Ending; final Aftermath routes to Ending; Next Drop routes to the next pre-mission story.
-
-- [ ] **Run campaign gates:**
+Run:
 
 ```bash
 cargo test --test campaign_flow
@@ -208,247 +150,106 @@ cargo test --test ui_snapshots
 cargo check --all-targets
 ```
 
-Capture all campaign scenarios already enumerated in the manifest as implementation evidence when the capture tool becomes available. Commit `feat: match campaign screens to the Scorpius reference`.
+Commit `feat: match campaign screens to the Scorpius reference`.
 
 ---
 
-## Task 3 — Cut the battlefield to one Bevy UI coordinate system and adapt playback
+## Task 3 — 2.5D board cutover, one cell picker, camera ownership, playback
 
-**Files:** `battlefield.rs`, `sync.rs`, `playback.rs`, `assets.rs`, `ui.rs` (`format_event` visibility only here), `mod.rs`, `app.rs`; `tests/presentation_app.rs`, `ui_layout.rs`; relevant inline asset tests.
+**Files:** `battlefield.rs`, `sync.rs`, `playback.rs`, `assets.rs`, `app.rs`, `mod.rs`, narrow `ui.rs`; presentation tests.
 
-**Consumes:** Task 1 canvas/board/icon contracts, domain IDs/state, existing event queue/input lock.
-**Produces:** one UI-board renderer, exhaustive `UnitGlyph`, six-entry recent log, no live glTF/mesh-picking path.
+### 3.1 Camera/root failure first
 
-- [ ] **First failing cutover test: one Camera2d/root only.** Exercise Title → Battle → exit → Battle/restart and assert there is never a duplicate Camera2d or battle root. This must fail before renderer replacement if cleanup is wrong.
+- [ ] Add a failing Title → Battle → exit → Battle/restart test. Exactly one marked live screen camera/root may exist. Campaign teardown must not despawn the Battle camera during an overlapping transition frame.
+- [ ] Add `CampaignCamera` / `BattleCamera2d` (or equivalent narrow markers) and make cleanup target those markers.
 
-- [ ] **Add failing board tests** for 81 exact cell rects, blockers/hazards/explosives/extraction, token placement, and a loud failure for non-9 × 9. Assert visual `GridPos(0,0)` is top-left and Mission 1 player `y=8` is bottom.
+### 3.2 Replace 3D atomically
 
-- [ ] **Replace mesh cells with UI nodes under the fitted canvas/board.** Each cell carries `CellVisual(GridPos)` and pointer observers; each token carries `UnitVisual(UnitId)`. Token clicks resolve current `unit.position` and call the same cell route. Do not create sprite/world coordinates.
+- [ ] Remove `Camera3d`, `MeshPickingPlugin`, 15-scene `MissionAssets`, `grid_to_world`, world-only reconciliation/effects, and boss camera shake only when their 2.5D replacements are wired.
+- [ ] Keep `AssetLoadStatus`; replace its catalog with required PNG/font/UI-atlas/board-atlas handles.
+- [ ] Replace `scene_index` with exhaustive `UnitArchetype -> theme atlas rect/style`. No second enum and no Rifleman fallback.
 
-- [ ] **Replace `scene_index` with an exhaustive glyph match.** No fallback:
+### 3.3 2.5D rendering
 
-```rust
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum UnitGlyph {
-    Vanguard, Gunner, Interceptor, Rifleman, Striker, Artillery,
-    Flanker, Bulwark, Controller, Dreadnought, Regent,
-}
+- [ ] Render the 1008×764 stage under the common canvas using the fixed projection constants.
+- [ ] Spawn/update flat cell images, telegraph/highlight overlays, 26px raised blocker assets, extraction/hazard/explosive visuals, and 76×64 upright unit cards.
+- [ ] Set deterministic depth from `x+y`: tiles below raised items; blocker equivalent base `10+d*3`; token equivalent base `11+d*3`.
+- [ ] Finished ally dimming, HP bars/numbers, awaiting dot, selection/inspection footprint/shadow follow the updated source.
 
-pub const fn glyph_for(archetype: UnitArchetype) -> UnitGlyph {
-    match archetype {
-        UnitArchetype::Vanguard => UnitGlyph::Vanguard,
-        UnitArchetype::Gunner => UnitGlyph::Gunner,
-        UnitArchetype::Interceptor => UnitGlyph::Interceptor,
-        UnitArchetype::Rifleman => UnitGlyph::Rifleman,
-        UnitArchetype::Striker => UnitGlyph::Striker,
-        UnitArchetype::Artillery => UnitGlyph::Artillery,
-        UnitArchetype::Flanker => UnitGlyph::Flanker,
-        UnitArchetype::Bulwark => UnitGlyph::Bulwark,
-        UnitArchetype::Controller => UnitGlyph::Controller,
-        UnitArchetype::Dreadnought => UnitGlyph::Dreadnought,
-        UnitArchetype::Regent => UnitGlyph::Regent,
-    }
-}
-```
+### 3.4 One board cell picker
 
-- [ ] **Adapt sync/telegraphs/highlights to board-local UI geometry** using `cell_rect`; preserve overlap and extraction. Decorative nodes are `Pickable::IGNORE` where required so the owning cell/token remains the hit target.
+The updated isometric diamonds overlap in their rectangular UI bounds. Do **not** put independently clickable rectangular nodes on every cell.
 
-- [ ] **Adapt `play_battle_events` to UI-local effects while retaining queue ordering/input lock.** Make the existing `ui::format_event` `pub(crate)`. `RecentBattleLog::push(format_event(&event, &battle))` runs once as an event is dequeued; newest first, maximum six. Do not create another formatter.
+- [ ] Make visual cell/terrain/telegraph nodes `Pickable::IGNORE`.
+- [ ] Put one observer on the battle stage pick surface. Convert its pointer hit to stage-local design coordinates and call `grid_from_stage_point`.
+- [ ] Token cards remain ordinary UI observers. During targeting, token click resolves current `unit.position` and calls the same `route_cell_click`; during Inspect it inspects the unit.
+- [ ] One click emits at most one routed command. Test shared diamond edges, token-over-cell, blocker-over-cell, target mode precedence, letterbox/HiDPI.
+- [ ] Remove/fold `SelectedCell`; highlights read `InteractionState.hovered_cell`/mode only.
 
-```rust
-#[test]
-fn recent_log_is_newest_first_and_bounded() {
-    let mut log = RecentBattleLog::default();
-    for n in 0..8 { log.push(format!("event {n}")); }
-    assert_eq!(log.entries.len(), 6);
-    assert_eq!(log.entries.front().unwrap(), "event 7");
-    assert_eq!(log.entries.back().unwrap(), "event 2");
-}
-```
+### 3.5 Playback/log
 
-- [ ] **Remove the 3D path atomically after replacements exist:** `MissionAssets` scene catalog, `scene_index`, `grid_to_world`, `Camera3d`, `DirectionalLight`, `MeshPickingPlugin`/settings, 3D materials/meshes, world-to-viewport damage text, boss camera shake, glTF-only readiness/tests. Keep `AssetLoadStatus` with new image/font/icon handles.
+- [ ] Make existing `ui::format_event` `pub(crate)` and append once when playback dequeues an event into six-entry `RecentBattleLog`.
+- [ ] Adapt move/attack/damage/KO/environment effects to stage/token design positions; do not infer domain state from events.
+- [ ] Input stays locked until event queue drains; terminal overlay waits for relevant playback.
 
-- [ ] **Wire lifecycle order:** restart/rebuild/opening → UI reconcile/sync → playback → input → HUD. Opening planning runs once after restart; stale effects/log/menu do not survive.
-
-- [ ] **Run cutover gates:**
+Run:
 
 ```bash
 cargo test --test presentation_app
 cargo test --test ui_layout
 cargo test --lib
-cargo test --all-targets
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Inspect native board/re-entry/restart before proceeding. Commit `feat: replace the battlefield with the flat native grid`.
+Commit `feat: replace the battlefield with 2.5D native presentation`.
 
 ---
 
-## Task 4 — Make inspection view-only and unify command/menu/target state
+## Task 4 — Reuse HUD types, inspection/commands, fixed-sidebar menus
 
-**Files:** `interaction.rs`, new `battle_menu.rs`, `ui.rs`, `mod.rs`, `app.rs`; `tests/ui_interaction.rs`, existing interaction tests.
+**Files:** `ui.rs`, `interaction.rs`, new `battle_menu.rs`, `app.rs`, `mod.rs`; `tests/ui_interaction.rs`, `ui_snapshots.rs`.
 
-**Consumes:** canonical `battle.active_unit()`, Task 3 cells/tokens, `EventPlayback` lock.
-**Produces:** explicit `InteractionState` composition, `CommandAction::Cancel`, `next_ready_unit`, `restart_allowed`.
+### 4.1 Extend current snapshot types in place
 
-- [ ] **Write failing tests for the composition contract:** enemy inspection, finished/inactive ally inspection while Vanguard remains active, re-focus active, target clicks versus inspection, invalid Aegis, Cancel, next after Wait, and all finished.
+- [ ] Keep `ThreatSnapshot`; change `cells: String -> Vec<GridPos>` and add IDs needed by rendering.
+- [ ] Grow existing `ObjectiveTrackSnapshot` with `EliminateAll`, and add round/deadline/position/escape data to existing Protect/Intercept/Target cases.
+- [ ] Add `OptionalProgressSnapshot` mirroring `OptionalObjective`.
+- [ ] Add the genuinely new `InspectorSnapshot`; replace `selected_summary` string use.
+- [ ] Keep `HudSnapshot::from_battle` as the one builder. Leaf renderers format text; no snapshot parser.
 
-```rust
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum MenuState { #[default] Hidden, Root, Weapons, Stances }
+### 4.2 Interaction composition
 
-pub struct InteractionState {
-    pub inspected_unit: Option<UnitId>,
-    pub hovered_cell: Option<GridPos>,
-    pub mode: InteractionMode,
-    pub menu: MenuState,
-    pub preview: Option<AttackPreview>,
-}
-```
+- [ ] Rename selection state to `inspected_unit` where presentation-only; commands validate/return `battle.active_unit()`.
+- [ ] Test enemy/finished inspection during an active player activation; active unit remains untouched.
+- [ ] Implement stable next-ready; successful Wait starts/focuses next living unfinished unit.
+- [ ] Add `CommandAction::Cancel`; pointer Cancel and Escape share it. Invalid Move/Attack/Aegis keeps targeting active.
+- [ ] Preserve Aegis/Focus/Overdrive domain semantics and keyboard command parity.
+- [ ] Restart/Retry uses one `restart_allowed` predicate with asset/playback/pending checks and no progression mutation.
 
-The invariant tested in every mutation path is: **inspection is view-only; commands use `battle.active_unit()`**.
+### 4.3 Updated fixed sidebar
 
-- [ ] **Replace `require_selected_active_unit` with `require_active_unit(battle)` and rename selection call sites to inspection.** Move/Attack/Aegis target routing reads the domain active ID. Inspecting another unit must never abort or transfer activation.
+- [ ] Build Root/Weapons/Stances as normal vertical blocks in the left 352px sidebar beneath inspector.
+- [ ] During Move/Attack/Aegis targeting replace that area with the source targeting label/Cancel panel.
+- [ ] Delete board-relative anchoring/clamping implementation and tests. There are **no** 24 menu-edge visual cases in the updated design.
 
-- [ ] **Make `route_cell_click` transactional with respect to targeting state.** Move/Attack already reset mode only after successful domain calls; make Aegis identical. An invalid Aegis target leaves `AegisTarget`, preview/highlight, and skill availability intact.
-
-```rust
-InteractionMode::AegisTarget => {
-    let ally = battle.occupant_at(clicked).ok_or(BattleError::NoUnitSelected)?;
-    battle.use_aegis(ally)?;
-    interaction.mode = InteractionMode::Inspect;
-    interaction.menu = MenuState::Root;
-    interaction.hovered_cell = Some(clicked);
-    interaction.preview = None;
-    Ok(Vec::new())
-}
-```
-
-- [ ] **Implement Root/Weapons/Stances chrome using the spec table.** Inspecting enemy/finished/inactive player hides commands; re-focusing active opens Root. Back only changes menu chrome.
-
-- [ ] **Add `CommandAction::Cancel` and route both pointer Cancel and Escape through `run_command`.** Target Cancel returns `InteractionMode::Inspect`, clears preview, re-focuses active, opens Root. At Root, Cancel closes the menu. It never changes `moved`, `acted`, EN, reaction, or committed events.
-
-- [ ] **Implement next-ready in Vanguard/Gunner/Interceptor order.** If an activation exists, return that ID. Otherwise return the first living unfinished player. On **successful** FinishUnit/Wait, call next-ready and begin/focus the next unit; do not add a keyboard-only implementation.
-
-```rust
-#[test]
-fn next_ready_never_abandons_an_activation() {
-    let mut battle = mission_one(7);
-    battle.begin_round().unwrap();
-    assert_eq!(next_ready_unit(&battle), Some(UnitId(1)));
-    battle.begin_activation(UnitId(1)).unwrap();
-    assert_eq!(next_ready_unit(&battle), Some(UnitId(1)));
-    battle.choose_reaction(UnitId(1), Reaction::Guard).unwrap();
-    battle.finish_activation(UnitId(1)).unwrap();
-    assert_eq!(next_ready_unit(&battle), Some(UnitId(2)));
-}
-```
-
-- [ ] **Targeting precedes inspection for token and cell clicks.** Test occupied enemy Attack, Aegis ally, background, disabled menu, overlay, and playback-lock clicks. One pointer event emits at most one command.
-
-- [ ] **Render Aegis/Focus/Overdrive availability from domain state** and retain existing domain tests for non-stacking/consumption/timing.
-
-- [ ] **Use existing `NextState` pending detection in restart/continue paths.** No new pending resource. Restart predicate:
-
-```rust
-pub fn restart_allowed(
-    phase: BattlePhase,
-    assets_ready: bool,
-    locked: bool,
-    pending_transition: bool,
-) -> bool {
-    assets_ready && !locked && !pending_transition
-        && matches!(phase, BattlePhase::Player | BattlePhase::Defeat)
-}
-```
-
-Test idle Player, idle Defeat, loading, playback/queue lock, planning/resolution, Victory, and pending transition. Compare save bytes/credits/mission/upgrades before/after restart.
-
-- [ ] **Guard victory Continue before persistence.** If `NextState` is already pending, return without another `complete_current_mission` call. Keep `AlreadyAdvanced` as persistence backstop, not routine duplicate-click behavior.
-
-- [ ] **Run interaction gates:**
+Run:
 
 ```bash
 cargo test --test ui_interaction
+cargo test --test ui_snapshots
 cargo test --test presentation_app
 cargo test --lib
 ```
 
-Exercise pointer and M/1/2/3/P/C/G/E/F/Space/R/Escape parity. Commit `feat: wire reference commands to canonical activation state`.
+Commit `feat: wire 2.5D battle UI to canonical gameplay`.
 
 ---
 
-## Task 5 — Replace formatted HUD blobs with typed cards and cover every mission variant
+## Task 5 — Fixture-driven native capture, no duplicate golden tests
 
-**Files:** `ui.rs`, `battle_menu.rs`, `sync.rs`, `campaign_ui.rs` only for shared typed data if required; `tests/ui_snapshots.rs`, `campaign_flow.rs`, `campaign_persistence.rs`, `presentation_app.rs`.
+**Files:** `examples/ui_capture.rs`, `tools/compare_ui.py`, `Cargo.toml`, manifest, validation doc.
 
-**Consumes:** typed domain/campaign state, Task 4 inspection/menu, locked intents, `RecentBattleLog`.
-**Produces:** typed `HudSnapshot`/cards and complete Result presentation for Missions 1–7.
-
-- [ ] **Write failing typed-snapshot tests** before rendering cards. Remove expectations that depend on parsing `selected_summary`, `round_phase`, `primary`, `optional`, or stringified threat cells.
-
-```rust
-#[test]
-fn inspector_snapshot_exposes_bar_and_status_fields() {
-    let battle = mission_one(7);
-    let hud = HudSnapshot::from_battle(&battle, Some(UnitId(1)), mission_definition(MissionId::One).unwrap());
-    let inspector = hud.inspector.unwrap();
-    assert_eq!(inspector.id, UnitId(1));
-    assert_eq!(inspector.hp, inspector.max_hp);
-    assert!(!inspector.moved);
-    assert!(!inspector.acted);
-    assert!(!inspector.finished);
-}
-
-#[test]
-fn threat_cells_remain_grid_positions() {
-    let mut battle = mission_one(7);
-    battle.begin_round().unwrap();
-    let hud = HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::One).unwrap());
-    assert!(hud.threats.iter().all(|threat| !threat.cells.is_empty()));
-    assert!(hud.threats.iter().flat_map(|t| &t.cells).all(|cell| cell.x < 9 && cell.y < 9));
-}
-```
-
-- [ ] **Implement the spec's typed fields:** `InspectorSnapshot`, `ThreatSnapshot { cells: Vec<GridPos> }`, `PrimaryProgressSnapshot`, `OptionalProgressSnapshot`, typed weapon rows, pilot status, round/phase, resolve/restart/result availability. Leaf renderers may format labels; upstream snapshots never encode cards into multiline strings.
-
-- [ ] **Render header, inspector, HP/EN bars/pips, recent log, menus, target preview, and locked threats** from typed data. Without an actual target show weapon data only; do not invent hit/crit values.
-
-- [ ] **Cover all objective variants in tests and captures:**
-  - Mission 2 protect full/low HP and round cap.
-  - Mission 3 courier far/near/deadline/exit.
-  - Mission 4 Bulwark target and Chain Reaction.
-  - Mission 5 overlapping committed batteries and `VictoryByRound { current, cap }`.
-  - Mission 6 Dreadnought above/below threshold.
-  - Mission 7 Regent above/below threshold and Final Push progress.
-  - All eleven glyphs, long objective copy, maximum threat list.
-
-- [ ] **Build Result overlay from true terminal/result/objective data.** Wait for playback to drain. Continue uses existing persistence and Task 4 pending guard; failed save keeps result open; Retry never pays.
-
-- [ ] **Bound overflow with source-style scroll/detail regions.** Do not shrink typography, overlap the board, or silently drop threats.
-
-- [ ] **Run HUD gates:**
-
-```bash
-cargo test --test ui_snapshots
-cargo test --test campaign_flow
-cargo test --test campaign_persistence
-cargo test --test presentation_app
-cargo test --all-targets
-```
-
-Inspect every manifest battle/whole-campaign scenario manually before capture automation. Commit `feat: complete typed tactical HUD and results`.
-
----
-
-## Task 6 — Deterministic capture, full scenario matrix, and same-PR acceptance
-
-**Files:** new `capture.rs`, `examples/ui_capture.rs`, `tools/compare_ui.py`; `Cargo.toml`, `mod.rs`, narrow `app.rs` hook; `reference-manifest.json`; `docs/validation/hpa-480.md`; any UI file with a concrete discrepancy.
-
-**Consumes:** production renderer plus the **already-enumerated** manifest scenario matrix.
-**Produces:** reproducible native captures/comparisons and final implementation evidence.
-
-- [ ] **Add an opt-in capture feature/example; normal tests stay headless.**
+### 5.1 Capture remains example-only
 
 ```toml
 [features]
@@ -461,33 +262,71 @@ required-features = ["ui-capture"]
 test = false
 ```
 
-- [ ] **Define a closed parser/type from the manifest matrix rather than arbitrary `String` scenarios.** It may use grouped variants such as `Story { mission, line }` and `MenuEdge { menu, anchor }`, but validation accepts exactly the matrix values and rejects everything else. Test every manifest ID parses and one unknown ID fails.
+Do **not** add `src/presentation/capture.rs`. Ordinary `cargo test --all-targets --all-features` must remain headless-compatible.
 
-- [ ] **Use explicit fixture inputs:** isolated temporary SaveFile, seed 7, named credits/upgrades, legal action routes, fixed animation `time_ms`. Never touch the platform save. Verify expected phase/HP/objective before capture.
+### 5.2 Consume the manifest fixture table
 
-- [ ] **Capture only after `AssetLoadStatus::Ready` and one live Camera2d/root.** Missing assets, unexpected fixture state, duplicate cameras, or absent output is an error.
+Every retained scenario ID already maps to:
 
-- [ ] **Implement the comparison utility** with equal-dimension enforcement, side-by-side, 50% overlay, absolute difference, differing-pixel count and max channel delta. No rescale, broad mask, or percentage-based auto-approval.
-
-```python
-from PIL import Image, ImageChops
-reference = Image.open(reference_path).convert("RGB")
-actual = Image.open(actual_path).convert("RGB")
-if reference.size != actual.size:
-    raise ValueError("Reference and native capture dimensions differ")
-Image.blend(reference, actual, 0.5).save(output_dir / "overlay.png")
-ImageChops.difference(reference, actual).save(output_dir / "difference.png")
+```text
+id
+mission / campaign state
+seed
+upgrades
+credits
+actions[]
+expect { phase, menu, mode, inspected, hp/objective facts }
 ```
 
-- [ ] **Run every closed primary-size scenario from `reference-manifest.json`.** There is no Task 6 discovery/enumeration step. Record original/state-aligned/extension/native/comparison paths separately. Review same-style extension targets before accepting them.
+- [ ] Capture code dispatches by table/profile instead of adding one custom setup function per screenshot.
+- [ ] Use isolated temporary save files; never platform save.
+- [ ] Battle states are reached through authored constructors and legal domain/interaction actions. If a synthetic low-level fixture is required, use `BattleState::new`/existing test fixture in capture code; never fake `MissionId`.
+- [ ] Assert expected phase/HP/objective/menu/mode before rendering.
 
-- [ ] **Run secondary geometry/input checks** at 1280 × 720, 1600 × 900, 1600 × 1000 and HiDPI. Exercise all 24 menu-edge cases and confirm pointer targets remain aligned with the visual board.
+### 5.3 Reduced evidence set
 
-- [ ] **Play the full campaign manually through normal input** with bonus success/failure, purchases, reloads between missions, restart, defeat Retry, save failure, duplicate transition clicks, completed Continue, and final Ending. Preserve all domain regression tests.
+Do not visually golden-test pure helper permutations:
 
-- [ ] **Update README/CLAUDE** for the flat UI renderer, controls, restart/Skip, asset/capture commands. Preserve historical design/validation docs; remove only obsolete live glTF/mesh instructions.
+- no menu-edge matrix;
+- no every-dialogue-line matrix;
+- no PNG for every secondary size;
+- no synthetic `long-objective-copy`, `roster-all-glyphs`, or `max-threat-list` when real missions/unit tests cover them.
 
-- [ ] **Run final gates at the implementation head:**
+Keep representative Title/Story/Briefing/Aftermath/Hangar/Ending states plus the rich Battle/HUD/objective/result matrix and actual later-mission archetype states.
+
+Use 1920×1080 for primary parity and 1600×1000 for one representative letterbox visual. Test `CanvasLayout::fit` numerically at 1280×720, 1600×900, and 1600×1000. HiDPI is an input-alignment test plus one sanity capture if needed for a discovered renderer issue.
+
+### 5.4 Comparison tool
+
+`tools/compare_ui.py` requires equal-size images and emits side-by-side, 50% overlay, absolute-difference, differing-pixel count, and max channel delta. No rescale, broad masks, loose mismatch percentage, or automatic baseline acceptance.
+
+Run:
+
+```bash
+cargo check --all-targets --all-features
+cargo test --all-targets --all-features
+cargo run --features ui-capture --example ui_capture -- \
+  --scenario battle-active-vanguard --size 1920x1080 --seed 7 --time-ms 0 \
+  --output target/ui-capture/battle-active-vanguard.png
+python3 tools/compare_ui.py \
+  --reference docs/references/hpa-480/aligned/battle-active-vanguard.png \
+  --actual target/ui-capture/battle-active-vanguard.png \
+  --output target/ui-capture/compare/battle-active-vanguard
+```
+
+Commit `test: add HPA-480 fixture-driven visual evidence`.
+
+---
+
+## Task 6 — Integrated acceptance and same-PR closeout
+
+- [ ] Recapture the updated HTML at a recorded animation time. The old flat `battle*.png`/`result.png` files remain historical only.
+- [ ] Review source/aligned/extension/native/diff sets for Title, representative campaign states, updated 2.5D Battle states, Result, later mission objective/archetype extensions, and motion.
+- [ ] Play Missions 1–7 through normal commands including purchases, bonus success/failure, reload, restart, defeat Retry, final Ending, completed Continue, and one save failure/retry.
+- [ ] Verify 9×9 projection, stage-edge hit testing, shared-diamond boundaries, token depth vs blockers, token targeting precedence, sidebar menu/Cancel, one camera/root, no live 3D asset dependency, and no duplicate rewards.
+- [ ] Update README/CLAUDE for 2.5D presentation, controls, Story Skip, Player-phase Restart, and validation.
+
+Final gates at the implementation head:
 
 ```bash
 cargo fmt --check
@@ -497,14 +336,8 @@ cargo test --all-targets --all-features
 cargo build --release
 ```
 
-- [ ] **Record final evidence in `docs/validation/hpa-480.md`:** implementation commit, asset hashes, scenario IDs, seed/state/actions, viewports/DPI, animation time, native images, comparisons, motion evidence, behavioral results, and any narrowly approved rasterization-only exception.
+Record final commit, device/DPI, fixture table version, source/native captures, comparison output, motion evidence, and approved extension decisions in `docs/validation/hpa-480.md`. Only then mark PR #7 ready and HPA-480 Done.
 
-- [ ] **Keep PR #7 draft until all evidence is accepted.** Fix unapproved discrepancies on this same branch; do not loosen the reference, create a closeout ticket, or split the implementation. Final documentation commit: `docs: record HPA-480 full native parity acceptance`.
+## Present status
 
-## Plan self-review
-
-- **Spec coverage:** Tasks 1–2 cover exact reference/assets/fonts/icons/scaling and six campaign screens. Task 3 owns the coordinate/camera/3D cutover and shared event log. Task 4 owns the explicit interaction composition and guards. Task 5 owns typed battle view data and all mission variants. Task 6 owns the already-closed capture matrix and integrated acceptance.
-- **Placeholder scan:** No implementation requirement is deferred with “TBD”, “TODO”, “similar to”, or an unspecified acceptance list. Exact asset/source hashes and scenario dimensions are in the manifest.
-- **Type consistency:** `InteractionState.inspected_unit` is view-only; all mutating commands use `battle.active_unit()`. `MenuState` is chrome and `InteractionMode` is targeting. `ThreatSnapshot.cells` stays `Vec<GridPos>`. Campaign cards use typed snapshots/`CompletionReceipt`. `RecentBattleLog` reuses `ui::format_event`.
-
-This branch is still planning-only at this point. No native UI code, builds, tests, captures, or visual acceptance are claimed by this document update.
+This branch is still planning-only. These revisions do not implement the 2.5D UI, tests, capture example, or binary asset intake, and no native build/parity claim is made.
