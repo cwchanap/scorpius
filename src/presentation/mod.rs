@@ -43,9 +43,19 @@ pub struct CellVisual(pub GridPos);
 #[derive(Component)]
 pub struct PresentationRoot;
 
+/// The single UI node that owns the isometric board and its flat-sorted
+/// sibling visuals.
+#[derive(Component)]
+pub struct BattleStage;
+
 /// Ownership marker for the active campaign screen's UI camera.
 #[derive(Component)]
 pub struct CampaignCamera;
+
+/// Ownership marker for the battle screen's UI camera. Campaign cleanup only
+/// targets `CampaignCamera`, while battle cleanup only targets this marker.
+#[derive(Component)]
+pub struct BattleCamera2d;
 
 #[derive(Component)]
 pub(crate) struct PresentationNeedsRebuild;
@@ -85,6 +95,24 @@ pub struct ReactionVisual {
     pub reaction: Reaction,
 }
 
+/// The clickable upright token card for a unit. The card itself is the only
+/// pickable child of the board stage for that unit.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenCard(pub UnitId);
+
+/// Flat sibling footprint/shadow beneath a token card.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenFootprintVisual(pub UnitId);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenHpFill(pub UnitId);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenHpText(pub UnitId);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenAwaiting(pub UnitId);
+
 /// Ground marker at the intercept mission's escape cell; spawned/kept by
 /// `sync::reconcile_extraction_marker` only while the primary is intercept.
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +127,17 @@ pub struct EventPlayback {
     pub input_locked: bool,
 }
 
+/// Six newest playback messages, stored newest-first.
+#[derive(Resource, Clone, Debug, Default, Eq, PartialEq)]
+pub struct RecentBattleLog(pub VecDeque<String>);
+
+impl RecentBattleLog {
+    pub fn push(&mut self, entry: String) {
+        self.0.push_front(entry);
+        self.0.truncate(6);
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct RestartRoundPending(pub bool);
 
@@ -110,11 +149,3 @@ pub(crate) struct EventEffect;
 
 #[derive(Resource, Default)]
 pub struct AttackPreviewCells(pub BTreeSet<GridPos>);
-
-#[derive(Resource, Default)]
-pub struct SelectedCell(pub Option<GridPos>);
-
-pub fn grid_to_world(pos: GridPos) -> Vec3 {
-    const HALF: f32 = 4.0;
-    Vec3::new(pos.x as f32 - HALF, 0.2, pos.y as f32 - HALF)
-}

@@ -8,7 +8,7 @@ use scorpius::{
     domain::{
         battle::BattleState,
         board::GridPos,
-        model::{BattlePhase, MissionResult, Reaction, UnitArchetype, UnitId},
+        model::{BattlePhase, MissionResult, Reaction, UnitId},
     },
     mission::mission_five::mission_five,
     mission::mission_four::mission_four,
@@ -19,18 +19,13 @@ use scorpius::{
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        EventPlayback, ExtractionVisual, PresentationRoot, SelectedCell, TelegraphVisual,
-        UnitVisual,
-        battlefield::{create_visual_assets, mission_grid_cells, scene_index},
-        grid_to_world,
+        EventPlayback, ExtractionVisual, PresentationRoot, TelegraphVisual, UnitVisual,
+        battlefield::mission_grid_cells,
         interaction::{
             CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
             handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
         },
-        sync::{
-            apply_unit_transforms, attach_extraction_rendering, reconcile_extraction_marker,
-            reconcile_telegraph_markers,
-        },
+        sync::{apply_unit_transforms, reconcile_extraction_marker, reconcile_telegraph_markers},
         ui::{HudSnapshot, ObjectiveTrackSnapshot, result_overlay_copy},
     },
 };
@@ -58,8 +53,7 @@ fn presentation_fixture_app() -> App {
         .init_resource::<StatusMessage>()
         .init_resource::<BattleEventQueue>()
         .init_resource::<EventPlayback>()
-        .init_resource::<AttackPreviewCells>()
-        .init_resource::<SelectedCell>();
+        .init_resource::<AttackPreviewCells>();
     app.world_mut().spawn(PresentationRoot);
     app
 }
@@ -71,7 +65,11 @@ fn canonical_move_drives_visual_transform_without_renderer() {
         .add_systems(Update, apply_unit_transforms);
     app.world_mut().spawn((
         UnitVisual(UnitId(1)),
-        Transform::from_translation(grid_to_world(GridPos::new(1, 1))),
+        Node {
+            position_type: PositionType::Absolute,
+            ..default()
+        },
+        Visibility::Visible,
     ));
 
     app.world_mut()
@@ -81,9 +79,12 @@ fn canonical_move_drives_visual_transform_without_renderer() {
         .unwrap();
     app.update();
 
-    let mut transforms = app.world_mut().query::<&Transform>();
-    let transform = transforms.single(app.world()).unwrap();
-    assert_eq!(transform.translation, grid_to_world(GridPos::new(1, 2)));
+    let mut nodes = app.world_mut().query::<&Node>();
+    let node = nodes.single(app.world()).unwrap();
+    let center = scorpius::presentation::layout::iso_center(GridPos::new(1, 2))
+        - scorpius::presentation::layout::battle_stage_rect().min;
+    assert_eq!(node.left, px(center.x - 38.0));
+    assert_eq!(node.top, px(center.y - 68.0));
 }
 
 #[test]
@@ -145,7 +146,7 @@ fn selected_unit_can_move_then_arm_a_weapon() {
     let mut interaction = InteractionState::default();
 
     route_cell_click(&mut battle, &mut interaction, GridPos::new(5, 8)).unwrap();
-    assert_eq!(interaction.selected_unit, Some(ids::INTERCEPTOR));
+    assert_eq!(interaction.inspected_unit, Some(ids::INTERCEPTOR));
     execute_command(&mut battle, &mut interaction, CommandAction::Move).unwrap();
     route_cell_click(&mut battle, &mut interaction, GridPos::new(5, 7)).unwrap();
     assert!(battle.unit(ids::INTERCEPTOR).unwrap().activation.moved);
@@ -189,7 +190,7 @@ fn command_routing_finishes_the_squad_then_resolves_enemy_attacks() {
         battle.phase(),
         BattlePhase::Player | BattlePhase::Defeat
     ));
-    assert_eq!(interaction.selected_unit, None);
+    assert_eq!(interaction.inspected_unit, None);
 }
 
 #[test]
@@ -317,13 +318,6 @@ fn mission_seven_target_hud_pins_the_regent() {
 }
 
 #[test]
-fn bulwark_and_controller_use_permanent_scene_indices() {
-    assert_eq!(scene_index(UnitArchetype::Flanker), 10);
-    assert_eq!(scene_index(UnitArchetype::Bulwark), 11);
-    assert_eq!(scene_index(UnitArchetype::Controller), 12);
-}
-
-#[test]
 fn mission_five_hud_lists_both_artillery_threats_and_remaining_count() {
     let mut battle = mission_five(7);
     battle.begin_round().unwrap();
@@ -344,37 +338,21 @@ fn intercept_mission_spawns_one_white_extraction_ring_at_the_escape_cell() {
     let mut battle = mission_three(7);
     battle.begin_round().unwrap();
     let mut app = App::new();
-    let mut meshes = Assets::<Mesh>::default();
-    let mut materials = Assets::<StandardMaterial>::default();
-    let visuals = create_visual_assets(&mut meshes, &mut materials);
-    let (ring_mesh, white_material) = (visuals.ring_mesh.clone(), visuals.intended_target.clone());
-    app.insert_resource(meshes)
-        .insert_resource(materials)
-        .insert_resource(visuals)
-        .insert_resource(BattleRuntime(battle))
-        .add_systems(
-            Update,
-            (reconcile_extraction_marker, attach_extraction_rendering).chain(),
-        );
+    app.insert_resource(BattleRuntime(battle))
+        .add_systems(Update, reconcile_extraction_marker);
     app.world_mut().spawn(PresentationRoot);
     app.update();
 
-    let mut markers = app.world_mut().query::<(
-        &ExtractionVisual,
-        &Mesh3d,
-        &MeshMaterial3d<StandardMaterial>,
-    )>();
+    let mut markers = app
+        .world_mut()
+        .query::<(&ExtractionVisual, &Node, &BackgroundColor)>();
     let markers: Vec<_> = markers.iter(app.world()).collect();
     assert_eq!(markers.len(), 1, "exactly one extraction ring");
-    let (marker, mesh, material) = markers[0];
+    let (marker, node, color) = markers[0];
     assert_eq!(marker.0, GridPos::new(8, 0));
     assert_eq!(marker.0, mission_three::EXTRACTION);
-    assert_eq!(mesh.0.id(), ring_mesh.id());
-    assert_eq!(
-        material.0.id(),
-        white_material.id(),
-        "ring uses the existing white material"
-    );
+    assert_eq!(node.width, px(112.0));
+    assert_eq!(color.0, scorpius::presentation::theme::BOARD_EXTRACTION);
 }
 
 #[test]
@@ -400,16 +378,16 @@ fn vanguard_pilot_arms_aegis_and_shields_an_adjacent_ally() {
     // The authored deployment has no orthogonal adjacency, so step the
     // Vanguard next to the Gunner before arming the pilot skill.
     route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 7)).unwrap();
-    assert_eq!(interaction.selected_unit, Some(ids::VANGUARD));
+    assert_eq!(interaction.inspected_unit, Some(ids::VANGUARD));
     execute_command(&mut battle, &mut interaction, CommandAction::Move).unwrap();
     route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 8)).unwrap();
 
     execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
     assert_eq!(interaction.mode, InteractionMode::AegisTarget);
 
-    // Clicking the enemy Striker is rejected and returns to Inspect.
+    // Clicking the enemy Striker is rejected while keeping Aegis targeting armed.
     route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 4)).unwrap_err();
-    assert_eq!(interaction.mode, InteractionMode::Inspect);
+    assert_eq!(interaction.mode, InteractionMode::AegisTarget);
     assert_eq!(battle.pilot_skills().aegis_target, None);
 
     execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
@@ -426,7 +404,7 @@ fn gunner_pilot_sets_focus_pending() {
     let mut interaction = InteractionState::default();
 
     route_cell_click(&mut battle, &mut interaction, GridPos::new(3, 8)).unwrap();
-    assert_eq!(interaction.selected_unit, Some(ids::GUNNER));
+    assert_eq!(interaction.inspected_unit, Some(ids::GUNNER));
     execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
 
     assert_eq!(interaction.mode, InteractionMode::Inspect);
@@ -442,7 +420,7 @@ fn interceptor_pilot_overdrive_raises_movement_allowance() {
     let mut interaction = InteractionState::default();
 
     route_cell_click(&mut battle, &mut interaction, GridPos::new(5, 8)).unwrap();
-    assert_eq!(interaction.selected_unit, Some(ids::INTERCEPTOR));
+    assert_eq!(interaction.inspected_unit, Some(ids::INTERCEPTOR));
     assert_eq!(battle.movement_allowance(ids::INTERCEPTOR).unwrap(), 4);
 
     execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
@@ -464,7 +442,7 @@ fn restart_replaces_presentation_root_and_transient_state() {
 
     app.world_mut()
         .resource_mut::<InteractionState>()
-        .selected_unit = Some(ids::VANGUARD);
+        .inspected_unit = Some(ids::VANGUARD);
     app.world_mut()
         .resource_mut::<BattleEventQueue>()
         .0
@@ -475,7 +453,6 @@ fn restart_replaces_presentation_root_and_transient_state() {
         .resource_mut::<AttackPreviewCells>()
         .0
         .insert(GridPos::new(4, 4));
-    app.world_mut().resource_mut::<SelectedCell>().0 = Some(GridPos::new(4, 4));
     restart_battle(app.world_mut(), 11);
     app.update();
 
@@ -487,14 +464,13 @@ fn restart_replaces_presentation_root_and_transient_state() {
     assert_ne!(new_root, old_root);
     assert!(app.world().get_entity(stale_child).is_err());
     assert_eq!(
-        app.world().resource::<InteractionState>().selected_unit,
+        app.world().resource::<InteractionState>().inspected_unit,
         None
     );
     assert!(app.world().resource::<BattleEventQueue>().0.is_empty());
     assert!(!app.world().resource::<EventPlayback>().input_locked);
     assert!(app.world().resource::<StatusMessage>().0.is_empty());
     assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
-    assert_eq!(app.world().resource::<SelectedCell>().0, None);
     assert_eq!(app.world().resource::<BattleRuntime>().0.round(), 0);
 }
 

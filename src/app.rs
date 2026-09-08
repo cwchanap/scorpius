@@ -8,10 +8,11 @@ use crate::{
     campaign::{save::SaveFile, session::CampaignSession},
     mission::mission_definition,
     presentation::{
-        ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        EventPlayback, PresentationRoot, RestartRequest, RestartRoundPending, SelectedCell,
-        assets::{AssetLoadStatus, MissionAssets, UiAssets, monitor_mission_assets},
-        battlefield::{BattleCamera, rebuild_mission_scene, setup_mission_scene},
+        ActiveMission, AttackPreviewCells, BattleCamera2d, BattleEventQueue, BattleRuntime,
+        CampaignRuntime, EventPlayback, PresentationRoot, RecentBattleLog, RestartRequest,
+        RestartRoundPending,
+        assets::{AssetLoadStatus, UiAssets, monitor_mission_assets},
+        battlefield::{rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, update_campaign_status_text,
             update_dialogue_screen,
@@ -28,11 +29,10 @@ use crate::{
             update_upgrade_screen,
         },
         sync::{
-            apply_prop_visibility, apply_unit_transforms, attach_extraction_rendering,
-            attach_intent_line_rendering, attach_intent_target_rendering,
-            attach_reaction_rendering, attach_telegraph_rendering, pulse_telegraphs,
+            apply_prop_visibility, apply_unit_transforms, pulse_telegraphs,
             reconcile_extraction_marker, reconcile_intent_guides, reconcile_reaction_markers,
             reconcile_telegraph_markers, sync_auxiliary_transforms, sync_cell_highlights,
+            sync_token_cards,
         },
         ui::{HudRoot, setup_mission_ui, update_asset_status_text, update_hud},
     },
@@ -54,152 +54,141 @@ pub enum GameScreen {
 
 impl Plugin for ScorpiusPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            DefaultPlugins
-                .set(AssetPlugin {
-                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "Scorpius".into(),
-                        resolution: (1280, 720).into(),
-                        position: WindowPosition::Centered(MonitorSelection::Primary),
-                        ..default()
-                    }),
+        app.add_plugins((DefaultPlugins
+            .set(AssetPlugin {
+                file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").into(),
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Scorpius".into(),
+                    resolution: (1280, 720).into(),
+                    position: WindowPosition::Centered(MonitorSelection::Primary),
                     ..default()
                 }),
-            MeshPickingPlugin,
-        ))
-        .insert_resource(ClearColor(Color::srgb(0.025, 0.035, 0.055)))
-        .insert_resource(MeshPickingSettings {
-            require_markers: true,
-            ..default()
-        })
-        .insert_resource(UiPickingSettings {
-            require_markers: true,
-        })
-        .insert_resource(CampaignRuntime(CampaignSession::new(
-            SaveFile::platform_default(),
-        )))
-        .init_state::<GameScreen>()
-        .init_resource::<SelectedCell>()
-        .init_resource::<BattleEventQueue>()
-        .init_resource::<EventPlayback>()
-        .init_resource::<AttackPreviewCells>()
-        .init_resource::<InteractionState>()
-        .init_resource::<StatusMessage>()
-        .init_resource::<CampaignStatus>()
-        .init_resource::<DialogueCursor>()
-        .init_resource::<RestartRequest>()
-        .init_resource::<RestartRoundPending>()
-        .init_resource::<MissionAssets>()
-        .init_resource::<UiAssets>()
-        .init_resource::<AssetLoadStatus>()
-        .add_systems(Startup, (center_primary_window, setup_canvas).chain())
-        .add_systems(
-            PreUpdate,
-            update_canvas_scale.before(PickingSystems::Backend),
-        )
-        .add_systems(OnEnter(GameScreen::Title), setup_title_screen)
-        .add_systems(OnExit(GameScreen::Title), despawn_campaign_screen)
-        .add_systems(
-            OnEnter(GameScreen::PreMissionStory),
-            setup_pre_mission_story,
-        )
-        .add_systems(OnExit(GameScreen::PreMissionStory), despawn_campaign_screen)
-        .add_systems(OnEnter(GameScreen::Briefing), setup_briefing_screen)
-        .add_systems(OnExit(GameScreen::Briefing), despawn_campaign_screen)
-        .add_systems(
-            Update,
-            (
-                update_dialogue_screen.run_if(
-                    in_state(GameScreen::PreMissionStory).or_else(in_state(GameScreen::Aftermath)),
+                ..default()
+            }),))
+            .insert_resource(ClearColor(Color::srgb(0.025, 0.035, 0.055)))
+            .insert_resource(UiPickingSettings {
+                require_markers: true,
+            })
+            .insert_resource(CampaignRuntime(CampaignSession::new(
+                SaveFile::platform_default(),
+            )))
+            .init_state::<GameScreen>()
+            .init_resource::<BattleEventQueue>()
+            .init_resource::<EventPlayback>()
+            .init_resource::<RecentBattleLog>()
+            .init_resource::<AttackPreviewCells>()
+            .init_resource::<InteractionState>()
+            .init_resource::<StatusMessage>()
+            .init_resource::<CampaignStatus>()
+            .init_resource::<DialogueCursor>()
+            .init_resource::<RestartRequest>()
+            .init_resource::<RestartRoundPending>()
+            .init_resource::<UiAssets>()
+            .init_resource::<AssetLoadStatus>()
+            .add_systems(Startup, (center_primary_window, setup_canvas).chain())
+            .add_systems(
+                PreUpdate,
+                update_canvas_scale.before(PickingSystems::Backend),
+            )
+            .add_systems(OnEnter(GameScreen::Title), setup_title_screen)
+            .add_systems(OnExit(GameScreen::Title), despawn_campaign_screen)
+            .add_systems(
+                OnEnter(GameScreen::PreMissionStory),
+                setup_pre_mission_story,
+            )
+            .add_systems(OnExit(GameScreen::PreMissionStory), despawn_campaign_screen)
+            .add_systems(OnEnter(GameScreen::Briefing), setup_briefing_screen)
+            .add_systems(OnExit(GameScreen::Briefing), despawn_campaign_screen)
+            .add_systems(
+                Update,
+                (
+                    update_dialogue_screen.run_if(
+                        in_state(GameScreen::PreMissionStory)
+                            .or_else(in_state(GameScreen::Aftermath)),
+                    ),
+                    update_campaign_status_text
+                        .run_if(in_state(GameScreen::Title).or_else(in_state(GameScreen::Upgrade))),
                 ),
-                update_campaign_status_text
-                    .run_if(in_state(GameScreen::Title).or_else(in_state(GameScreen::Upgrade))),
-            ),
-        )
-        .add_systems(OnExit(GameScreen::Battle), teardown_battle_screen)
-        .add_systems(
-            OnEnter(GameScreen::Battle),
-            (
-                teardown_battle_screen,
-                enter_battle,
-                setup_mission_scene,
-                setup_mission_ui,
             )
-                .chain(),
-        )
-        .add_systems(Update, monitor_mission_assets)
-        .add_systems(Update, stabilize_primary_window_position)
-        .add_systems(
-            Update,
-            (
-                process_restart_request,
-                rebuild_mission_scene,
-                begin_restarted_round,
+            .add_systems(OnExit(GameScreen::Battle), teardown_battle_screen)
+            .add_systems(
+                OnEnter(GameScreen::Battle),
+                (
+                    teardown_battle_screen,
+                    enter_battle,
+                    setup_mission_scene,
+                    setup_mission_ui,
+                )
+                    .chain(),
             )
-                .chain()
-                .run_if(in_state(GameScreen::Battle)),
-        )
-        .add_systems(
-            Update,
-            (
-                reconcile_telegraph_markers,
-                reconcile_intent_guides,
-                reconcile_reaction_markers,
-                reconcile_extraction_marker,
-                attach_telegraph_rendering,
-                attach_intent_target_rendering,
-                attach_intent_line_rendering,
-                attach_reaction_rendering,
-                attach_extraction_rendering,
+            .add_systems(Update, monitor_mission_assets)
+            .add_systems(Update, stabilize_primary_window_position)
+            .add_systems(
+                Update,
+                (
+                    process_restart_request,
+                    rebuild_mission_scene,
+                    begin_restarted_round,
+                )
+                    .chain()
+                    .run_if(in_state(GameScreen::Battle)),
             )
-                .chain()
-                .after(begin_restarted_round)
-                .run_if(in_state(GameScreen::Battle)),
-        )
-        .add_systems(
-            Update,
-            (
-                apply_unit_transforms,
-                apply_prop_visibility,
-                sync_auxiliary_transforms,
-                sync_cell_highlights,
-                pulse_telegraphs,
+            .add_systems(
+                Update,
+                (
+                    reconcile_telegraph_markers,
+                    reconcile_intent_guides,
+                    reconcile_reaction_markers,
+                    reconcile_extraction_marker,
+                )
+                    .chain()
+                    .after(begin_restarted_round)
+                    .run_if(in_state(GameScreen::Battle)),
             )
-                .after(reconcile_reaction_markers)
-                .run_if(in_state(GameScreen::Battle)),
-        )
-        .add_systems(
-            Update,
-            play_battle_events
-                .after(apply_unit_transforms)
-                .run_if(in_state(GameScreen::Battle)),
-        )
-        .add_systems(
-            Update,
-            handle_keyboard_shortcuts
-                .after(play_battle_events)
-                .run_if(in_state(GameScreen::Battle)),
-        )
-        .add_systems(
-            Update,
-            (update_hud, update_asset_status_text)
-                .after(play_battle_events)
-                .run_if(in_state(GameScreen::Battle)),
-        )
-        .add_systems(OnEnter(GameScreen::Aftermath), setup_aftermath_screen)
-        .add_systems(OnExit(GameScreen::Aftermath), despawn_campaign_screen)
-        .add_systems(OnEnter(GameScreen::Upgrade), setup_upgrade_screen)
-        .add_systems(OnExit(GameScreen::Upgrade), despawn_campaign_screen)
-        .add_systems(
-            Update,
-            update_upgrade_screen.run_if(in_state(GameScreen::Upgrade)),
-        )
-        .add_systems(OnEnter(GameScreen::Ending), setup_ending_screen)
-        .add_systems(OnExit(GameScreen::Ending), despawn_campaign_screen);
+            .add_systems(
+                Update,
+                (
+                    apply_unit_transforms,
+                    sync_token_cards,
+                    apply_prop_visibility,
+                    sync_auxiliary_transforms,
+                    sync_cell_highlights,
+                    pulse_telegraphs,
+                )
+                    .after(reconcile_reaction_markers)
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(
+                Update,
+                play_battle_events
+                    .after(apply_unit_transforms)
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(
+                Update,
+                handle_keyboard_shortcuts
+                    .after(play_battle_events)
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(
+                Update,
+                (update_hud, update_asset_status_text)
+                    .after(play_battle_events)
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(OnEnter(GameScreen::Aftermath), setup_aftermath_screen)
+            .add_systems(OnExit(GameScreen::Aftermath), despawn_campaign_screen)
+            .add_systems(OnEnter(GameScreen::Upgrade), setup_upgrade_screen)
+            .add_systems(OnExit(GameScreen::Upgrade), despawn_campaign_screen)
+            .add_systems(
+                Update,
+                update_upgrade_screen.run_if(in_state(GameScreen::Upgrade)),
+            )
+            .add_systems(OnEnter(GameScreen::Ending), setup_ending_screen)
+            .add_systems(OnExit(GameScreen::Ending), despawn_campaign_screen);
     }
 }
 
@@ -208,15 +197,7 @@ impl Plugin for ScorpiusPlugin {
 #[allow(clippy::type_complexity)]
 pub fn teardown_battle_screen(
     mut commands: Commands,
-    stale: Query<
-        Entity,
-        Or<(
-            With<PresentationRoot>,
-            With<BattleCamera>,
-            With<DirectionalLight>,
-            With<HudRoot>,
-        )>,
-    >,
+    stale: Query<Entity, Or<(With<PresentationRoot>, With<BattleCamera2d>, With<HudRoot>)>>,
 ) {
     for entity in &stale {
         commands.entity(entity).try_despawn();
@@ -281,16 +262,8 @@ mod tests {
     #[test]
     fn battle_teardown_preserves_unowned_cameras() {
         let mut app = App::new();
-        let battle_camera = app
-            .world_mut()
-            .spawn((
-                Camera3d::default(),
-                BattleCamera {
-                    rest: Transform::IDENTITY,
-                },
-            ))
-            .id();
-        let unrelated_camera = app.world_mut().spawn(Camera3d::default()).id();
+        let battle_camera = app.world_mut().spawn((Camera2d, BattleCamera2d)).id();
+        let unrelated_camera = app.world_mut().spawn(Camera2d).id();
         app.add_systems(Update, teardown_battle_screen);
 
         app.update();

@@ -11,8 +11,8 @@ use crate::domain::{
 use crate::mission::MissionDefinition;
 
 use super::{
-    ActiveMission, BattleRuntime, CanvasRoot, EventPlayback,
-    assets::{AssetLoadStatus, MISSION_ONE_GLTF_DISPLAY_PATH, UiAssets},
+    ActiveMission, BattleRuntime, CanvasRoot, EventPlayback, RecentBattleLog,
+    assets::{AssetLoadStatus, UiAssets},
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
         on_command_button_click,
@@ -368,7 +368,7 @@ pub fn setup_mission_ui(
 
     commands.spawn((
         Text::new("// OBJECTIVES"),
-        text_font(&ui_assets.fonts, 16.0),
+        theme::chakra_petch(&ui_assets.fonts, 16.0, FontWeight::NORMAL),
         TextColor(Color::srgb(0.82, 0.94, 1.0)),
         panel_node(20.0, 18.0, 330.0),
         panel_background(),
@@ -379,7 +379,7 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("// LOCKED THREATS"),
-        text_font(&ui_assets.fonts, 13.5),
+        theme::chakra_petch(&ui_assets.fonts, 13.5, FontWeight::NORMAL),
         TextColor(Color::srgb(1.0, 0.76, 0.72)),
         Node {
             position_type: PositionType::Absolute,
@@ -397,7 +397,7 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("// UNIT"),
-        text_font(&ui_assets.fonts, 14.0),
+        theme::chakra_petch(&ui_assets.fonts, 14.0, FontWeight::NORMAL),
         TextColor(Color::srgb(0.76, 0.93, 1.0)),
         Node {
             position_type: PositionType::Absolute,
@@ -415,7 +415,7 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("TARGET PREVIEW"),
-        text_font(&ui_assets.fonts, 13.0),
+        theme::chakra_petch(&ui_assets.fonts, 13.0, FontWeight::NORMAL),
         TextColor(Color::srgb(1.0, 0.82, 0.46)),
         Node {
             position_type: PositionType::Absolute,
@@ -433,7 +433,7 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("Select a mech to begin."),
-        text_font(&ui_assets.fonts, 12.5),
+        theme::chakra_petch(&ui_assets.fonts, 12.5, FontWeight::NORMAL),
         TextColor(Color::srgb(0.78, 0.84, 0.9)),
         Node {
             position_type: PositionType::Absolute,
@@ -449,7 +449,7 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new(""),
-        text_font(&ui_assets.fonts, 22.0),
+        theme::chakra_petch(&ui_assets.fonts, 22.0, FontWeight::NORMAL),
         TextColor(Color::srgb(1.0, 0.88, 0.52)),
         Node {
             position_type: PositionType::Absolute,
@@ -491,7 +491,7 @@ pub fn setup_mission_ui(
         .id();
     commands.spawn((
         Text::new(""),
-        text_font(&ui_assets.fonts, 28.0),
+        theme::chakra_petch(&ui_assets.fonts, 28.0, FontWeight::NORMAL),
         TextColor(Color::WHITE),
         HudTextRole::Result,
         Pickable::IGNORE,
@@ -614,8 +614,8 @@ pub fn setup_mission_ui(
     );
 
     commands.spawn((
-        Text::new(format!("Loading {MISSION_ONE_GLTF_DISPLAY_PATH}...")),
-        text_font(&ui_assets.fonts, 18.0),
+        Text::new("Loading battle UI assets..."),
+        theme::chakra_petch(&ui_assets.fonts, 18.0, FontWeight::NORMAL),
         TextColor(Color::srgb(1.0, 0.78, 0.34)),
         BackgroundColor(Color::srgba(0.08, 0.025, 0.025, 0.94)),
         Node {
@@ -666,10 +666,11 @@ pub(crate) fn update_hud(
     interaction: Res<InteractionState>,
     status: Res<StatusMessage>,
     playback: Res<EventPlayback>,
+    recent_log: Option<Res<RecentBattleLog>>,
     active_mission: Res<ActiveMission>,
     mut queries: HudQueries,
 ) {
-    let hud = HudSnapshot::from_battle(&battle.0, interaction.selected_unit, active_mission.0);
+    let hud = HudSnapshot::from_battle(&battle.0, interaction.inspected_unit, active_mission.0);
     let threat_text = format_threats(&hud);
     let preview_text = interaction.preview.as_ref().map_or_else(
         || "TARGET PREVIEW\nArm a weapon and hover a target.".to_owned(),
@@ -678,7 +679,7 @@ pub(crate) fn update_hud(
     let status_text = if playback.input_locked {
         "Resolving committed events...".to_owned()
     } else if status.0.is_empty() {
-        "[M] MOVE  [1-3] WEAPONS  [P] PILOT  [C/G/E] STANCE  [F] FINISH  [SPACE] RESOLVE".to_owned()
+        "[M] MOVE  [1-3] WEAPONS  [P] PILOT  [C/G/E] STANCE  [F] FINISH  [SPACE] RESOLVE  [ESC] CANCEL".to_owned()
     } else {
         status.0.clone()
     };
@@ -707,10 +708,9 @@ pub(crate) fn update_hud(
             ),
             HudTextRole::Preview => preview_text.clone(),
             HudTextRole::Status => status_text.clone(),
-            HudTextRole::Playback => playback
-                .current
-                .as_ref()
-                .map_or_else(String::new, |(event, _)| format_event(event, &battle.0)),
+            HudTextRole::Playback => recent_log.as_deref().map_or_else(String::new, |log| {
+                log.0.iter().cloned().collect::<Vec<_>>().join("\n")
+            }),
             HudTextRole::Result => battle.0.result().map_or_else(String::new, |result| {
                 result_overlay_copy(result, battle.0.rules().primary, active_mission.0)
             }),
@@ -718,7 +718,8 @@ pub(crate) fn update_hud(
         if matches!(role, HudTextRole::Playback)
             && let Some(mut visibility) = visibility
         {
-            *visibility = if playback.current.is_some() {
+            let has_log = recent_log.as_deref().is_some_and(|log| !log.0.is_empty());
+            *visibility = if playback.current.is_some() || has_log {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
@@ -739,7 +740,7 @@ pub(crate) fn update_hud(
         };
     }
     for mut visibility in &mut queries.result_overlays {
-        *visibility = if hud.is_terminal {
+        *visibility = if hud.is_terminal && !playback.input_locked {
             Visibility::Visible
         } else {
             Visibility::Hidden
@@ -755,7 +756,7 @@ pub(crate) fn update_hud(
                     .get(slot)
                     .is_some_and(|name| name.is_some())
                     && interaction
-                        .selected_unit
+                        .inspected_unit
                         .and_then(|unit| battle.0.unit(unit))
                         .is_some_and(|unit| unit.weapons.get(slot).copied() == Some(weapon))
             }
@@ -783,6 +784,7 @@ pub(crate) fn update_hud(
                 CommandAction::Restart => hud.is_terminal && !hud.is_victory,
                 _ => hud.is_victory,
             };
+            let shown = shown && !playback.input_locked;
             *visibility = if shown {
                 Visibility::Visible
             } else {
@@ -802,7 +804,7 @@ pub fn update_asset_status_text(
     let (mut text, mut visibility, mut color) = panel.into_inner();
     match &*status {
         AssetLoadStatus::Loading => {
-            text.0 = format!("Loading {MISSION_ONE_GLTF_DISPLAY_PATH}...");
+            text.0 = "Loading battle UI assets...".to_owned();
             *visibility = Visibility::Visible;
             color.0 = Color::srgb(1.0, 0.78, 0.34);
         }
@@ -846,7 +848,7 @@ fn spawn_command_button(
         .id();
     let mut label_entity = commands.spawn((
         Text::new(label),
-        text_font(fonts, 11.5),
+        theme::chakra_petch(fonts, 11.5, FontWeight::NORMAL),
         TextColor(Color::srgb(0.88, 0.94, 1.0)),
         Pickable::IGNORE,
         ChildOf(button),
@@ -867,6 +869,7 @@ fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
         CommandAction::ResolveAttacks => hud.can_resolve,
         CommandAction::Restart => hud.is_terminal && !hud.is_victory,
         CommandAction::ContinueVictory => hud.is_victory,
+        CommandAction::Cancel => true,
     }
 }
 
@@ -899,7 +902,7 @@ pub fn result_overlay_copy(
     }
 }
 
-fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
+pub(crate) fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
     match event {
         BattleEvent::UnitMoved { unit, .. } => battle.unit(*unit).map_or_else(
             || "UNIT MOVING".to_owned(),
@@ -1037,10 +1040,6 @@ fn format_track(track: &ObjectiveTrackSnapshot) -> String {
             format!("TARGET {name} HP {hp}/{max_hp}")
         }
     }
-}
-
-pub(crate) fn text_font(fonts: &theme::FontHandles, size: f32) -> TextFont {
-    theme::chakra_petch(fonts, size, FontWeight::NORMAL)
 }
 
 fn panel_node(left: f32, top: f32, width: f32) -> Node {

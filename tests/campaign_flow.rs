@@ -25,9 +25,8 @@ use scorpius::presentation::campaign_ui::{
 };
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
-    ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-    EventPlayback, PresentationRoot, SelectedCell,
-    battlefield::BattleCamera,
+    ActiveMission, AttackPreviewCells, BattleCamera2d, BattleEventQueue, BattleRuntime,
+    CampaignRuntime, EventPlayback, PresentationRoot,
     interaction::{InteractionState, StatusMessage, restart_battle},
 };
 
@@ -46,8 +45,7 @@ fn init_battle_transients(app: &mut App) {
         .init_resource::<StatusMessage>()
         .init_resource::<BattleEventQueue>()
         .init_resource::<EventPlayback>()
-        .init_resource::<AttackPreviewCells>()
-        .init_resource::<SelectedCell>();
+        .init_resource::<AttackPreviewCells>();
 }
 
 fn pending(next: &NextState<GameScreen>) -> Option<GameScreen> {
@@ -1001,17 +999,8 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
 
     let stale_root = app.world_mut().spawn(PresentationRoot).id();
     let stale_child = app.world_mut().spawn(ChildOf(stale_root)).id();
-    let stale_battle_camera = app
-        .world_mut()
-        .spawn((
-            Camera3d::default(),
-            BattleCamera {
-                rest: Transform::IDENTITY,
-            },
-        ))
-        .id();
-    let unrelated_camera = app.world_mut().spawn(Camera3d::default()).id();
-    app.world_mut().spawn(DirectionalLight::default());
+    let stale_battle_camera = app.world_mut().spawn((Camera2d, BattleCamera2d)).id();
+    let unrelated_camera = app.world_mut().spawn(Camera2d).id();
     app.world_mut().spawn(HudRoot);
 
     app.world_mut()
@@ -1028,13 +1017,6 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
     );
     assert!(app.world_mut().get_entity(stale_battle_camera).is_err());
     assert!(app.world().get_entity(unrelated_camera).is_ok());
-    assert!(
-        app.world_mut()
-            .query_filtered::<(), With<DirectionalLight>>()
-            .iter(app.world())
-            .next()
-            .is_none()
-    );
     assert!(
         app.world_mut()
             .query_filtered::<(), With<HudRoot>>()
