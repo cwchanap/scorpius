@@ -75,7 +75,7 @@
     "unique_path_geometries": 39,
     "normalized_geometry_catalog_sha256": "ba4df112a802049c1dc5b370f35ff780f080073d7aef8a3e1b8c87ac441c4424",
     "native_ui_atlas_destination": "assets/ui/icons.png",
-    "native_ui_atlas_sha256": "dacd0a379864b7c385af54708b2439c43afcce303a1f60a2ba21e079747c764a",
+    "native_ui_atlas_sha256": "ffba26d5e0450ef72e50d3d72a622cb55b215665ef14fc3cf731cb1d7459cb7f",
     "rule": "export exact updated-source geometry/strokes once; no runtime SVG and no generic icon/emoji fallback"
   },
   "board_geometry_atlas": {
