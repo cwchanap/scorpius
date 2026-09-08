@@ -12,12 +12,13 @@ use crate::mission::MissionDefinition;
 
 use super::{
     ActiveMission, BattleRuntime, CanvasRoot, EventPlayback,
-    assets::{AssetLoadStatus, MISSION_ONE_GLTF_DISPLAY_PATH},
+    assets::{AssetLoadStatus, MISSION_ONE_GLTF_DISPLAY_PATH, UiAssets},
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
         on_command_button_click,
     },
     layout::spawn_canvas_root,
+    theme,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -342,7 +343,11 @@ pub(crate) enum CommandButtonLabel {
     Pilot,
 }
 
-pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With<CanvasRoot>>) {
+pub fn setup_mission_ui(
+    mut commands: Commands,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
+    ui_assets: Res<UiAssets>,
+) {
     let canvas = canvas_roots
         .iter()
         .next()
@@ -363,7 +368,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
 
     commands.spawn((
         Text::new("// OBJECTIVES"),
-        text_font(16.0),
+        text_font(&ui_assets.fonts, 16.0),
         TextColor(Color::srgb(0.82, 0.94, 1.0)),
         panel_node(20.0, 18.0, 330.0),
         panel_background(),
@@ -374,7 +379,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     ));
     commands.spawn((
         Text::new("// LOCKED THREATS"),
-        text_font(13.5),
+        text_font(&ui_assets.fonts, 13.5),
         TextColor(Color::srgb(1.0, 0.76, 0.72)),
         Node {
             position_type: PositionType::Absolute,
@@ -392,7 +397,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     ));
     commands.spawn((
         Text::new("// UNIT"),
-        text_font(14.0),
+        text_font(&ui_assets.fonts, 14.0),
         TextColor(Color::srgb(0.76, 0.93, 1.0)),
         Node {
             position_type: PositionType::Absolute,
@@ -410,7 +415,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     ));
     commands.spawn((
         Text::new("TARGET PREVIEW"),
-        text_font(13.0),
+        text_font(&ui_assets.fonts, 13.0),
         TextColor(Color::srgb(1.0, 0.82, 0.46)),
         Node {
             position_type: PositionType::Absolute,
@@ -428,7 +433,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     ));
     commands.spawn((
         Text::new("Select a mech to begin."),
-        text_font(12.5),
+        text_font(&ui_assets.fonts, 12.5),
         TextColor(Color::srgb(0.78, 0.84, 0.9)),
         Node {
             position_type: PositionType::Absolute,
@@ -444,7 +449,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     ));
     commands.spawn((
         Text::new(""),
-        text_font(22.0),
+        text_font(&ui_assets.fonts, 22.0),
         TextColor(Color::srgb(1.0, 0.88, 0.52)),
         Node {
             position_type: PositionType::Absolute,
@@ -486,7 +491,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
         .id();
     commands.spawn((
         Text::new(""),
-        text_font(28.0),
+        text_font(&ui_assets.fonts, 28.0),
         TextColor(Color::WHITE),
         HudTextRole::Result,
         Pickable::IGNORE,
@@ -494,6 +499,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     ));
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         result_overlay,
         CommandAction::Restart,
         "[R] RESTART MISSION",
@@ -502,6 +508,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     );
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         result_overlay,
         CommandAction::ContinueVictory,
         "CONTINUE",
@@ -530,6 +537,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
         .id();
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::Move,
         "[M] MOVE",
@@ -539,6 +547,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     for slot in 0..3 {
         spawn_command_button(
             &mut commands,
+            &ui_assets.fonts,
             command_bar,
             CommandAction::WeaponSlot(slot),
             "--",
@@ -548,6 +557,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     }
     let pilot_label = spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::PilotSkill,
         "[P] PILOT",
@@ -559,6 +569,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
         .insert(CommandButtonLabel::Pilot);
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::Reaction(Reaction::Counter),
         "[C] COUNTER",
@@ -567,6 +578,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     );
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::Reaction(Reaction::Guard),
         "[G] GUARD",
@@ -575,6 +587,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     );
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::Reaction(Reaction::Evade),
         "[E] EVADE",
@@ -583,6 +596,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     );
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::FinishUnit,
         "[F] FINISH",
@@ -591,6 +605,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
     );
     spawn_command_button(
         &mut commands,
+        &ui_assets.fonts,
         command_bar,
         CommandAction::ResolveAttacks,
         "[SPACE] RESOLVE",
@@ -600,7 +615,7 @@ pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With
 
     commands.spawn((
         Text::new(format!("Loading {MISSION_ONE_GLTF_DISPLAY_PATH}...")),
-        text_font(18.0),
+        text_font(&ui_assets.fonts, 18.0),
         TextColor(Color::srgb(1.0, 0.78, 0.34)),
         BackgroundColor(Color::srgba(0.08, 0.025, 0.025, 0.94)),
         Node {
@@ -804,6 +819,7 @@ pub fn update_asset_status_text(
 
 fn spawn_command_button(
     commands: &mut Commands,
+    fonts: &theme::FontHandles,
     parent: Entity,
     action: CommandAction,
     label: &str,
@@ -830,7 +846,7 @@ fn spawn_command_button(
         .id();
     let mut label_entity = commands.spawn((
         Text::new(label),
-        text_font(11.5),
+        text_font(fonts, 11.5),
         TextColor(Color::srgb(0.88, 0.94, 1.0)),
         Pickable::IGNORE,
         ChildOf(button),
@@ -1023,11 +1039,8 @@ fn format_track(track: &ObjectiveTrackSnapshot) -> String {
     }
 }
 
-pub(crate) fn text_font(size: f32) -> TextFont {
-    TextFont {
-        font_size: FontSize::Px(size),
-        ..default()
-    }
+pub(crate) fn text_font(fonts: &theme::FontHandles, size: f32) -> TextFont {
+    theme::chakra_petch(fonts, size, FontWeight::NORMAL)
 }
 
 fn panel_node(left: f32, top: f32, width: f32) -> Node {
@@ -1054,6 +1067,20 @@ mod tests {
     use crate::mission::mission_three::mission_three;
     use crate::mission::mission_two::mission_two;
     use crate::mission::{MissionId, mission_definition};
+    use crate::presentation::assets::UiAssets;
+
+    fn test_ui_assets() -> UiAssets {
+        UiAssets {
+            key_art: Handle::default(),
+            briefing_art: Handle::default(),
+            vanguard_art: Handle::default(),
+            gunner_art: Handle::default(),
+            interceptor_art: Handle::default(),
+            icons: Handle::default(),
+            board: Handle::default(),
+            fonts: std::array::from_fn(|_| Handle::default()),
+        }
+    }
 
     fn terminal_battle(victory: bool) -> BattleState {
         let mut battle = mission_one(7);
@@ -1083,6 +1110,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(BattleRuntime(terminal_battle(victory)))
             .insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()))
+            .insert_resource(test_ui_assets())
             .init_resource::<InteractionState>()
             .init_resource::<StatusMessage>()
             .init_resource::<EventPlayback>()
@@ -1121,6 +1149,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(BattleRuntime(battle))
             .insert_resource(ActiveMission(mission_definition(MissionId::Two).unwrap()))
+            .insert_resource(test_ui_assets())
             .init_resource::<InteractionState>()
             .init_resource::<StatusMessage>()
             .init_resource::<EventPlayback>()

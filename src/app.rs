@@ -11,7 +11,7 @@ use crate::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
         EventPlayback, PresentationRoot, RestartRequest, RestartRoundPending, SelectedCell,
         assets::{AssetLoadStatus, MissionAssets, UiAssets, monitor_mission_assets},
-        battlefield::{rebuild_mission_scene, setup_mission_scene},
+        battlefield::{BattleCamera, rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_aftermath_screen,
             setup_briefing_screen, setup_ending_screen, setup_pre_mission_story,
@@ -209,7 +209,7 @@ pub fn teardown_battle_screen(
         Entity,
         Or<(
             With<PresentationRoot>,
-            With<Camera>,
+            With<BattleCamera>,
             With<DirectionalLight>,
             With<HudRoot>,
         )>,
@@ -268,5 +268,31 @@ fn stabilize_primary_window_position(
     if let Ok(mut window) = windows.single_mut() {
         window.position.center(MonitorSelection::Primary);
         *startup_frames += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn battle_teardown_preserves_unowned_cameras() {
+        let mut app = App::new();
+        let battle_camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                BattleCamera {
+                    rest: Transform::IDENTITY,
+                },
+            ))
+            .id();
+        let unrelated_camera = app.world_mut().spawn(Camera3d::default()).id();
+        app.add_systems(Update, teardown_battle_screen);
+
+        app.update();
+
+        assert!(app.world().get_entity(battle_camera).is_err());
+        assert!(app.world().get_entity(unrelated_camera).is_ok());
     }
 }

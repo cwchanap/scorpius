@@ -26,6 +26,7 @@ use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
     ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
     EventPlayback, PresentationRoot, SelectedCell,
+    battlefield::BattleCamera,
     interaction::{InteractionState, StatusMessage, restart_battle},
 };
 
@@ -965,7 +966,16 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
 
     let stale_root = app.world_mut().spawn(PresentationRoot).id();
     let stale_child = app.world_mut().spawn(ChildOf(stale_root)).id();
-    app.world_mut().spawn(Camera3d::default());
+    let stale_battle_camera = app
+        .world_mut()
+        .spawn((
+            Camera3d::default(),
+            BattleCamera {
+                rest: Transform::IDENTITY,
+            },
+        ))
+        .id();
+    let unrelated_camera = app.world_mut().spawn(Camera3d::default()).id();
     app.world_mut().spawn(DirectionalLight::default());
     app.world_mut().spawn(HudRoot);
 
@@ -981,13 +991,8 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
             .next()
             .is_none()
     );
-    assert!(
-        app.world_mut()
-            .query_filtered::<(), With<Camera3d>>()
-            .iter(app.world())
-            .next()
-            .is_none()
-    );
+    assert!(app.world_mut().get_entity(stale_battle_camera).is_err());
+    assert!(app.world().get_entity(unrelated_camera).is_ok());
     assert!(
         app.world_mut()
             .query_filtered::<(), With<DirectionalLight>>()

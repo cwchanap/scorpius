@@ -13,6 +13,8 @@ pub const IBM_PLEX_MONO_400_PATH: &str = "fonts/ibm-plex-mono-400.ttf";
 pub const IBM_PLEX_MONO_500_PATH: &str = "fonts/ibm-plex-mono-500.ttf";
 pub const IBM_PLEX_MONO_600_PATH: &str = "fonts/ibm-plex-mono-600.ttf";
 
+pub type FontHandles = [Handle<Font>; 7];
+
 pub const BACKGROUND: Color = Color::srgb_u8(5, 8, 15);
 pub const PANEL: Color = Color::srgb_u8(10, 20, 32);
 pub const PANEL_RAISED: Color = Color::srgb_u8(14, 44, 58);
@@ -57,36 +59,36 @@ pub enum FontFamily {
 }
 
 pub fn text_font(
-    asset_server: &AssetServer,
+    fonts: &FontHandles,
     family: FontFamily,
     size: f32,
     weight: FontWeight,
 ) -> TextFont {
     TextFont {
-        font: FontSource::Handle(asset_server.load(font_path(family, weight))),
+        font: FontSource::Handle(fonts[font_index(family, weight)].clone()),
         font_size: FontSize::Px(size),
         weight,
         ..default()
     }
 }
 
-pub fn chakra_petch(asset_server: &AssetServer, size: f32, weight: FontWeight) -> TextFont {
-    text_font(asset_server, FontFamily::ChakraPetch, size, weight)
+pub fn chakra_petch(fonts: &FontHandles, size: f32, weight: FontWeight) -> TextFont {
+    text_font(fonts, FontFamily::ChakraPetch, size, weight)
 }
 
-pub fn ibm_plex_mono(asset_server: &AssetServer, size: f32, weight: FontWeight) -> TextFont {
-    text_font(asset_server, FontFamily::IbmPlexMono, size, weight)
+pub fn ibm_plex_mono(fonts: &FontHandles, size: f32, weight: FontWeight) -> TextFont {
+    text_font(fonts, FontFamily::IbmPlexMono, size, weight)
 }
 
-fn font_path(family: FontFamily, weight: FontWeight) -> &'static str {
+const fn font_index(family: FontFamily, weight: FontWeight) -> usize {
     match (family, weight.0) {
-        (FontFamily::ChakraPetch, 400) => CHAKRA_PETCH_400_PATH,
-        (FontFamily::ChakraPetch, 500) => CHAKRA_PETCH_500_PATH,
-        (FontFamily::ChakraPetch, 600) => CHAKRA_PETCH_600_PATH,
-        (FontFamily::ChakraPetch, 700) => CHAKRA_PETCH_700_PATH,
-        (FontFamily::IbmPlexMono, 400) => IBM_PLEX_MONO_400_PATH,
-        (FontFamily::IbmPlexMono, 500) => IBM_PLEX_MONO_500_PATH,
-        (FontFamily::IbmPlexMono, 600) => IBM_PLEX_MONO_600_PATH,
+        (FontFamily::ChakraPetch, 400) => 0,
+        (FontFamily::ChakraPetch, 500) => 1,
+        (FontFamily::ChakraPetch, 600) => 2,
+        (FontFamily::ChakraPetch, 700) => 3,
+        (FontFamily::IbmPlexMono, 400) => 4,
+        (FontFamily::IbmPlexMono, 500) => 5,
+        (FontFamily::IbmPlexMono, 600) => 6,
         _ => panic!("unsupported HPA-480 font face; add the exact bundled asset"),
     }
 }

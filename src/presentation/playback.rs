@@ -7,7 +7,7 @@ use crate::domain::model::{BattleEvent, UnitArchetype};
 use super::{
     BattleEventQueue, BattleRuntime, EventEffect, EventPlayback, PresentationRoot,
     RestartRoundPending, UnitVisual,
-    assets::MissionAssets,
+    assets::{MissionAssets, UiAssets},
     battlefield::BattleCamera,
     grid_to_world,
     interaction::StatusMessage,
@@ -76,6 +76,7 @@ pub(crate) fn play_battle_events(
     time: Res<Time>,
     battle: Res<BattleRuntime>,
     mission_assets: Res<MissionAssets>,
+    ui_assets: Res<UiAssets>,
     roots: Query<Entity, With<PresentationRoot>>,
     hud_roots: Query<Entity, With<HudRoot>>,
     mut cameras: CameraQuery,
@@ -128,7 +129,7 @@ pub(crate) fn play_battle_events(
             grid_to_world(unit.position) + Vec3::Y * 0.8,
         )
     {
-        spawn_damage_number(&mut commands, hud_root, viewport, *amount);
+        spawn_damage_number(&mut commands, hud_root, &ui_assets.fonts, viewport, *amount);
     }
     animate_unit_event(&event, 0.0, &mut unit_visuals);
     playback.current = Some((
@@ -254,10 +255,16 @@ fn despawn_transient_effects(
     }
 }
 
-fn spawn_damage_number(commands: &mut Commands, hud_root: Entity, viewport: Vec2, amount: i16) {
+fn spawn_damage_number(
+    commands: &mut Commands,
+    hud_root: Entity,
+    fonts: &super::theme::FontHandles,
+    viewport: Vec2,
+    amount: i16,
+) {
     commands.spawn((
         Text::new(format!("-{amount}")),
-        text_font(28.0),
+        text_font(fonts, 28.0),
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
@@ -350,8 +357,9 @@ mod tests {
     fn damage_number_lifecycle_spawns_animates_and_despawns() {
         let mut app = App::new();
         let hud_root = app.world_mut().spawn(HudRoot).id();
+        let fonts = std::array::from_fn(|_| Handle::default());
         let mut commands = app.world_mut().commands();
-        spawn_damage_number(&mut commands, hud_root, Vec2::new(320.0, 240.0), 7);
+        spawn_damage_number(&mut commands, hud_root, &fonts, Vec2::new(320.0, 240.0), 7);
         app.world_mut().flush();
 
         let mut query = app
