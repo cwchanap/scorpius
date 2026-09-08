@@ -75,12 +75,12 @@
     "unique_path_geometries": 39,
     "normalized_geometry_catalog_sha256": "ba4df112a802049c1dc5b370f35ff780f080073d7aef8a3e1b8c87ac441c4424",
     "native_ui_atlas_destination": "assets/ui/icons.png",
-    "native_ui_atlas_sha256": null,
+    "native_ui_atlas_sha256": "dacd0a379864b7c385af54708b2439c43afcce303a1f60a2ba21e079747c764a",
     "rule": "export exact updated-source geometry/strokes once; no runtime SVG and no generic icon/emoji fallback"
   },
   "board_geometry_atlas": {
     "destination": "assets/ui/board.png",
-    "sha256": null,
+    "sha256": "5814cede1f4c90e282fcb5b75aba2c7b5e0adc466aa7dd0158410ecd82d74979",
     "primitive_slots": [
       "diamond-mask",
       "blocker-prism",
