@@ -4,6 +4,7 @@ pub mod campaign_ui;
 pub mod interaction;
 pub mod layout;
 pub mod playback;
+pub mod screens;
 pub mod sync;
 pub mod theme;
 pub mod ui;

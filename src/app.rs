@@ -13,10 +13,8 @@ use crate::{
         assets::{AssetLoadStatus, MissionAssets, UiAssets, monitor_mission_assets},
         battlefield::{BattleCamera, rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
-            CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_aftermath_screen,
-            setup_briefing_screen, setup_ending_screen, setup_pre_mission_story,
-            setup_title_screen, setup_upgrade_screen, update_campaign_status_text,
-            update_dialogue_screen, update_upgrade_screen,
+            CampaignStatus, DialogueCursor, despawn_campaign_screen, update_campaign_status_text,
+            update_dialogue_screen,
         },
         interaction::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
@@ -24,6 +22,11 @@ use crate::{
         },
         layout::{setup_canvas, update_canvas_scale},
         playback::{begin_restarted_round, play_battle_events},
+        screens::{
+            setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
+            setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
+            update_upgrade_screen,
+        },
         sync::{
             apply_prop_visibility, apply_unit_transforms, attach_extraction_rendering,
             attach_intent_line_rendering, attach_intent_target_rendering,

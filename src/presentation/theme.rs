@@ -60,6 +60,7 @@ pub const ICON_EVADE: Rect = icon_rect(59);
 pub const ICON_SKILL: Rect = icon_rect(60);
 pub const ICON_WAIT: Rect = icon_rect(61);
 pub const ICON_BACK: Rect = icon_rect(62);
+pub const ICON_SKIP: Rect = icon_rect(7);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FontFamily {
@@ -173,6 +174,7 @@ mod tests {
             ICON_SKILL,
             ICON_WAIT,
             ICON_BACK,
+            ICON_SKIP,
         ] {
             assert!(rect.max.x <= ICON_ATLAS_SIZE.x as f32);
             assert!(rect.max.y <= ICON_ATLAS_SIZE.y as f32);
