@@ -75,8 +75,45 @@
     "unique_path_geometries": 39,
     "normalized_geometry_catalog_sha256": "ba4df112a802049c1dc5b370f35ff780f080073d7aef8a3e1b8c87ac441c4424",
     "native_ui_atlas_destination": "assets/ui/icons.png",
-    "native_ui_atlas_sha256": "ffba26d5e0450ef72e50d3d72a622cb55b215665ef14fc3cf731cb1d7459cb7f",
+    "native_ui_atlas_sha256": "10da4f127bcbcafc293cc1d35a6dda27edb0faede8eb487a4dcb52331615827b",
     "rule": "export exact updated-source geometry/strokes once; no runtime SVG and no generic icon/emoji fallback"
+  },
+  "unit_glyph_masks": {
+    "destination": "assets/ui/icons.png",
+    "atlas_size": [512, 512],
+    "slots": {
+      "hexagon": 51,
+      "diamond": 52,
+      "triangle": 53,
+      "square": 54,
+      "move": 55,
+      "attack": 56,
+      "guard": 57,
+      "counter": 58,
+      "evade": 59,
+      "skill": 60,
+      "wait": 61,
+      "back": 62
+    },
+    "source_glyph_contract": {
+      "vanguard": ["hexagon", "#3ec7db"],
+      "gunner": ["diamond", "#7fbfe8"],
+      "interceptor": ["triangle", "#8fe0c4"],
+      "rifleman": ["square", "#ff8f80"],
+      "striker": ["triangle", "#ff6b5c"],
+      "artillery": ["diamond", "#ffb04c"]
+    },
+    "later_archetype_reuse": {
+      "flanker": ["triangle", "#b48cff"],
+      "bulwark": ["square", "#ffd175"],
+      "controller": ["diamond", "#5fc8e8"],
+      "dreadnought": ["hexagon", "#dc4450"],
+      "regent": ["hexagon", "#b48cff"]
+    },
+    "rendering": "White alpha masks derived from source glyph() polygons and source D.* or static Back paths; ImageNode.color applies semantic tint. Original source atlas slots 0..50 are preserved pixel-for-pixel and slot 63 is unused.",
+    "source_provenance": "Updated source template glyph() at template 1172 and D/icon paths at template 1195-1206; static Back path at template 558",
+    "source_atlas_sha256": "ffba26d5e0450ef72e50d3d72a622cb55b215665ef14fc3cf731cb1d7459cb7f",
+    "sha256": "10da4f127bcbcafc293cc1d35a6dda27edb0faede8eb487a4dcb52331615827b"
   },
   "board_geometry_atlas": {
     "destination": "assets/ui/board.png",
