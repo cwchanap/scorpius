@@ -19,8 +19,9 @@ use scorpius::mission::mission_one::ids;
 use scorpius::mission::mission_three;
 use scorpius::mission::{DialogueLine, MissionId};
 use scorpius::presentation::campaign_ui::{
-    CampaignStatus, CampaignUiAction, DialogueCursor, aftermath_reward_copy, apply_campaign_action,
-    briefing_copy, dialogue_snapshot, ending_copy, upgrade_row_copy,
+    BriefingSnapshot, CampaignStatus, CampaignUiAction, DialogueCursor,
+    apply_campaign_action as apply_campaign_action_for_screen, briefing_snapshot,
+    dialogue_snapshot, ending_snapshot, upgrade_row_snapshot,
 };
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
@@ -54,6 +55,38 @@ fn pending(next: &NextState<GameScreen>) -> Option<GameScreen> {
         NextState::Unchanged => None,
         NextState::Pending(state) | NextState::PendingIfNeq(state) => Some(*state),
     }
+}
+
+fn apply_campaign_action(
+    action: CampaignUiAction,
+    runtime: &mut CampaignRuntime,
+    active_mission: Option<&ActiveMission>,
+    cursor: &mut DialogueCursor,
+    status: &mut CampaignStatus,
+    next_state: &mut NextState<GameScreen>,
+) {
+    let current_screen = match action {
+        CampaignUiAction::NewGame | CampaignUiAction::Continue => GameScreen::Title,
+        CampaignUiAction::AdvanceDialogue | CampaignUiAction::SkipDialogue => {
+            GameScreen::PreMissionStory
+        }
+        CampaignUiAction::StartMission => GameScreen::Briefing,
+        CampaignUiAction::AdvanceAftermath => GameScreen::Aftermath,
+        CampaignUiAction::PurchaseUpgrade(PlayerMech::Vanguard, _)
+        | CampaignUiAction::PurchaseUpgrade(PlayerMech::Gunner, _)
+        | CampaignUiAction::PurchaseUpgrade(PlayerMech::Interceptor, _)
+        | CampaignUiAction::Proceed => GameScreen::Upgrade,
+        CampaignUiAction::ReturnToTitle => GameScreen::Ending,
+    };
+    apply_campaign_action_for_screen(
+        action,
+        current_screen,
+        runtime,
+        active_mission,
+        cursor,
+        status,
+        next_state,
+    );
 }
 
 fn walk_story_to_briefing(
@@ -745,21 +778,22 @@ fn title_is_the_default_screen_and_battle_waits_for_entry() {
 }
 
 #[test]
-fn briefing_copy_lists_objectives_and_rewards() {
+fn briefing_snapshot_lists_objectives_and_rewards() {
     let definition = mission_definition(MissionId::One).unwrap();
-    let copy = briefing_copy(definition);
-
-    for expected in [
-        definition.title,
-        "PRIMARY",
-        definition.primary_objective,
-        "BONUS",
-        definition.optional_objective,
-        "300 credits",
-        "+100 credits",
-    ] {
-        assert!(copy.contains(expected), "briefing copy missing {expected}");
-    }
+    let snapshot = briefing_snapshot(definition, &CampaignState::new_game());
+    assert_eq!(
+        snapshot,
+        BriefingSnapshot {
+            mission: MissionId::One,
+            title: definition.title,
+            enemy_count: 4,
+            primary: definition.primary_objective,
+            optional: definition.optional_objective,
+            base_reward: 300,
+            optional_reward: 100,
+            credits: 0,
+        }
+    );
 }
 
 #[test]
@@ -933,6 +967,7 @@ fn advancing_dialogue_walks_all_lines_then_opens_briefing() {
     assert_eq!(cursor, DialogueCursor(2));
     assert!(status.0.is_empty());
 
+    next = NextState::Unchanged;
     apply_campaign_action(
         CampaignUiAction::StartMission,
         &mut runtime,
@@ -1029,16 +1064,17 @@ static AFTERMATH_FIXTURE_RECEIPTS: [CompletionReceipt; 2] = [
 ];
 
 #[test]
-fn aftermath_reward_copy_reads_the_persisted_receipt_verbatim() {
+fn aftermath_receipt_exposes_the_persisted_reward_values() {
+    let base_only = AFTERMATH_FIXTURE_RECEIPTS[0];
+    assert_eq!((base_only.base_reward, base_only.optional_reward), (300, 0));
     assert_eq!(
-        aftermath_reward_copy(Some(AFTERMATH_FIXTURE_RECEIPTS[0])),
-        "MISSION REWARD\nBase 300\nBonus +0\nTotal 300\nCredits 300"
+        (base_only.total_reward, base_only.credits_after),
+        (300, 300)
     );
-    assert_eq!(
-        aftermath_reward_copy(Some(AFTERMATH_FIXTURE_RECEIPTS[1])),
-        "MISSION REWARD\nBase 300\nBonus +100\nTotal 400\nCredits 400"
-    );
-    assert_eq!(aftermath_reward_copy(None), "");
+
+    let bonus = AFTERMATH_FIXTURE_RECEIPTS[1];
+    assert_eq!((bonus.base_reward, bonus.optional_reward), (300, 100));
+    assert_eq!((bonus.total_reward, bonus.credits_after), (400, 400));
 }
 
 #[test]
@@ -1145,7 +1181,7 @@ fn purchase_upgrade_action_persists_and_reports_failures() {
 }
 
 #[test]
-fn upgrade_row_copy_lists_level_effects_cost_and_max() {
+fn upgrade_row_snapshot_lists_level_effects_cost_and_max() {
     let state = CampaignState {
         next_mission: MissionId::Two,
         credits: 300,
@@ -1165,23 +1201,27 @@ fn upgrade_row_copy_lists_level_effects_cost_and_max() {
         completed: false,
     };
 
-    let row = upgrade_row_copy(&state, PlayerMech::Vanguard, UpgradeTrack::Hp);
-    assert!(row.contains("LV 1"), "{row}");
-    assert!(row.contains("+3 MAX HP"), "{row}");
-    assert!(row.contains("+6 MAX HP"), "{row}");
-    assert!(row.contains("400 CR"), "{row}");
+    let row = upgrade_row_snapshot(&state, PlayerMech::Vanguard, UpgradeTrack::Hp);
+    assert_eq!(row.level, 1);
+    assert_eq!(row.current_effect, "+3 MAX HP");
+    assert_eq!(row.next_effect, "+6 MAX HP");
+    assert_eq!(row.cost, Some(400));
+    assert!(!row.affordable);
 
-    let row = upgrade_row_copy(&state, PlayerMech::Gunner, UpgradeTrack::Mobility);
-    assert!(row.contains("LV 0"), "{row}");
-    assert!(row.contains("+0 EVASION"), "{row}");
-    assert!(row.contains("+5 EVASION"), "{row}");
-    assert!(row.contains("200 CR"), "{row}");
+    let row = upgrade_row_snapshot(&state, PlayerMech::Gunner, UpgradeTrack::Mobility);
+    assert_eq!(row.level, 0);
+    assert_eq!(row.current_effect, "+0 EVASION");
+    assert_eq!(row.next_effect, "+5 EVASION");
+    assert_eq!(row.cost, Some(200));
+    assert!(row.affordable);
 
-    let row = upgrade_row_copy(&state, PlayerMech::Interceptor, UpgradeTrack::Weapon);
-    assert!(row.contains("LV 3"), "{row}");
-    assert!(row.contains("+3 WEAPON DMG"), "{row}");
-    assert!(row.contains("MAX"), "{row}");
-    assert!(!row.contains("CR"), "{row}");
+    let row = upgrade_row_snapshot(&state, PlayerMech::Interceptor, UpgradeTrack::Weapon);
+    assert_eq!(row.level, 3);
+    assert_eq!(row.current_effect, "+3 WEAPON DMG");
+    assert_eq!(row.next_effect, "MAX");
+    assert_eq!(row.cost, None);
+    assert!(row.maxed);
+    assert!(!row.affordable);
 }
 
 #[test]
@@ -1221,6 +1261,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
     );
     assert_eq!(pending(&next), Some(GameScreen::PreMissionStory));
 
+    next = NextState::Unchanged;
     apply_campaign_action(
         CampaignUiAction::ReturnToTitle,
         &mut runtime,
@@ -1490,19 +1531,18 @@ fn completed_campaign_routes_continue_aftermath_and_proceed_to_ending() {
 #[test]
 fn mission_six_briefing_and_dialogue_match_the_spec() {
     let definition = mission_definition(MissionId::Six).unwrap();
-    let copy = briefing_copy(definition);
-
-    for expected in [
-        definition.title,
-        "PRIMARY",
-        definition.primary_objective,
-        "BONUS",
-        definition.optional_objective,
-        "800 credits",
-        "+250 credits",
-    ] {
-        assert!(copy.contains(expected), "briefing copy missing {expected}");
-    }
+    let snapshot = briefing_snapshot(
+        definition,
+        &CampaignState {
+            credits: 0,
+            ..CampaignState::new_game()
+        },
+    );
+    assert_eq!(snapshot.title, definition.title);
+    assert_eq!(snapshot.primary, definition.primary_objective);
+    assert_eq!(snapshot.optional, definition.optional_objective);
+    assert_eq!(snapshot.base_reward, 800);
+    assert_eq!(snapshot.optional_reward, 250);
 
     // Pre-mission: the spec's exact lines over existing VN portraits.
     let scene = &definition.pre_mission;
@@ -1549,7 +1589,63 @@ fn mission_six_briefing_and_dialogue_match_the_spec() {
 }
 
 #[test]
-fn ending_copy_announces_campaign_complete() {
+fn dialogue_skip_is_story_only_and_duplicate_transition_is_a_noop() {
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(CampaignState::new_game()),
+        save: SaveFile::new(temp_save_path("skip-guard")),
+        last_completion: None,
+    });
+    let before = runtime.0.state.clone();
+    let mut cursor = DialogueCursor(0);
+    let mut status = CampaignStatus("ready".into());
+    let mut next = NextState::Unchanged;
+
+    apply_campaign_action_for_screen(
+        CampaignUiAction::SkipDialogue,
+        GameScreen::Briefing,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(cursor, DialogueCursor(0));
+    assert_eq!(status.0, "Skip is only available during pre-mission story.");
+    assert_eq!(runtime.0.state, before);
+    assert_eq!(pending(&next), None);
+
+    status.0.clear();
+    apply_campaign_action_for_screen(
+        CampaignUiAction::SkipDialogue,
+        GameScreen::PreMissionStory,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(cursor, DialogueCursor(2));
+    assert_eq!(status.0, "");
+    assert_eq!(pending(&next), Some(GameScreen::Briefing));
+
+    let skipped_cursor = cursor;
+    let skipped_state = runtime.0.state.clone();
+    apply_campaign_action_for_screen(
+        CampaignUiAction::AdvanceDialogue,
+        GameScreen::PreMissionStory,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(cursor, skipped_cursor);
+    assert_eq!(runtime.0.state, skipped_state);
+    assert_eq!(pending(&next), Some(GameScreen::Briefing));
+}
+
+#[test]
+fn ending_snapshot_announces_campaign_complete_state() {
     // The Ending screen is reachable only when the campaign is complete
     // (a completed save always has next_mission == Mission Seven).
     let state = CampaignState {
@@ -1557,16 +1653,15 @@ fn ending_copy_announces_campaign_complete() {
         completed: true,
         ..CampaignState::new_game()
     };
-    let copy = ending_copy(&state);
-    assert!(copy.contains("CAMPAIGN COMPLETE"), "ending copy: {copy}");
-    assert!(
-        !copy.contains("UNLOCKED"),
-        "nothing is being unlocked: {copy}"
-    );
+    let snapshot = ending_snapshot(&state);
+    assert_eq!(snapshot.credits, 0);
+    assert_eq!(snapshot.vanguard, UpgradeLevels::default());
+    assert_eq!(snapshot.gunner, UpgradeLevels::default());
+    assert_eq!(snapshot.interceptor, UpgradeLevels::default());
 }
 
 #[test]
-fn ending_copy_lists_credits_and_all_upgrade_levels() {
+fn ending_snapshot_lists_credits_and_all_upgrade_levels() {
     let state = CampaignState {
         next_mission: MissionId::Two,
         credits: 400,
@@ -1588,17 +1683,12 @@ fn ending_copy_lists_credits_and_all_upgrade_levels() {
         completed: false,
     };
 
-    let copy = ending_copy(&state);
-    for expected in [
-        "CAMPAIGN COMPLETE",
-        "Campaign progress saved.",
-        "Credits: 400",
-        "Vanguard 1 0 2 0",
-        "Gunner 0 1 0 0",
-        "Interceptor 0 0 0 3",
-    ] {
-        assert!(copy.contains(expected), "handoff copy missing {expected}");
-    }
+    let snapshot = ending_snapshot(&state);
+    assert_eq!(snapshot.credits, 400);
+    assert_eq!(snapshot.vanguard.hp, 1);
+    assert_eq!(snapshot.vanguard.mobility, 2);
+    assert_eq!(snapshot.gunner.armor, 1);
+    assert_eq!(snapshot.interceptor.weapon, 3);
 }
 
 #[test]

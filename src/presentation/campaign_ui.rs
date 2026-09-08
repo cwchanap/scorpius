@@ -1,24 +1,23 @@
-//! Title, pre-mission story, and briefing screens for the campaign loop.
+//! Campaign actions, state derived presentation data, and small UI adapters.
 //!
-//! Every screen here roots under [`ScreenRoot`], deliberately separate from
-//! [`super::PresentationRoot`]: leaving a campaign screen despawns only its own
-//! UI and 2D camera, never the 3D battlefield.
+//! Layout construction lives in [`super::screens`]. This module keeps the
+//! campaign session as the source of truth and exposes typed values to each
+//! screen rather than building screen-sized copy strings.
 
 use bevy::prelude::*;
 
 use crate::app::GameScreen;
-use crate::campaign::model::{CampaignState, PlayerMech, UpgradeTrack};
-use crate::campaign::progression::{CompletionReceipt, UPGRADE_COSTS};
-use crate::campaign::session::{FlowError, continue_game, persist_purchase, start_new_game};
+use crate::campaign::model::{CampaignState, PlayerMech, UpgradeLevels, UpgradeTrack};
+use crate::campaign::progression::UPGRADE_COSTS;
+use crate::campaign::session::{continue_game, persist_purchase, start_new_game};
+use crate::domain::model::Faction;
 use crate::mission::{DialogueScene, MissionDefinition, MissionId, mission_definition};
 use crate::presentation::CampaignRuntime;
 
-use super::{
-    ActiveMission, CampaignCamera, CanvasRoot, assets::UiAssets, layout::spawn_canvas_root, theme,
-};
+use super::{ActiveMission, CampaignCamera};
 
-/// Root of a campaign-flow screen (Title / pre-mission story / briefing /
-/// aftermath / upgrade / next-mission): despawned when the screen changes.
+/// Root of a campaign-flow screen. The root and its marked camera are both
+/// owned by the active `GameScreen` and removed on exit.
 #[derive(Component)]
 pub struct ScreenRoot;
 
@@ -36,6 +35,7 @@ pub enum CampaignUiAction {
     NewGame,
     Continue,
     AdvanceDialogue,
+    SkipDialogue,
     StartMission,
     AdvanceAftermath,
     PurchaseUpgrade(PlayerMech, UpgradeTrack),
@@ -51,24 +51,41 @@ pub struct DialogueSnapshot {
     pub portrait: &'static str,
 }
 
-pub fn dialogue_snapshot(scene: &DialogueScene, cursor: DialogueCursor) -> DialogueSnapshot {
-    let line = &scene.lines[cursor.0.min(scene.lines.len() - 1)];
-    DialogueSnapshot {
-        speaker: line.speaker,
-        text: line.text,
-        portrait: line.portrait,
-    }
+/// Mission facts rendered by the briefing screen. The enemy count is derived
+/// from one deterministic authored build at screen entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BriefingSnapshot {
+    pub mission: MissionId,
+    pub title: &'static str,
+    pub enemy_count: usize,
+    pub primary: &'static str,
+    pub optional: &'static str,
+    pub base_reward: u32,
+    pub optional_reward: u32,
+    pub credits: u32,
 }
 
-pub fn briefing_copy(definition: &MissionDefinition) -> String {
-    format!(
-        "{}\n\nPRIMARY\n{}\n\nBONUS\n{}\n\nREWARD\n{} credits\nBONUS +{} credits",
-        definition.title,
-        definition.primary_objective,
-        definition.optional_objective,
-        definition.base_reward,
-        definition.optional_reward,
-    )
+/// Upgrade facts rendered by one hangar row. Purchase actions still route
+/// through the campaign session; this value is display-only.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeRowSnapshot {
+    pub mech: PlayerMech,
+    pub track: UpgradeTrack,
+    pub level: u8,
+    pub current_effect: String,
+    pub next_effect: String,
+    pub cost: Option<u32>,
+    pub maxed: bool,
+    pub affordable: bool,
+}
+
+/// Persisted campaign values rendered by the ending screen.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EndingSnapshot {
+    pub credits: u32,
+    pub vanguard: UpgradeLevels,
+    pub gunner: UpgradeLevels,
+    pub interceptor: UpgradeLevels,
 }
 
 #[derive(Component)]
@@ -81,295 +98,103 @@ pub struct DialogueSpeaker;
 pub struct DialogueText;
 
 #[derive(Component)]
+pub struct DialoguePip(pub usize);
+
+#[derive(Component)]
 pub struct CampaignStatusText;
 
-/// Spawn one dialogue screen for `scene`: background, portrait, speaker,
-/// dialogue text, and a single advance button emitting `advance_action`.
-///
-/// Task 8 reuses this helper for the aftermath scene; it is deliberately not a
-/// dialogue engine.
-fn spawn_dialogue_screen(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    scene: &DialogueScene,
-    advance_action: CampaignUiAction,
-    canvas: Entity,
-    fonts: &theme::FontHandles,
-) -> Entity {
-    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
-    let root = commands
-        .spawn((
-            Name::new("Dialogue Screen"),
-            ScreenRoot,
-            fullscreen_node(),
-            Pickable::IGNORE,
-            ChildOf(canvas),
-        ))
-        .id();
-    let opening = dialogue_snapshot(scene, DialogueCursor(0));
+#[derive(Component)]
+pub struct UpgradeCreditsText;
 
-    commands.spawn((
-        Node {
-            width: percent(100),
-            height: percent(100),
-            ..default()
-        },
-        ImageNode::new(asset_server.load(scene.background)),
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            bottom: px(196),
-            width: px(240),
-            height: px(240),
-            border: UiRect::all(px(2)),
-            ..default()
-        },
-        BorderColor::all(Color::srgb(0.24, 0.78, 0.86)),
-        ImageNode::new(asset_server.load(opening.portrait)),
-        DialoguePortrait,
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Text::new(opening.speaker),
-        text_font(fonts, 21.0),
-        TextColor(Color::srgb(1.0, 0.82, 0.46)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(30),
-            bottom: px(152),
-            ..default()
-        },
-        DialogueSpeaker,
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(24),
-            right: px(24),
-            bottom: px(24),
-            height: px(118),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.012, 0.02, 0.035, 0.82)),
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Text::new(opening.text),
-        text_font(fonts, 16.0),
-        TextColor(Color::srgb(0.9, 0.94, 0.98)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(48),
-            bottom: px(48),
-            width: px(760),
-            ..default()
-        },
-        DialogueText,
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    spawn_action_button(
-        commands,
-        root,
-        advance_action,
-        "CONTINUE",
-        true,
-        fonts,
-        Node {
-            position_type: PositionType::Absolute,
-            right: px(44),
-            bottom: px(46),
-            width: px(170),
-            height: px(44),
-            ..default()
-        },
-    );
-    root
+#[derive(Component, Clone, Copy)]
+pub struct UpgradeRow(pub PlayerMech, pub UpgradeTrack);
+
+#[derive(Component, Clone, Copy)]
+pub struct UpgradePip {
+    pub mech: PlayerMech,
+    pub track: UpgradeTrack,
+    pub index: u8,
 }
 
-pub fn setup_title_screen(
-    mut commands: Commands,
-    runtime: Res<CampaignRuntime>,
-    mut status: ResMut<CampaignStatus>,
-    ui_assets: Res<UiAssets>,
-    canvas_roots: Query<Entity, With<CanvasRoot>>,
-) {
-    status.0.clear();
-    let continue_enabled = match runtime.0.save.load() {
-        Ok(Some(_)) => true,
-        Ok(None) => false,
-        Err(error) => {
-            status.0 = FlowError::from(error).to_string();
-            false
-        }
-    };
-    let canvas = canvas_roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
-    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
-    let root = commands
-        .spawn((
-            Name::new("Title Screen"),
-            ScreenRoot,
-            fullscreen_node(),
-            BackgroundColor(Color::srgb(0.012, 0.016, 0.028)),
-            Pickable::IGNORE,
-            ChildOf(canvas),
-        ))
-        .id();
-    commands.spawn((
-        Text::new("SCORPIUS"),
-        text_font(&ui_assets.fonts, 76.0),
-        TextColor(Color::srgb(0.78, 0.92, 1.0)),
-        TextLayout::justify(Justify::Center),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(112),
-            width: percent(100),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Text::new("// SQUAD-LEVEL TURN-BASED TACTICS"),
-        text_font(&ui_assets.fonts, 15.0),
-        TextColor(Color::srgb(0.5, 0.62, 0.72)),
-        TextLayout::justify(Justify::Center),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(214),
-            width: percent(100),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    let menu = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(312),
-                width: percent(100),
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                row_gap: px(14),
-                ..default()
-            },
-            Pickable::IGNORE,
-            ChildOf(root),
-        ))
-        .id();
-    spawn_action_button(
-        &mut commands,
-        menu,
-        CampaignUiAction::NewGame,
-        "NEW GAME",
-        true,
-        &ui_assets.fonts,
-        Node {
-            width: px(300),
-            height: px(50),
-            ..default()
-        },
-    );
-    spawn_action_button(
-        &mut commands,
-        menu,
-        CampaignUiAction::Continue,
-        "CONTINUE",
-        continue_enabled,
-        &ui_assets.fonts,
-        Node {
-            width: px(300),
-            height: px(50),
-            ..default()
-        },
-    );
-    commands.spawn((
-        Text::new(status.0.clone()),
-        text_font(&ui_assets.fonts, 14.0),
-        TextColor(Color::srgb(1.0, 0.42, 0.36)),
-        TextLayout::justify(Justify::Center),
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: px(36),
-            width: percent(100),
-            ..default()
-        },
-        CampaignStatusText,
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
+pub const MECHS: [(PlayerMech, &str); 3] = [
+    (PlayerMech::Vanguard, "VANGUARD"),
+    (PlayerMech::Gunner, "GUNNER"),
+    (PlayerMech::Interceptor, "INTERCEPTOR"),
+];
+
+pub const TRACKS: [UpgradeTrack; 4] = [
+    UpgradeTrack::Hp,
+    UpgradeTrack::Armor,
+    UpgradeTrack::Mobility,
+    UpgradeTrack::Weapon,
+];
+
+pub fn dialogue_snapshot(scene: &DialogueScene, cursor: DialogueCursor) -> DialogueSnapshot {
+    let line = &scene.lines[cursor.0.min(scene.lines.len().saturating_sub(1))];
+    DialogueSnapshot {
+        speaker: line.speaker,
+        text: line.text,
+        portrait: line.portrait,
+    }
 }
 
-/// Aftermath reward panel contents, rendered from the persisted receipt only.
-pub fn aftermath_reward_copy(receipt: Option<CompletionReceipt>) -> String {
-    receipt.map_or_else(String::new, |receipt| {
-        format!(
-            "MISSION REWARD\nBase {}\nBonus +{}\nTotal {}\nCredits {}",
-            receipt.base_reward,
-            receipt.optional_reward,
-            receipt.total_reward,
-            receipt.credits_after
-        )
-    })
+pub fn briefing_snapshot(
+    definition: &MissionDefinition,
+    campaign: &CampaignState,
+) -> BriefingSnapshot {
+    let battle = (definition.build)(0, &campaign.upgrades);
+    let enemy_count = battle
+        .units()
+        .filter(|unit| unit.faction == Faction::Enemy)
+        .count();
+    BriefingSnapshot {
+        mission: definition.id,
+        title: definition.title,
+        enemy_count,
+        primary: definition.primary_objective,
+        optional: definition.optional_objective,
+        base_reward: definition.base_reward,
+        optional_reward: definition.optional_reward,
+        credits: campaign.credits,
+    }
 }
 
-/// Ending screen copy; the screen is only reachable once the campaign is
-/// complete, so the heading is the constant campaign-complete announcement.
-/// `Vanguard/Gunner/Interceptor` lines
-/// list each mech's HP/ARMOR/MOBILITY/WEAPON levels from the persisted state.
-pub fn ending_copy(state: &CampaignState) -> String {
-    let levels = |mech: PlayerMech| {
-        let l = state.upgrades.levels(mech);
-        format!("{} {} {} {}", l.hp, l.armor, l.mobility, l.weapon)
-    };
-    format!(
-        "CAMPAIGN COMPLETE\n\nCampaign progress saved.\n\nCredits: {}\n\nVanguard {}\nGunner {}\nInterceptor {}\n\nHP / ARMOR / MOBILITY / WEAPON",
-        state.credits,
-        levels(PlayerMech::Vanguard),
-        levels(PlayerMech::Gunner),
-        levels(PlayerMech::Interceptor),
-    )
-}
-
-/// One upgrade row's `level / current effect / next effect / cost / MAX` text,
-/// read from the persisted campaign state and `UPGRADE_COSTS`.
-pub fn upgrade_row_copy(state: &CampaignState, mech: PlayerMech, track: UpgradeTrack) -> String {
+pub fn upgrade_row_snapshot(
+    state: &CampaignState,
+    mech: PlayerMech,
+    track: UpgradeTrack,
+) -> UpgradeRowSnapshot {
     let level = state.upgrades.levels(mech).level(track);
     let maxed = level >= 3;
-    let next = if maxed {
-        "MAX".to_owned()
-    } else {
-        track_effect(track, level + 1)
-    };
-    let cost = if maxed {
-        "MAX".to_owned()
-    } else {
-        format!("{} CR", UPGRADE_COSTS[level as usize])
-    };
-    format!(
-        "{}   LV {}   {}  ->  {}   {}",
-        track_label(track),
+    let cost = (!maxed)
+        .then(|| UPGRADE_COSTS.get(usize::from(level)).copied())
+        .flatten();
+    UpgradeRowSnapshot {
+        mech,
+        track,
         level,
-        track_effect(track, level),
-        next,
-        cost
-    )
+        current_effect: track_effect(track, level),
+        next_effect: if maxed {
+            "MAX".to_owned()
+        } else {
+            track_effect(track, level.saturating_add(1))
+        },
+        cost,
+        maxed,
+        affordable: cost.is_some_and(|cost| state.credits >= cost),
+    }
 }
 
-fn track_label(track: UpgradeTrack) -> &'static str {
+pub fn ending_snapshot(state: &CampaignState) -> EndingSnapshot {
+    EndingSnapshot {
+        credits: state.credits,
+        vanguard: *state.upgrades.levels(PlayerMech::Vanguard),
+        gunner: *state.upgrades.levels(PlayerMech::Gunner),
+        interceptor: *state.upgrades.levels(PlayerMech::Interceptor),
+    }
+}
+
+pub fn track_label(track: UpgradeTrack) -> &'static str {
     match track {
         UpgradeTrack::Hp => "HP",
         UpgradeTrack::Armor => "ARMOR",
@@ -378,7 +203,7 @@ fn track_label(track: UpgradeTrack) -> &'static str {
     }
 }
 
-fn track_effect(track: UpgradeTrack, level: u8) -> String {
+pub fn track_effect(track: UpgradeTrack, level: u8) -> String {
     match track {
         UpgradeTrack::Hp => format!("+{} MAX HP", 3 * u32::from(level)),
         UpgradeTrack::Armor => format!("+{} ARMOR", level),
@@ -387,427 +212,21 @@ fn track_effect(track: UpgradeTrack, level: u8) -> String {
     }
 }
 
-/// Display-only affordability check; `persist_purchase` owns the real rules.
-fn purchase_enabled(state: &CampaignState, mech: PlayerMech, track: UpgradeTrack) -> bool {
-    let level = state.upgrades.levels(mech).level(track);
-    level < 3 && state.credits >= UPGRADE_COSTS[level as usize]
+pub fn format_upgrade_row(snapshot: &UpgradeRowSnapshot) -> String {
+    format!(
+        "{}   LV {}   {}  ->  {}   {}",
+        track_label(snapshot.track),
+        snapshot.level,
+        snapshot.current_effect,
+        snapshot.next_effect,
+        snapshot
+            .cost
+            .map_or_else(|| "MAX".to_owned(), |cost| format!("{cost} CR")),
+    )
 }
 
-#[derive(Component)]
-pub struct UpgradeCreditsText;
-
-#[derive(Component, Clone, Copy)]
-pub struct UpgradeRow(pub PlayerMech, pub UpgradeTrack);
-
-const MECHS: [(PlayerMech, &str); 3] = [
-    (PlayerMech::Vanguard, "VANGUARD"),
-    (PlayerMech::Gunner, "GUNNER"),
-    (PlayerMech::Interceptor, "INTERCEPTOR"),
-];
-
-const TRACKS: [UpgradeTrack; 4] = [
-    UpgradeTrack::Hp,
-    UpgradeTrack::Armor,
-    UpgradeTrack::Mobility,
-    UpgradeTrack::Weapon,
-];
-
-pub fn setup_aftermath_screen(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    runtime: Res<CampaignRuntime>,
-    active_mission: Res<ActiveMission>,
-    mut cursor: ResMut<DialogueCursor>,
-    ui_assets: Res<UiAssets>,
-    canvas_roots: Query<Entity, With<CanvasRoot>>,
-) {
-    *cursor = DialogueCursor(0);
-    let canvas = canvas_roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
-    let root = spawn_dialogue_screen(
-        &mut commands,
-        &asset_server,
-        &active_mission.0.aftermath,
-        CampaignUiAction::AdvanceAftermath,
-        canvas,
-        &ui_assets.fonts,
-    );
-    commands.spawn((
-        Text::new(aftermath_reward_copy(runtime.0.last_completion)),
-        text_font(&ui_assets.fonts, 15.0),
-        TextColor(Color::srgb(0.78, 0.92, 1.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(28),
-            right: px(28),
-            width: px(300),
-            padding: UiRect::all(px(14)),
-            ..default()
-        },
-        BackgroundColor(Color::srgba(0.012, 0.02, 0.035, 0.82)),
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-}
-
-pub fn setup_upgrade_screen(
-    mut commands: Commands,
-    mut status: ResMut<CampaignStatus>,
-    ui_assets: Res<UiAssets>,
-    canvas_roots: Query<Entity, With<CanvasRoot>>,
-) {
-    status.0.clear();
-    let canvas = canvas_roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
-    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
-    let root = commands
-        .spawn((
-            Name::new("Upgrade Screen"),
-            ScreenRoot,
-            fullscreen_node(),
-            BackgroundColor(Color::srgb(0.014, 0.02, 0.032)),
-            Pickable::IGNORE,
-            ChildOf(canvas),
-        ))
-        .id();
-    commands.spawn((
-        Text::new("// HANGAR — SQUAD UPGRADES"),
-        text_font(&ui_assets.fonts, 24.0),
-        TextColor(Color::srgb(1.0, 0.82, 0.46)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            top: px(24),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Text::new(String::new()),
-        text_font(&ui_assets.fonts, 20.0),
-        TextColor(Color::srgb(0.78, 0.92, 1.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            right: px(28),
-            top: px(24),
-            ..default()
-        },
-        UpgradeCreditsText,
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    let rows = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: px(28),
-                top: px(84),
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                row_gap: px(18),
-                ..default()
-            },
-            Pickable::IGNORE,
-            ChildOf(root),
-        ))
-        .id();
-    for (mech, mech_label) in MECHS {
-        commands.spawn((
-            Text::new(mech_label),
-            text_font(&ui_assets.fonts, 18.0),
-            TextColor(Color::srgb(0.82, 0.94, 1.0)),
-            Pickable::IGNORE,
-            ChildOf(rows),
-        ));
-        let mech_rows = commands
-            .spawn((
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(6),
-                    ..default()
-                },
-                Pickable::IGNORE,
-                ChildOf(rows),
-            ))
-            .id();
-        for track in TRACKS {
-            let row = commands
-                .spawn((
-                    Node {
-                        display: Display::Flex,
-                        flex_direction: FlexDirection::Row,
-                        column_gap: px(14),
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    Pickable::IGNORE,
-                    ChildOf(mech_rows),
-                ))
-                .id();
-            commands.spawn((
-                Text::new(String::new()),
-                text_font(&ui_assets.fonts, 14.0),
-                TextColor(Color::srgb(0.85, 0.9, 0.95)),
-                Node {
-                    width: px(520),
-                    ..default()
-                },
-                UpgradeRow(mech, track),
-                Pickable::IGNORE,
-                ChildOf(row),
-            ));
-            spawn_action_button(
-                &mut commands,
-                row,
-                CampaignUiAction::PurchaseUpgrade(mech, track),
-                "BUY",
-                true,
-                &ui_assets.fonts,
-                Node {
-                    width: px(90),
-                    height: px(30),
-                    ..default()
-                },
-            );
-        }
-    }
-    spawn_action_button(
-        &mut commands,
-        root,
-        CampaignUiAction::Proceed,
-        "PROCEED",
-        true,
-        &ui_assets.fonts,
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            bottom: px(36),
-            width: px(260),
-            height: px(52),
-            ..default()
-        },
-    );
-    commands.spawn((
-        Text::new(String::new()),
-        text_font(&ui_assets.fonts, 14.0),
-        TextColor(Color::srgb(1.0, 0.42, 0.36)),
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: px(36),
-            left: px(320),
-            width: px(900),
-            ..default()
-        },
-        CampaignStatusText,
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-}
-
-/// Re-read the persisted campaign state whenever it changes: rows, credits,
-/// and purchase affordability never hold UI-local copies, so a failed
-/// purchase leaves the display unchanged.
-#[allow(clippy::type_complexity)]
-pub fn update_upgrade_screen(
-    runtime: Res<CampaignRuntime>,
-    mut rows: Query<
-        (&UpgradeRow, &mut Text),
-        (Without<UpgradeCreditsText>, Without<CampaignStatusText>),
-    >,
-    mut credits: Single<&mut Text, (With<UpgradeCreditsText>, Without<CampaignStatusText>)>,
-    mut buttons: Query<
-        (&CampaignUiAction, &mut BackgroundColor, &mut Pickable),
-        Without<UpgradeRow>,
-    >,
-) {
-    let Some(state) = runtime.0.state.as_ref() else {
-        return;
-    };
-    credits.0 = format!("CREDITS {}", state.credits);
-    for (row, mut text) in &mut rows {
-        text.0 = upgrade_row_copy(state, row.0, row.1);
-    }
-    for (action, mut background, mut pickable) in &mut buttons {
-        let CampaignUiAction::PurchaseUpgrade(mech, track) = *action else {
-            continue;
-        };
-        let enabled = purchase_enabled(state, mech, track);
-        background.0 = if enabled {
-            Color::srgb(0.07, 0.22, 0.3)
-        } else {
-            Color::srgb(0.045, 0.055, 0.065)
-        };
-        *pickable = if enabled {
-            Pickable::default()
-        } else {
-            Pickable::IGNORE
-        };
-    }
-}
-
-pub fn setup_ending_screen(
-    mut commands: Commands,
-    runtime: Res<CampaignRuntime>,
-    ui_assets: Res<UiAssets>,
-    canvas_roots: Query<Entity, With<CanvasRoot>>,
-) {
-    let canvas = canvas_roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
-    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
-    let root = commands
-        .spawn((
-            Name::new("Ending Screen"),
-            ScreenRoot,
-            fullscreen_node(),
-            BackgroundColor(Color::srgb(0.012, 0.016, 0.028)),
-            Pickable::IGNORE,
-            ChildOf(canvas),
-        ))
-        .id();
-    commands.spawn((
-        Text::new(
-            runtime
-                .0
-                .state
-                .as_ref()
-                .map_or_else(String::new, ending_copy),
-        ),
-        text_font(&ui_assets.fonts, 20.0),
-        TextColor(Color::srgb(0.85, 0.9, 0.95)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            top: px(28),
-            width: px(820),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    spawn_action_button(
-        &mut commands,
-        root,
-        CampaignUiAction::ReturnToTitle,
-        "RETURN TO TITLE",
-        true,
-        &ui_assets.fonts,
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            bottom: px(36),
-            width: px(260),
-            height: px(52),
-            ..default()
-        },
-    );
-}
-
-pub fn setup_pre_mission_story(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    runtime: Res<CampaignRuntime>,
-    mut cursor: ResMut<DialogueCursor>,
-    ui_assets: Res<UiAssets>,
-    canvas_roots: Query<Entity, With<CanvasRoot>>,
-) {
-    *cursor = DialogueCursor(0);
-    let Some(definition) = active_definition(&runtime) else {
-        return;
-    };
-    let canvas = canvas_roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
-    spawn_dialogue_screen(
-        &mut commands,
-        &asset_server,
-        &definition.pre_mission,
-        CampaignUiAction::AdvanceDialogue,
-        canvas,
-        &ui_assets.fonts,
-    );
-}
-
-pub fn setup_briefing_screen(
-    mut commands: Commands,
-    runtime: Res<CampaignRuntime>,
-    ui_assets: Res<UiAssets>,
-    canvas_roots: Query<Entity, With<CanvasRoot>>,
-) {
-    let Some(definition) = active_definition(&runtime) else {
-        return;
-    };
-    let canvas = canvas_roots
-        .iter()
-        .next()
-        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
-    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
-    let root = commands
-        .spawn((
-            Name::new("Briefing Screen"),
-            ScreenRoot,
-            fullscreen_node(),
-            BackgroundColor(Color::srgb(0.014, 0.02, 0.032)),
-            Pickable::IGNORE,
-            ChildOf(canvas),
-        ))
-        .id();
-    commands.spawn((
-        Text::new("// MISSION BRIEFING"),
-        text_font(&ui_assets.fonts, 22.0),
-        TextColor(Color::srgb(1.0, 0.82, 0.46)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            top: px(28),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    commands.spawn((
-        Text::new(briefing_copy(definition)),
-        text_font(&ui_assets.fonts, 17.0),
-        TextColor(Color::srgb(0.85, 0.9, 0.95)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            top: px(96),
-            width: px(820),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(root),
-    ));
-    spawn_action_button(
-        &mut commands,
-        root,
-        CampaignUiAction::StartMission,
-        "START MISSION",
-        true,
-        &ui_assets.fonts,
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(28),
-            bottom: px(36),
-            width: px(260),
-            height: px(52),
-            ..default()
-        },
-    );
-}
-
-/// Shared campaign-screen cleanup: despawn the leaving screen's owned UI root
-/// and camera. The explicit marker keeps one screen from touching another's
-/// camera during transitions.
+/// Shared campaign-screen cleanup. The explicit markers keep one screen from
+/// touching another screen's camera during transitions.
 #[allow(clippy::type_complexity)]
 pub fn despawn_campaign_screen(
     mut commands: Commands,
@@ -818,15 +237,8 @@ pub fn despawn_campaign_screen(
     }
 }
 
-/// Pure campaign-action routing shared by the button observer and tests:
-/// Title actions go through the unified `FlowError` API, dialogue advancing
-/// walks the active scene, purchases persist via the session, and
-/// PROCEED/RETURN only change `GameScreen`.
-/// Pure terminal routing shared by Continue, the final Aftermath advance,
-/// and Proceed: completed campaigns land on Ending (never back into the
-/// Mission 7 story), unfinished One opens its story, and every other
-/// unfinished mission goes through the Upgrade screen. Returns `None` for
-/// actions that do not route screens.
+/// Pure terminal routing shared by Continue, final Aftermath advance, and
+/// Proceed. `None` means the action does not route a campaign screen.
 fn campaign_destination(action: CampaignUiAction, state: &CampaignState) -> Option<GameScreen> {
     match action {
         CampaignUiAction::Continue if state.completed => Some(GameScreen::Ending),
@@ -842,14 +254,23 @@ fn campaign_destination(action: CampaignUiAction, state: &CampaignState) -> Opti
     }
 }
 
+/// Whether the state machine already has a queued transition this frame.
+pub fn screen_transition_pending(next_state: &NextState<GameScreen>) -> bool {
+    !matches!(next_state, NextState::Unchanged)
+}
+
 pub fn apply_campaign_action(
     action: CampaignUiAction,
+    current_screen: GameScreen,
     runtime: &mut CampaignRuntime,
     active_mission: Option<&ActiveMission>,
     cursor: &mut DialogueCursor,
     status: &mut CampaignStatus,
     next_state: &mut NextState<GameScreen>,
 ) {
+    if screen_transition_pending(next_state) {
+        return;
+    }
     match action {
         CampaignUiAction::NewGame => match start_new_game(&mut runtime.0) {
             Ok(()) => next_state.set(GameScreen::PreMissionStory),
@@ -857,9 +278,6 @@ pub fn apply_campaign_action(
         },
         CampaignUiAction::Continue => match continue_game(&mut runtime.0) {
             Ok(_) => {
-                // Route from the loaded state: unfinished One opens its
-                // story, Seven and everything else goes through Upgrade,
-                // and a completed save lands on Ending.
                 if let Some(screen) = runtime
                     .0
                     .state
@@ -872,16 +290,26 @@ pub fn apply_campaign_action(
             Err(error) => status.0 = error.to_string(),
         },
         CampaignUiAction::AdvanceDialogue => {
+            if current_screen != GameScreen::PreMissionStory {
+                status.0 = "Advance is only available during pre-mission story.".into();
+                return;
+            }
             let line_count = active_definition(runtime)
                 .map_or(0, |definition| definition.pre_mission.lines.len());
             advance_dialogue(cursor, line_count, GameScreen::Briefing, next_state);
         }
+        CampaignUiAction::SkipDialogue => {
+            if current_screen != GameScreen::PreMissionStory {
+                status.0 = "Skip is only available during pre-mission story.".into();
+                return;
+            }
+            let line_count = active_definition(runtime)
+                .map_or(0, |definition| definition.pre_mission.lines.len());
+            cursor.0 = line_count.saturating_sub(1);
+            next_state.set(GameScreen::Briefing);
+        }
         CampaignUiAction::StartMission => next_state.set(GameScreen::Battle),
         CampaignUiAction::AdvanceAftermath => {
-            // Aftermath walks `ActiveMission`. The destination is computed
-            // from the persisted state before advancing: a completed campaign
-            // lands on Ending, and it is used only when the last line
-            // advances.
             let Some(mission) = active_mission else {
                 return;
             };
@@ -910,8 +338,6 @@ pub fn apply_campaign_action(
             }
         }
         CampaignUiAction::Proceed => {
-            // Completed save: Ending, never back into the Mission 7 story.
-            // Unfinished: straight into the next mission's pre-mission story.
             if let Some(screen) = runtime
                 .0
                 .state
@@ -939,7 +365,8 @@ fn advance_dialogue(
     }
 }
 
-fn on_campaign_ui_click(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn on_campaign_ui_click(
     click: On<Pointer<Click>>,
     actions: Query<&CampaignUiAction>,
     mut runtime: ResMut<CampaignRuntime>,
@@ -947,12 +374,14 @@ fn on_campaign_ui_click(
     mut cursor: ResMut<DialogueCursor>,
     mut status: ResMut<CampaignStatus>,
     mut next_state: ResMut<NextState<GameScreen>>,
+    current_screen: Res<State<GameScreen>>,
 ) {
     let Ok(action) = actions.get(click.entity) else {
         return;
     };
     apply_campaign_action(
         *action,
+        *current_screen.get(),
         &mut runtime,
         active_mission.as_deref(),
         &mut cursor,
@@ -971,9 +400,8 @@ pub fn update_dialogue_screen(
     mut portrait: Single<&mut ImageNode, With<DialoguePortrait>>,
     mut speaker: Single<&mut Text, (With<DialogueSpeaker>, Without<DialogueText>)>,
     mut text: Single<&mut Text, (With<DialogueText>, Without<DialogueSpeaker>)>,
+    mut pips: Query<(&DialoguePip, &mut Node, &mut BackgroundColor)>,
 ) {
-    // Aftermath reads `ActiveMission` — the runtime has already advanced past
-    // the completed mission — while pre-mission resolves `next_mission`.
     let scene = match current.get() {
         GameScreen::Aftermath => active_mission
             .as_deref()
@@ -987,6 +415,15 @@ pub fn update_dialogue_screen(
     speaker.0 = snapshot.speaker.to_owned();
     text.0 = snapshot.text.to_owned();
     portrait.image = asset_server.load(snapshot.portrait);
+    for (pip, mut node, mut background) in &mut pips {
+        let active = pip.0 == cursor.0;
+        node.width = px(if active { 22.0 } else { 10.0 });
+        background.0 = if active {
+            super::theme::ACCENT
+        } else {
+            super::theme::BORDER
+        };
+    }
 }
 
 pub fn update_campaign_status_text(
@@ -996,63 +433,56 @@ pub fn update_campaign_status_text(
     text.0 = status.0.clone();
 }
 
-fn active_definition(runtime: &CampaignRuntime) -> Option<&'static MissionDefinition> {
-    let state = runtime.0.state.as_ref()?;
-    mission_definition(state.next_mission)
-}
-
-fn spawn_action_button(
-    commands: &mut Commands,
-    parent: Entity,
-    action: CampaignUiAction,
-    label: &str,
-    enabled: bool,
-    fonts: &theme::FontHandles,
-    node: Node,
+#[allow(clippy::type_complexity)]
+pub fn update_upgrade_screen(
+    runtime: Res<CampaignRuntime>,
+    mut rows: Query<
+        (&UpgradeRow, &mut Text),
+        (Without<UpgradeCreditsText>, Without<CampaignStatusText>),
+    >,
+    mut credits: Single<&mut Text, (With<UpgradeCreditsText>, Without<CampaignStatusText>)>,
+    mut buttons: Query<
+        (&CampaignUiAction, &mut BackgroundColor, &mut Pickable),
+        (Without<UpgradeRow>, Without<UpgradePip>),
+    >,
+    mut pips: Query<(&UpgradePip, &mut BackgroundColor)>,
 ) {
-    let button = commands
-        .spawn((
-            Button,
-            action,
-            node,
-            BackgroundColor(if enabled {
-                Color::srgb(0.07, 0.22, 0.3)
-            } else {
-                Color::srgb(0.045, 0.055, 0.065)
-            }),
-            if enabled {
-                Pickable::default()
-            } else {
-                Pickable::IGNORE
-            },
-            ChildOf(parent),
-        ))
-        .observe(on_campaign_ui_click)
-        .id();
-    commands.spawn((
-        Text::new(label),
-        text_font(fonts, 17.0),
-        TextColor(if enabled {
-            Color::srgb(0.88, 0.94, 1.0)
+    let Some(state) = runtime.0.state.as_ref() else {
+        return;
+    };
+    credits.0 = format!("CREDITS {}", state.credits);
+    for (row, mut text) in &mut rows {
+        text.0 = format_upgrade_row(&upgrade_row_snapshot(state, row.0, row.1));
+    }
+    for (action, mut background, mut pickable) in &mut buttons {
+        let CampaignUiAction::PurchaseUpgrade(mech, track) = *action else {
+            continue;
+        };
+        let enabled = upgrade_row_snapshot(state, mech, track).affordable;
+        background.0 = if enabled {
+            super::theme::PANEL_RAISED
         } else {
-            Color::srgb(0.4, 0.45, 0.5)
-        }),
-        Pickable::IGNORE,
-        ChildOf(button),
-    ));
-}
-
-fn fullscreen_node() -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        width: percent(100),
-        height: percent(100),
-        ..default()
+            Color::srgb_u8(11, 17, 24)
+        };
+        *pickable = if enabled {
+            Pickable::default()
+        } else {
+            Pickable::IGNORE
+        };
+    }
+    for (pip, mut background) in &mut pips {
+        let level = state.upgrades.levels(pip.mech).level(pip.track);
+        background.0 = if pip.index < level {
+            super::theme::ACCENT
+        } else {
+            super::theme::BORDER
+        };
     }
 }
 
-fn text_font(fonts: &theme::FontHandles, size: f32) -> TextFont {
-    theme::chakra_petch(fonts, size, FontWeight::NORMAL)
+pub fn active_definition(runtime: &CampaignRuntime) -> Option<&'static MissionDefinition> {
+    let state = runtime.0.state.as_ref()?;
+    mission_definition(state.next_mission)
 }
 
 #[cfg(test)]
@@ -1075,37 +505,30 @@ mod tests {
         let unfinished_seven = state(false, MissionId::Seven);
         let unfinished_one = state(false, MissionId::One);
 
-        // Continue + completed -> Ending
         assert_eq!(
             campaign_destination(CampaignUiAction::Continue, &completed),
             Some(GameScreen::Ending)
         );
-        // Continue + unfinished One -> PreMissionStory
         assert_eq!(
             campaign_destination(CampaignUiAction::Continue, &unfinished_one),
             Some(GameScreen::PreMissionStory)
         );
-        // Continue + unfinished Seven -> Upgrade
         assert_eq!(
             campaign_destination(CampaignUiAction::Continue, &unfinished_seven),
             Some(GameScreen::Upgrade)
         );
-        // AdvanceAftermath + completed -> Ending
         assert_eq!(
             campaign_destination(CampaignUiAction::AdvanceAftermath, &completed),
             Some(GameScreen::Ending)
         );
-        // AdvanceAftermath + unfinished -> Upgrade
         assert_eq!(
             campaign_destination(CampaignUiAction::AdvanceAftermath, &unfinished_seven),
             Some(GameScreen::Upgrade)
         );
-        // Proceed + completed -> Ending
         assert_eq!(
             campaign_destination(CampaignUiAction::Proceed, &completed),
             Some(GameScreen::Ending)
         );
-        // Proceed + unfinished Seven -> PreMissionStory
         assert_eq!(
             campaign_destination(CampaignUiAction::Proceed, &unfinished_seven),
             Some(GameScreen::PreMissionStory)

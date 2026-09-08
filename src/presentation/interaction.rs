@@ -18,6 +18,7 @@ use super::{
     CellVisual, EventPlayback, PresentationNeedsRebuild, PresentationRoot, RestartRequest,
     RestartRoundPending, SelectedCell,
     assets::{AssetLoadStatus, mission_assets_ready},
+    campaign_ui::screen_transition_pending,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -540,6 +541,9 @@ fn run_command(action: CommandAction, mut context: CommandContext<'_>) {
 /// Battle and the current campaign state untouched; the mission is never
 /// re-derived from `runtime.0.state.next_mission` after completion.
 fn run_continue_victory(context: &mut CommandContext<'_>) {
+    if screen_transition_pending(context.next_state) {
+        return;
+    }
     let result = context.battle.result().filter(|result| result.victory);
     match result.map(|result| {
         complete_current_mission(&mut context.campaign.0, context.active_mission.0, result)
