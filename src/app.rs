@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use bevy::picking::PickingSystems;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -9,7 +10,7 @@ use crate::{
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
         EventPlayback, PresentationRoot, RestartRequest, RestartRoundPending, SelectedCell,
-        assets::{AssetLoadStatus, MissionAssets, monitor_mission_assets},
+        assets::{AssetLoadStatus, MissionAssets, UiAssets, monitor_mission_assets},
         battlefield::{rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, setup_aftermath_screen,
@@ -21,6 +22,7 @@ use crate::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
             reset_transient_battle_state,
         },
+        layout::{setup_canvas, update_canvas_scale},
         playback::{begin_restarted_round, play_battle_events},
         sync::{
             apply_prop_visibility, apply_unit_transforms, attach_extraction_rendering,
@@ -71,6 +73,9 @@ impl Plugin for ScorpiusPlugin {
             require_markers: true,
             ..default()
         })
+        .insert_resource(UiPickingSettings {
+            require_markers: true,
+        })
         .insert_resource(CampaignRuntime(CampaignSession::new(
             SaveFile::platform_default(),
         )))
@@ -86,8 +91,13 @@ impl Plugin for ScorpiusPlugin {
         .init_resource::<RestartRequest>()
         .init_resource::<RestartRoundPending>()
         .init_resource::<MissionAssets>()
+        .init_resource::<UiAssets>()
         .init_resource::<AssetLoadStatus>()
-        .add_systems(Startup, center_primary_window)
+        .add_systems(Startup, (center_primary_window, setup_canvas).chain())
+        .add_systems(
+            PreUpdate,
+            update_canvas_scale.before(PickingSystems::Backend),
+        )
         .add_systems(OnEnter(GameScreen::Title), setup_title_screen)
         .add_systems(OnExit(GameScreen::Title), despawn_campaign_screen)
         .add_systems(

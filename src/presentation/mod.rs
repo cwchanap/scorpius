@@ -2,9 +2,13 @@ pub mod assets;
 pub mod battlefield;
 pub mod campaign_ui;
 pub mod interaction;
+pub mod layout;
 pub mod playback;
 pub mod sync;
+pub mod theme;
 pub mod ui;
+
+pub use layout::{CanvasRoot, ViewportRoot};
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -37,6 +41,10 @@ pub struct CellVisual(pub GridPos);
 
 #[derive(Component)]
 pub struct PresentationRoot;
+
+/// Ownership marker for the active campaign screen's UI camera.
+#[derive(Component)]
+pub struct CampaignCamera;
 
 #[derive(Component)]
 pub(crate) struct PresentationNeedsRebuild;

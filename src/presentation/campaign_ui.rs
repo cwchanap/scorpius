@@ -13,7 +13,7 @@ use crate::campaign::session::{FlowError, continue_game, persist_purchase, start
 use crate::mission::{DialogueScene, MissionDefinition, MissionId, mission_definition};
 use crate::presentation::CampaignRuntime;
 
-use super::ActiveMission;
+use super::{ActiveMission, CampaignCamera, CanvasRoot, layout::spawn_canvas_root};
 
 /// Root of a campaign-flow screen (Title / pre-mission story / briefing /
 /// aftermath / upgrade / next-mission): despawned when the screen changes.
@@ -91,14 +91,16 @@ fn spawn_dialogue_screen(
     asset_server: &AssetServer,
     scene: &DialogueScene,
     advance_action: CampaignUiAction,
+    canvas: Entity,
 ) -> Entity {
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
     let root = commands
         .spawn((
             Name::new("Dialogue Screen"),
             ScreenRoot,
             fullscreen_node(),
             Pickable::IGNORE,
+            ChildOf(canvas),
         ))
         .id();
     let opening = dialogue_snapshot(scene, DialogueCursor(0));
@@ -193,6 +195,7 @@ pub fn setup_title_screen(
     mut commands: Commands,
     runtime: Res<CampaignRuntime>,
     mut status: ResMut<CampaignStatus>,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     status.0.clear();
     let continue_enabled = match runtime.0.save.load() {
@@ -203,7 +206,11 @@ pub fn setup_title_screen(
             false
         }
     };
-    commands.spawn(Camera2d);
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
+    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
     let root = commands
         .spawn((
             Name::new("Title Screen"),
@@ -211,6 +218,7 @@ pub fn setup_title_screen(
             fullscreen_node(),
             BackgroundColor(Color::srgb(0.012, 0.016, 0.028)),
             Pickable::IGNORE,
+            ChildOf(canvas),
         ))
         .id();
     commands.spawn((
@@ -403,13 +411,19 @@ pub fn setup_aftermath_screen(
     runtime: Res<CampaignRuntime>,
     active_mission: Res<ActiveMission>,
     mut cursor: ResMut<DialogueCursor>,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     *cursor = DialogueCursor(0);
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
     let root = spawn_dialogue_screen(
         &mut commands,
         &asset_server,
         &active_mission.0.aftermath,
         CampaignUiAction::AdvanceAftermath,
+        canvas,
     );
     commands.spawn((
         Text::new(aftermath_reward_copy(runtime.0.last_completion)),
@@ -429,9 +443,17 @@ pub fn setup_aftermath_screen(
     ));
 }
 
-pub fn setup_upgrade_screen(mut commands: Commands, mut status: ResMut<CampaignStatus>) {
+pub fn setup_upgrade_screen(
+    mut commands: Commands,
+    mut status: ResMut<CampaignStatus>,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
+) {
     status.0.clear();
-    commands.spawn(Camera2d);
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
+    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
     let root = commands
         .spawn((
             Name::new("Upgrade Screen"),
@@ -439,6 +461,7 @@ pub fn setup_upgrade_screen(mut commands: Commands, mut status: ResMut<CampaignS
             fullscreen_node(),
             BackgroundColor(Color::srgb(0.014, 0.02, 0.032)),
             Pickable::IGNORE,
+            ChildOf(canvas),
         ))
         .id();
     commands.spawn((
@@ -616,8 +639,16 @@ pub fn update_upgrade_screen(
     }
 }
 
-pub fn setup_ending_screen(mut commands: Commands, runtime: Res<CampaignRuntime>) {
-    commands.spawn(Camera2d);
+pub fn setup_ending_screen(
+    mut commands: Commands,
+    runtime: Res<CampaignRuntime>,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
+) {
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
+    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
     let root = commands
         .spawn((
             Name::new("Ending Screen"),
@@ -625,6 +656,7 @@ pub fn setup_ending_screen(mut commands: Commands, runtime: Res<CampaignRuntime>
             fullscreen_node(),
             BackgroundColor(Color::srgb(0.012, 0.016, 0.028)),
             Pickable::IGNORE,
+            ChildOf(canvas),
         ))
         .id();
     commands.spawn((
@@ -669,24 +701,38 @@ pub fn setup_pre_mission_story(
     asset_server: Res<AssetServer>,
     runtime: Res<CampaignRuntime>,
     mut cursor: ResMut<DialogueCursor>,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     *cursor = DialogueCursor(0);
     let Some(definition) = active_definition(&runtime) else {
         return;
     };
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
     spawn_dialogue_screen(
         &mut commands,
         &asset_server,
         &definition.pre_mission,
         CampaignUiAction::AdvanceDialogue,
+        canvas,
     );
 }
 
-pub fn setup_briefing_screen(mut commands: Commands, runtime: Res<CampaignRuntime>) {
+pub fn setup_briefing_screen(
+    mut commands: Commands,
+    runtime: Res<CampaignRuntime>,
+    canvas_roots: Query<Entity, With<CanvasRoot>>,
+) {
     let Some(definition) = active_definition(&runtime) else {
         return;
     };
-    commands.spawn(Camera2d);
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
+    commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
     let root = commands
         .spawn((
             Name::new("Briefing Screen"),
@@ -694,6 +740,7 @@ pub fn setup_briefing_screen(mut commands: Commands, runtime: Res<CampaignRuntim
             fullscreen_node(),
             BackgroundColor(Color::srgb(0.014, 0.02, 0.032)),
             Pickable::IGNORE,
+            ChildOf(canvas),
         ))
         .id();
     commands.spawn((
@@ -740,12 +787,13 @@ pub fn setup_briefing_screen(mut commands: Commands, runtime: Res<CampaignRuntim
     );
 }
 
-/// Shared campaign-screen cleanup: despawn the leaving screen's UI root and its
-/// 2D camera. Never touches `PresentationRoot` or the battle camera.
+/// Shared campaign-screen cleanup: despawn the leaving screen's owned UI root
+/// and camera. The explicit marker keeps one screen from touching another's
+/// camera during transitions.
 #[allow(clippy::type_complexity)]
 pub fn despawn_campaign_screen(
     mut commands: Commands,
-    screens: Query<Entity, Or<(With<ScreenRoot>, With<Camera2d>)>>,
+    screens: Query<Entity, Or<(With<ScreenRoot>, With<CampaignCamera>)>>,
 ) {
     for entity in &screens {
         commands.entity(entity).try_despawn();

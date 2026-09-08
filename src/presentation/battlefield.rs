@@ -88,6 +88,7 @@ pub fn setup_mission_scene(
     commands.spawn((
         Camera3d::default(),
         MeshPickingCamera,
+        UiPickingCamera,
         Projection::from(OrthographicProjection {
             scaling_mode: ScalingMode::FixedVertical {
                 viewport_height: 12.8,
