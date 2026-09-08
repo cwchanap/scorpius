@@ -11,12 +11,13 @@ use crate::domain::{
 use crate::mission::MissionDefinition;
 
 use super::{
-    ActiveMission, BattleRuntime, EventPlayback,
+    ActiveMission, BattleRuntime, CanvasRoot, EventPlayback,
     assets::{AssetLoadStatus, MISSION_ONE_GLTF_DISPLAY_PATH},
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
         on_command_button_click,
     },
+    layout::spawn_canvas_root,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -341,7 +342,11 @@ pub(crate) enum CommandButtonLabel {
     Pilot,
 }
 
-pub fn setup_mission_ui(mut commands: Commands) {
+pub fn setup_mission_ui(mut commands: Commands, canvas_roots: Query<Entity, With<CanvasRoot>>) {
+    let canvas = canvas_roots
+        .iter()
+        .next()
+        .unwrap_or_else(|| spawn_canvas_root(&mut commands));
     let root = commands
         .spawn((
             HudRoot,
@@ -352,6 +357,7 @@ pub fn setup_mission_ui(mut commands: Commands) {
                 ..default()
             },
             Pickable::IGNORE,
+            ChildOf(canvas),
         ))
         .id();
 
