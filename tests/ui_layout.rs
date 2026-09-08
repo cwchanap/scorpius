@@ -1,9 +1,22 @@
 use bevy::{
-    picking::PickingSystems,
-    prelude::{
-        App, ChildOf, Entity, IntoScheduleConfigs, Node, Rect, Startup, UiPickingSettings, UiScale,
-        Val, Vec2, Window,
+    app::{Startup, TaskPoolPlugin},
+    asset::AssetPlugin,
+    camera::{Camera2d, RenderTarget, RenderTargetInfo, Viewport},
+    image::{ImagePlugin, TextureAtlasPlugin},
+    input::InputPlugin,
+    picking::{
+        PickingSystems,
+        hover::HoverMap,
+        pointer::{Location, PointerAction, PointerId, PointerInput},
+        prelude::{InteractionPlugin, Pickable, PickingPlugin},
     },
+    prelude::{
+        App, ChildOf, Component, Entity, IntoScheduleConfigs, Node, Query, Rect, TransformPlugin,
+        UiPickingSettings, UiScale, Val, Vec2, Window, With,
+    },
+    text::TextPlugin,
+    time::TimePlugin,
+    ui::{UiPlugin, prelude::UiPickingCamera},
     window::PrimaryWindow,
 };
 use scorpius::{
@@ -17,14 +30,73 @@ use scorpius::{
 
 #[test]
 fn all_screens_share_one_letterbox_transform() {
+    for (window_size, expected_scale, expected_offset) in [
+        (Vec2::new(1280.0, 720.0), 2.0 / 3.0, Vec2::ZERO),
+        (Vec2::new(1600.0, 900.0), 5.0 / 6.0, Vec2::ZERO),
+        (Vec2::new(1600.0, 1000.0), 5.0 / 6.0, Vec2::new(0.0, 50.0)),
+    ] {
+        let fit = CanvasLayout::fit(window_size);
+        assert!((fit.scale - expected_scale).abs() < 0.00001);
+        assert!((fit.offset - expected_offset).length() < 0.001);
+    }
     let fit = CanvasLayout::fit(Vec2::new(1600.0, 1000.0));
-    assert!((fit.scale - 5.0 / 6.0).abs() < 0.00001);
-    assert!((fit.offset - Vec2::new(0.0, 50.0)).length() < 0.001);
     assert!(fit.to_design(Vec2::new(800.0, 10.0)).is_none());
     assert!(
         (fit.to_design(Vec2::new(800.0, 500.0)).unwrap() - Vec2::new(960.0, 540.0)).length()
             < 0.001
     );
+}
+
+#[derive(Component)]
+struct StageProbe;
+
+fn setup_headless_ui_stage(mut commands: bevy::prelude::Commands) {
+    let canvas = scorpius::presentation::layout::spawn_canvas_root(&mut commands);
+    commands.spawn((
+        StageProbe,
+        Pickable::default(),
+        bevy::prelude::InheritedVisibility::VISIBLE,
+        Node {
+            width: Val::Px(300.0),
+            height: Val::Px(200.0),
+            position_type: bevy::prelude::PositionType::Absolute,
+            left: Val::Px(100.0),
+            top: Val::Px(100.0),
+            ..Default::default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
+fn sync_headless_camera_to_window(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cameras: Query<&mut bevy::prelude::Camera, With<UiPickingCamera>>,
+) {
+    let Some(window) = windows.iter().next() else {
+        return;
+    };
+    let size = window.resolution.physical_size();
+    for mut camera in &mut cameras {
+        camera.computed.target_info = Some(RenderTargetInfo {
+            physical_size: size,
+            scale_factor: window.scale_factor(),
+        });
+        camera.viewport = Some(Viewport {
+            physical_size: size,
+            ..Default::default()
+        });
+    }
+}
+
+fn send_headless_pointer_move(app: &mut App, window: Entity, position: Vec2) {
+    let target = RenderTarget::Window(bevy::window::WindowRef::Entity(window))
+        .normalize(Some(window))
+        .expect("headless test window should normalize");
+    app.world_mut().write_message(PointerInput::new(
+        PointerId::Mouse,
+        Location { target, position },
+        PointerAction::Move { delta: Vec2::ZERO },
+    ));
 }
 
 #[test]
@@ -129,14 +201,34 @@ fn shared_canvas_is_fixed_and_centered_by_the_viewport_root() {
 #[test]
 fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
     let mut app = App::new();
-    app.init_resource::<UiScale>()
-        .insert_resource(UiPickingSettings {
-            require_markers: true,
-        })
-        .add_systems(
-            bevy::app::PreUpdate,
-            update_canvas_scale.before(PickingSystems::Backend),
-        );
+    app.add_plugins((
+        TaskPoolPlugin::default(),
+        AssetPlugin::default(),
+        ImagePlugin::default(),
+        TextureAtlasPlugin,
+        InputPlugin,
+        TimePlugin,
+        TransformPlugin,
+        TextPlugin,
+        UiPlugin,
+        PickingPlugin,
+        InteractionPlugin,
+    ))
+    .init_resource::<UiScale>()
+    .insert_resource(UiPickingSettings {
+        require_markers: true,
+    })
+    .add_systems(
+        bevy::app::PreUpdate,
+        sync_headless_camera_to_window
+            .before(update_canvas_scale)
+            .before(PickingSystems::Backend),
+    )
+    .add_systems(
+        bevy::app::PreUpdate,
+        update_canvas_scale.before(PickingSystems::Backend),
+    )
+    .add_systems(Startup, setup_headless_ui_stage);
     let window = app
         .world_mut()
         .spawn((
@@ -147,16 +239,47 @@ fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
             PrimaryWindow,
         ))
         .id();
+    let camera = app.world_mut().spawn((Camera2d, UiPickingCamera)).id();
+    let pointer = app.world_mut().spawn(PointerId::Mouse).id();
 
+    // The first update lays out the fixed canvas and stage on the synthetic camera.
     app.update();
-    let design_cell = GridPos::new(4, 7);
     let initial_fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
-    let initial_window_point = initial_fit.offset
-        + (iso_center(design_cell) - battle_stage_rect().min) * initial_fit.scale;
     assert_eq!(app.world().resource::<UiScale>().0, 1.0);
-    assert_eq!(
-        grid_from_stage_point((initial_window_point - initial_fit.offset) / initial_fit.scale),
-        Some(design_cell)
+    let stage = app
+        .world_mut()
+        .query_filtered::<Entity, With<StageProbe>>()
+        .single(app.world())
+        .expect("one stage probe");
+    let canvas = app.world().get::<ChildOf>(stage).unwrap().parent();
+    assert!(app.world().get::<CanvasRoot>(canvas).is_some());
+    assert!(
+        app.world()
+            .get::<bevy::prelude::ComputedNode>(stage)
+            .unwrap()
+            .size
+            .x
+            > 0.0
+    );
+    assert!(
+        app.world()
+            .get::<bevy::prelude::ComputedNode>(stage)
+            .unwrap()
+            .size
+            .y
+            > 0.0
+    );
+    assert!(app.world().get_entity(camera).is_ok());
+    assert!(app.world().get_entity(pointer).is_ok());
+
+    let initial_window_point = initial_fit.offset + Vec2::new(250.0, 200.0) * initial_fit.scale;
+    send_headless_pointer_move(&mut app, window, initial_window_point);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<HoverMap>()
+            .get(&PointerId::Mouse)
+            .is_some_and(|hits| hits.contains_key(&stage))
     );
 
     app.world_mut()
@@ -164,13 +287,18 @@ fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
         .unwrap()
         .resolution
         .set(1600.0, 1000.0);
-    app.update();
     let resized_fit = CanvasLayout::fit(Vec2::new(1600.0, 1000.0));
-    let resized_window_point = resized_fit.offset
-        + (iso_center(design_cell) - battle_stage_rect().min) * resized_fit.scale;
+    let resized_window_point = resized_fit.offset + Vec2::new(250.0, 200.0) * resized_fit.scale;
+    send_headless_pointer_move(&mut app, window, resized_window_point);
+    app.update();
     assert_eq!(app.world().resource::<UiScale>().0, resized_fit.scale);
-    assert_eq!(
-        grid_from_stage_point((resized_window_point - resized_fit.offset) / resized_fit.scale),
-        Some(design_cell)
+    // Layout refreshes in PostUpdate, so the next frame's backend consumes the resized geometry.
+    send_headless_pointer_move(&mut app, window, resized_window_point);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<HoverMap>()
+            .get(&PointerId::Mouse)
+            .is_some_and(|hits| hits.contains_key(&stage))
     );
 }

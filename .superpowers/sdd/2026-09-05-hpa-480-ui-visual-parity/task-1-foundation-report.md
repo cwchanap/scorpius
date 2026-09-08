@@ -94,8 +94,65 @@ The unknown untracked file `0` was excluded. No asset file was edited.
 - The resize test runs the real `PreUpdate` scale system with the required
   picking ordering and verifies the same stage-local cell after resizing, but
   remains headless and does not produce a native pointer screenshot.
-- The two pre-existing local `text_font` helpers in `ui.rs` and
-  `campaign_ui.rs` remain until the screen/theme cutover. The new exact-face
-  helper and asset readiness path are in `theme.rs`; migrating those legacy
-  call sites belongs with the later screen cutover and was intentionally kept
-  outside this foundation-only scope.
+- At the initial foundation checkpoint, the two local `text_font` helpers in
+  `ui.rs` and `campaign_ui.rs` still used Bevy defaults. The review-fix round
+  below supersedes that interim state and routes their live call sites through
+  the exact-face theme helper.
+
+## Review-fix round
+
+Date: 2026-09-07. Review base: `48424b3`, with corrected asset checkpoint
+`c546c87`.
+
+The review findings are resolved within the foundation scope:
+
+- Live campaign, battle HUD, and playback text now receive the one `UiAssets`
+  font handle set and route through `theme::text_font`/`theme::chakra_petch`.
+  The theme module is the only production location that constructs a
+  `TextFont`; `UiAssets::from_world` remains the only bundled font loading
+  model, so the exact face and weight cannot drift through a second
+  `AssetServer::load` path.
+- `teardown_battle_screen` filters the existing `BattleCamera` marker instead
+  of every `Camera`. The focused `battle_teardown_preserves_unowned_cameras`
+  test removes the battle camera and preserves an unrelated camera.
+- `resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits` now
+  runs the real headless Bevy UI layout and picking backend. It lays out a
+  `Node` stage under the production `CanvasRoot`, drives a synthetic pointer
+  through `HoverMap`, resizes the test window from 1920x1080 to 1600x1000,
+  refreshes `UiScale` before picking, and proves the same stage remains hit
+  after the resized layout is available. No renderer/window startup or Task 3
+  3D cutover was added.
+- Added the pure fit-size pins for 1280x720 and 1600x900 alongside the existing
+  1600x1000 letterbox case.
+
+TDD/verification evidence: the focused resize and ownership tests were added
+as regression seams and iterated against the actual Bevy resource and
+visibility requirements. The initial minimal fixture exposed Bevy's missing
+asset/input resource panic; adding only the concrete `UiPlugin` prerequisites
+resolved it. The first pointer pass also exposed the missing visibility
+component in the renderer-free fixture; an explicit visible stage marker then
+made the backend hit observable. Final command output is recorded in
+`docs/validation/hpa-480.md` and below:
+
+```text
+rtk cargo fmt --check
+PASS (exit 0)
+
+rtk cargo test --test ui_layout
+PASS — 8 passed, 0 failed
+
+rtk cargo test --test presentation_app
+PASS — 23 passed, 0 failed
+
+rtk cargo test --all-targets
+PASS — 258 passed, 0 failed (7 suites)
+
+rtk cargo clippy --all-targets --all-features -- -D warnings
+PASS — no issues found (exit 0)
+```
+
+The native gate remains explicitly pending: the Mac was locked, so no
+`cargo run`, title screenshot, battle screenshot, or live pointer observation
+was available. The validation document records this as an unobserved visual
+proof requirement for the coordinator after unlock. The unknown untracked
+file `0` and all asset files remain excluded from this fix.

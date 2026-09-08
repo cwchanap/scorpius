@@ -13,7 +13,9 @@ use crate::campaign::session::{FlowError, continue_game, persist_purchase, start
 use crate::mission::{DialogueScene, MissionDefinition, MissionId, mission_definition};
 use crate::presentation::CampaignRuntime;
 
-use super::{ActiveMission, CampaignCamera, CanvasRoot, layout::spawn_canvas_root};
+use super::{
+    ActiveMission, CampaignCamera, CanvasRoot, assets::UiAssets, layout::spawn_canvas_root, theme,
+};
 
 /// Root of a campaign-flow screen (Title / pre-mission story / briefing /
 /// aftermath / upgrade / next-mission): despawned when the screen changes.
@@ -92,6 +94,7 @@ fn spawn_dialogue_screen(
     scene: &DialogueScene,
     advance_action: CampaignUiAction,
     canvas: Entity,
+    fonts: &theme::FontHandles,
 ) -> Entity {
     commands.spawn((Camera2d, CampaignCamera, UiPickingCamera));
     let root = commands
@@ -133,7 +136,7 @@ fn spawn_dialogue_screen(
     ));
     commands.spawn((
         Text::new(opening.speaker),
-        text_font(21.0),
+        text_font(fonts, 21.0),
         TextColor(Color::srgb(1.0, 0.82, 0.46)),
         Node {
             position_type: PositionType::Absolute,
@@ -160,7 +163,7 @@ fn spawn_dialogue_screen(
     ));
     commands.spawn((
         Text::new(opening.text),
-        text_font(16.0),
+        text_font(fonts, 16.0),
         TextColor(Color::srgb(0.9, 0.94, 0.98)),
         Node {
             position_type: PositionType::Absolute,
@@ -179,6 +182,7 @@ fn spawn_dialogue_screen(
         advance_action,
         "CONTINUE",
         true,
+        fonts,
         Node {
             position_type: PositionType::Absolute,
             right: px(44),
@@ -195,6 +199,7 @@ pub fn setup_title_screen(
     mut commands: Commands,
     runtime: Res<CampaignRuntime>,
     mut status: ResMut<CampaignStatus>,
+    ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     status.0.clear();
@@ -223,7 +228,7 @@ pub fn setup_title_screen(
         .id();
     commands.spawn((
         Text::new("SCORPIUS"),
-        text_font(76.0),
+        text_font(&ui_assets.fonts, 76.0),
         TextColor(Color::srgb(0.78, 0.92, 1.0)),
         TextLayout::justify(Justify::Center),
         Node {
@@ -237,7 +242,7 @@ pub fn setup_title_screen(
     ));
     commands.spawn((
         Text::new("// SQUAD-LEVEL TURN-BASED TACTICS"),
-        text_font(15.0),
+        text_font(&ui_assets.fonts, 15.0),
         TextColor(Color::srgb(0.5, 0.62, 0.72)),
         TextLayout::justify(Justify::Center),
         Node {
@@ -271,6 +276,7 @@ pub fn setup_title_screen(
         CampaignUiAction::NewGame,
         "NEW GAME",
         true,
+        &ui_assets.fonts,
         Node {
             width: px(300),
             height: px(50),
@@ -283,6 +289,7 @@ pub fn setup_title_screen(
         CampaignUiAction::Continue,
         "CONTINUE",
         continue_enabled,
+        &ui_assets.fonts,
         Node {
             width: px(300),
             height: px(50),
@@ -291,7 +298,7 @@ pub fn setup_title_screen(
     );
     commands.spawn((
         Text::new(status.0.clone()),
-        text_font(14.0),
+        text_font(&ui_assets.fonts, 14.0),
         TextColor(Color::srgb(1.0, 0.42, 0.36)),
         TextLayout::justify(Justify::Center),
         Node {
@@ -411,6 +418,7 @@ pub fn setup_aftermath_screen(
     runtime: Res<CampaignRuntime>,
     active_mission: Res<ActiveMission>,
     mut cursor: ResMut<DialogueCursor>,
+    ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     *cursor = DialogueCursor(0);
@@ -424,10 +432,11 @@ pub fn setup_aftermath_screen(
         &active_mission.0.aftermath,
         CampaignUiAction::AdvanceAftermath,
         canvas,
+        &ui_assets.fonts,
     );
     commands.spawn((
         Text::new(aftermath_reward_copy(runtime.0.last_completion)),
-        text_font(15.0),
+        text_font(&ui_assets.fonts, 15.0),
         TextColor(Color::srgb(0.78, 0.92, 1.0)),
         Node {
             position_type: PositionType::Absolute,
@@ -446,6 +455,7 @@ pub fn setup_aftermath_screen(
 pub fn setup_upgrade_screen(
     mut commands: Commands,
     mut status: ResMut<CampaignStatus>,
+    ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     status.0.clear();
@@ -466,7 +476,7 @@ pub fn setup_upgrade_screen(
         .id();
     commands.spawn((
         Text::new("// HANGAR — SQUAD UPGRADES"),
-        text_font(24.0),
+        text_font(&ui_assets.fonts, 24.0),
         TextColor(Color::srgb(1.0, 0.82, 0.46)),
         Node {
             position_type: PositionType::Absolute,
@@ -479,7 +489,7 @@ pub fn setup_upgrade_screen(
     ));
     commands.spawn((
         Text::new(String::new()),
-        text_font(20.0),
+        text_font(&ui_assets.fonts, 20.0),
         TextColor(Color::srgb(0.78, 0.92, 1.0)),
         Node {
             position_type: PositionType::Absolute,
@@ -509,7 +519,7 @@ pub fn setup_upgrade_screen(
     for (mech, mech_label) in MECHS {
         commands.spawn((
             Text::new(mech_label),
-            text_font(18.0),
+            text_font(&ui_assets.fonts, 18.0),
             TextColor(Color::srgb(0.82, 0.94, 1.0)),
             Pickable::IGNORE,
             ChildOf(rows),
@@ -542,7 +552,7 @@ pub fn setup_upgrade_screen(
                 .id();
             commands.spawn((
                 Text::new(String::new()),
-                text_font(14.0),
+                text_font(&ui_assets.fonts, 14.0),
                 TextColor(Color::srgb(0.85, 0.9, 0.95)),
                 Node {
                     width: px(520),
@@ -558,6 +568,7 @@ pub fn setup_upgrade_screen(
                 CampaignUiAction::PurchaseUpgrade(mech, track),
                 "BUY",
                 true,
+                &ui_assets.fonts,
                 Node {
                     width: px(90),
                     height: px(30),
@@ -572,6 +583,7 @@ pub fn setup_upgrade_screen(
         CampaignUiAction::Proceed,
         "PROCEED",
         true,
+        &ui_assets.fonts,
         Node {
             position_type: PositionType::Absolute,
             left: px(28),
@@ -583,7 +595,7 @@ pub fn setup_upgrade_screen(
     );
     commands.spawn((
         Text::new(String::new()),
-        text_font(14.0),
+        text_font(&ui_assets.fonts, 14.0),
         TextColor(Color::srgb(1.0, 0.42, 0.36)),
         Node {
             position_type: PositionType::Absolute,
@@ -642,6 +654,7 @@ pub fn update_upgrade_screen(
 pub fn setup_ending_screen(
     mut commands: Commands,
     runtime: Res<CampaignRuntime>,
+    ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     let canvas = canvas_roots
@@ -667,7 +680,7 @@ pub fn setup_ending_screen(
                 .as_ref()
                 .map_or_else(String::new, ending_copy),
         ),
-        text_font(20.0),
+        text_font(&ui_assets.fonts, 20.0),
         TextColor(Color::srgb(0.85, 0.9, 0.95)),
         Node {
             position_type: PositionType::Absolute,
@@ -685,6 +698,7 @@ pub fn setup_ending_screen(
         CampaignUiAction::ReturnToTitle,
         "RETURN TO TITLE",
         true,
+        &ui_assets.fonts,
         Node {
             position_type: PositionType::Absolute,
             left: px(28),
@@ -701,6 +715,7 @@ pub fn setup_pre_mission_story(
     asset_server: Res<AssetServer>,
     runtime: Res<CampaignRuntime>,
     mut cursor: ResMut<DialogueCursor>,
+    ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     *cursor = DialogueCursor(0);
@@ -717,12 +732,14 @@ pub fn setup_pre_mission_story(
         &definition.pre_mission,
         CampaignUiAction::AdvanceDialogue,
         canvas,
+        &ui_assets.fonts,
     );
 }
 
 pub fn setup_briefing_screen(
     mut commands: Commands,
     runtime: Res<CampaignRuntime>,
+    ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     let Some(definition) = active_definition(&runtime) else {
@@ -745,7 +762,7 @@ pub fn setup_briefing_screen(
         .id();
     commands.spawn((
         Text::new("// MISSION BRIEFING"),
-        text_font(22.0),
+        text_font(&ui_assets.fonts, 22.0),
         TextColor(Color::srgb(1.0, 0.82, 0.46)),
         Node {
             position_type: PositionType::Absolute,
@@ -758,7 +775,7 @@ pub fn setup_briefing_screen(
     ));
     commands.spawn((
         Text::new(briefing_copy(definition)),
-        text_font(17.0),
+        text_font(&ui_assets.fonts, 17.0),
         TextColor(Color::srgb(0.85, 0.9, 0.95)),
         Node {
             position_type: PositionType::Absolute,
@@ -776,6 +793,7 @@ pub fn setup_briefing_screen(
         CampaignUiAction::StartMission,
         "START MISSION",
         true,
+        &ui_assets.fonts,
         Node {
             position_type: PositionType::Absolute,
             left: px(28),
@@ -989,6 +1007,7 @@ fn spawn_action_button(
     action: CampaignUiAction,
     label: &str,
     enabled: bool,
+    fonts: &theme::FontHandles,
     node: Node,
 ) {
     let button = commands
@@ -1012,7 +1031,7 @@ fn spawn_action_button(
         .id();
     commands.spawn((
         Text::new(label),
-        text_font(17.0),
+        text_font(fonts, 17.0),
         TextColor(if enabled {
             Color::srgb(0.88, 0.94, 1.0)
         } else {
@@ -1032,11 +1051,8 @@ fn fullscreen_node() -> Node {
     }
 }
 
-fn text_font(size: f32) -> TextFont {
-    TextFont {
-        font_size: FontSize::Px(size),
-        ..default()
-    }
+fn text_font(fonts: &theme::FontHandles, size: f32) -> TextFont {
+    theme::chakra_petch(fonts, size, FontWeight::NORMAL)
 }
 
 #[cfg(test)]

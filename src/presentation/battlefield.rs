@@ -46,7 +46,7 @@ impl BattlefieldVisualAssets {
 }
 
 #[derive(Component, Clone, Copy)]
-pub(crate) struct BattleCamera {
+pub struct BattleCamera {
     pub rest: Transform,
 }
 
