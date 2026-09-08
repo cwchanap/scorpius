@@ -619,6 +619,7 @@ mod tests {
 
     use super::*;
     use crate::campaign::model::CampaignState;
+    use crate::campaign::progression::CompletionReceipt;
     use crate::campaign::save::SaveFile;
     use crate::campaign::session::CampaignSession;
     use crate::domain::combat::DamageSource;
@@ -727,6 +728,50 @@ mod tests {
         assert_eq!(active_mission.0.id, MissionId::One);
         assert_eq!(pending(&next), Some(GameScreen::Aftermath));
         assert_eq!(status.0, "Campaign progress saved.");
+    }
+
+    #[test]
+    fn pending_continue_victory_preserves_campaign_state_receipt_and_disk_bytes() {
+        let path = temp_save_path("continue-pending");
+        let state = CampaignState::new_game();
+        let save = SaveFile::new(path.clone());
+        save.store(&state).unwrap();
+        let receipt = CompletionReceipt {
+            mission: MissionId::One,
+            base_reward: 300,
+            optional_reward: 100,
+            total_reward: 400,
+            credits_after: 400,
+        };
+        let mut runtime = CampaignRuntime(CampaignSession {
+            state: Some(state),
+            save,
+            last_completion: Some(receipt),
+        });
+        let before_state = runtime.0.state.clone();
+        let before_receipt = runtime.0.last_completion;
+        let before_bytes = std::fs::read(&path).unwrap();
+        let mut battle = terminal_victory_battle();
+        let before_result = battle.result();
+        let active_mission = ActiveMission(mission_definition(MissionId::One).unwrap());
+        let mut status = StatusMessage("ready".into());
+        let before_status = status.0.clone();
+        let mut next = NextState::Pending(GameScreen::Aftermath);
+
+        run_continue(
+            &mut battle,
+            &mut runtime,
+            &active_mission,
+            &mut status,
+            &mut next,
+        );
+
+        assert_eq!(battle.result(), before_result);
+        assert_eq!(runtime.0.state, before_state);
+        assert_eq!(runtime.0.last_completion, before_receipt);
+        assert_eq!(std::fs::read(&path).unwrap(), before_bytes);
+        assert_eq!(status.0, before_status);
+        assert_eq!(pending(&next), Some(GameScreen::Aftermath));
     }
 
     #[test]

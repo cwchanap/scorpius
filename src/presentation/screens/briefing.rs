@@ -165,6 +165,7 @@ fn spawn_briefing_art(
                 flex_grow: 1.0,
                 position_type: PositionType::Relative,
                 min_width: px(0),
+                overflow: Overflow::clip(),
                 ..default()
             },
             Pickable::IGNORE,
@@ -175,7 +176,14 @@ fn spawn_briefing_art(
         commands,
         art,
         assets.briefing_art.clone(),
-        super::shared::fullscreen_node(),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(-75),
+            right: px(-75),
+            top: px(0),
+            bottom: px(0),
+            ..default()
+        },
     );
     commands.spawn((
         Node {
