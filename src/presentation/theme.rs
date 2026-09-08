@@ -26,13 +26,24 @@ pub const PLAYER: Color = Color::srgb_u8(143, 224, 196);
 pub const ENEMY: Color = Color::srgb_u8(255, 107, 92);
 pub const TEXT: Color = Color::srgb_u8(226, 236, 245);
 pub const MUTED: Color = Color::srgb_u8(109, 130, 153);
+pub const BOARD_LIGHT: Color = Color::srgb_u8(35, 58, 78);
+pub const BOARD_DARK: Color = Color::srgb_u8(16, 30, 47);
+pub const BOARD_REACHABLE: Color = Color::srgb_u8(20, 87, 108);
+pub const BOARD_SELECTED: Color = Color::srgb_u8(62, 199, 219);
+pub const BOARD_ATTACK: Color = Color::srgb_u8(255, 209, 117);
+pub const BOARD_TELEGRAPH: Color = Color::srgba(1.0, 0.12, 0.1, 0.56);
+pub const BOARD_EXTRACTION: Color = Color::srgba(1.0, 0.82, 0.38, 0.75);
+pub const BOARD_HAZARD: Color = Color::srgba(1.0, 0.2, 0.14, 0.72);
+pub const BOARD_EXPLOSIVE: Color = Color::srgba(1.0, 0.62, 0.2, 0.9);
 
 pub const ICON_ATLAS_SIZE: UVec2 = UVec2::new(512, 512);
 pub const ICON_CELL_SIZE: Vec2 = Vec2::splat(64.0);
 pub const BOARD_ATLAS_SIZE: UVec2 = UVec2::new(336, 96);
 
 pub const BOARD_DIAMOND_RECT: Rect = Rect::new(0.0, 0.0, 112.0, 56.0);
-pub const BOARD_BLOCKER_RECT: Rect = Rect::new(112.0, 0.0, 224.0, 96.0);
+// The prism's visible geometry ends at TILE_HEIGHT / 2 + BLOCK_HEIGHT = 82px;
+// crop the transparent atlas tail so the UI node keeps the source dimensions.
+pub const BOARD_BLOCKER_RECT: Rect = Rect::new(112.0, 0.0, 224.0, 82.0);
 pub const BOARD_TOKEN_SHADOW_RECT: Rect = Rect::new(224.0, 0.0, 336.0, 96.0);
 
 /// The source atlas is packed in 64px cells. Keeping this conversion const
@@ -163,7 +174,7 @@ mod tests {
         assert_eq!(ICON_ATLAS_SIZE, UVec2::new(512, 512));
         assert_eq!(BOARD_ATLAS_SIZE, UVec2::new(336, 96));
         assert_eq!(BOARD_DIAMOND_RECT.size(), Vec2::new(112.0, 56.0));
-        assert_eq!(BOARD_BLOCKER_RECT.size(), Vec2::new(112.0, 96.0));
+        assert_eq!(BOARD_BLOCKER_RECT.size(), Vec2::new(112.0, 82.0));
         assert_eq!(BOARD_TOKEN_SHADOW_RECT.size(), Vec2::new(112.0, 96.0));
         assert_eq!(ICON_MOVE.size(), ICON_CELL_SIZE);
         for rect in [
