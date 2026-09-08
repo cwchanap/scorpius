@@ -117,7 +117,7 @@
   },
   "board_geometry_atlas": {
     "destination": "assets/ui/board.png",
-    "sha256": "5814cede1f4c90e282fcb5b75aba2c7b5e0adc466aa7dd0158410ecd82d74979",
+    "sha256": "a548ed6410a837c7662d7f6cb42f0e12b9baa32a8a668508ef5eb903f8a394b0",
     "primitive_slots": [
       "diamond-mask",
       "blocker-prism",
