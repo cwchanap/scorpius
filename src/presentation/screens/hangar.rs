@@ -143,7 +143,7 @@ pub fn setup_upgrade_screen(
         &mut commands,
         next,
         &ui_assets.icons,
-        theme::ICON_BACK,
+        theme::ICON_FORWARD_COMPACT,
         theme::ACCENT,
         36.0,
     );
@@ -227,7 +227,7 @@ fn spawn_mech_column(
             bottom: px(0),
             ..default()
         },
-        ImageNode::new(art),
+        ImageNode::new(art).with_mode(NodeImageMode::Auto),
         Pickable::IGNORE,
         ChildOf(art_panel),
     ));

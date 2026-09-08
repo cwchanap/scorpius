@@ -1644,6 +1644,99 @@ fn dialogue_skip_is_story_only_and_duplicate_transition_is_a_noop() {
     assert_eq!(pending(&next), Some(GameScreen::Briefing));
 }
 
+fn assert_pending_campaign_action_is_unchanged(
+    label: &str,
+    action: CampaignUiAction,
+    current_screen: GameScreen,
+    state: CampaignState,
+    cursor_position: usize,
+    pending_screen: GameScreen,
+) {
+    let path = temp_save_path(label);
+    let save = SaveFile::new(path.clone());
+    save.store(&state).unwrap();
+    let receipt = CompletionReceipt {
+        mission: MissionId::One,
+        base_reward: 300,
+        optional_reward: 100,
+        total_reward: 400,
+        credits_after: 400,
+    };
+    let mut runtime = CampaignRuntime(CampaignSession {
+        state: Some(state),
+        save,
+        last_completion: Some(receipt),
+    });
+    let before_state = runtime.0.state.clone();
+    let before_receipt = runtime.0.last_completion;
+    let before_bytes = std::fs::read(&path).unwrap();
+    let mut cursor = DialogueCursor(cursor_position);
+    let before_cursor = cursor;
+    let mut status = CampaignStatus("ready".into());
+    let before_status = status.clone();
+    let mut next = NextState::Pending(pending_screen);
+
+    apply_campaign_action_for_screen(
+        action,
+        current_screen,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+
+    assert_eq!(cursor, before_cursor, "{label}: cursor changed");
+    assert_eq!(runtime.0.state, before_state, "{label}: state changed");
+    assert_eq!(
+        runtime.0.last_completion, before_receipt,
+        "{label}: receipt changed"
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before_bytes,
+        "{label}: save changed"
+    );
+    assert_eq!(status, before_status, "{label}: status changed");
+    assert_eq!(
+        pending(&next),
+        Some(pending_screen),
+        "{label}: transition changed"
+    );
+}
+
+#[test]
+fn pending_campaign_actions_preserve_campaign_state_receipt_and_disk_bytes() {
+    assert_pending_campaign_action_is_unchanged(
+        "advance-last-line",
+        CampaignUiAction::AdvanceDialogue,
+        GameScreen::PreMissionStory,
+        CampaignState::new_game(),
+        2,
+        GameScreen::Briefing,
+    );
+    assert_pending_campaign_action_is_unchanged(
+        "skip-dialogue",
+        CampaignUiAction::SkipDialogue,
+        GameScreen::PreMissionStory,
+        CampaignState::new_game(),
+        0,
+        GameScreen::Briefing,
+    );
+    assert_pending_campaign_action_is_unchanged(
+        "proceed",
+        CampaignUiAction::Proceed,
+        GameScreen::Upgrade,
+        CampaignState {
+            next_mission: MissionId::Seven,
+            completed: true,
+            ..CampaignState::new_game()
+        },
+        0,
+        GameScreen::PreMissionStory,
+    );
+}
+
 #[test]
 fn ending_snapshot_announces_campaign_complete_state() {
     // The Ending screen is reachable only when the campaign is complete

@@ -61,6 +61,11 @@ pub const ICON_SKILL: Rect = icon_rect(60);
 pub const ICON_WAIT: Rect = icon_rect(61);
 pub const ICON_BACK: Rect = icon_rect(62);
 pub const ICON_SKIP: Rect = icon_rect(7);
+// Existing right-arrow atlas cells retain the source-sized padding used by
+// the two forward controls: slot 6 for 52px dialogue actions and slot 48 for
+// the compact 36px hangar action.
+pub const ICON_FORWARD: Rect = icon_rect(6);
+pub const ICON_FORWARD_COMPACT: Rect = icon_rect(48);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FontFamily {
@@ -175,6 +180,8 @@ mod tests {
             ICON_WAIT,
             ICON_BACK,
             ICON_SKIP,
+            ICON_FORWARD,
+            ICON_FORWARD_COMPACT,
         ] {
             assert!(rect.max.x <= ICON_ATLAS_SIZE.x as f32);
             assert!(rect.max.y <= ICON_ATLAS_SIZE.y as f32);

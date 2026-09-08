@@ -59,7 +59,7 @@ pub(crate) fn spawn_image(
     commands
         .spawn((
             node,
-            ImageNode::new(image),
+            ImageNode::new(image).with_mode(NodeImageMode::Auto),
             Pickable::IGNORE,
             ChildOf(parent),
         ))
@@ -302,7 +302,7 @@ pub(crate) fn spawn_dialogue_screen(
         advance_action,
         true,
         icons,
-        theme::ICON_BACK,
+        theme::ICON_FORWARD,
         accent,
         52.0,
         Node {

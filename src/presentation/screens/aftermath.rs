@@ -93,14 +93,6 @@ fn spawn_receipt_panel(
         commands,
         panel,
         assets,
-        "MISSION",
-        receipt.mission.to_string(),
-        theme::TEXT,
-    );
-    spawn_receipt_row(
-        commands,
-        panel,
-        assets,
         "BASE",
         receipt.base_reward.to_string(),
         theme::TEXT,
