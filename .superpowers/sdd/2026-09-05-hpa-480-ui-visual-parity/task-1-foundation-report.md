@@ -156,3 +156,35 @@ The native gate remains explicitly pending: the Mac was locked, so no
 was available. The validation document records this as an unobserved visual
 proof requirement for the coordinator after unlock. The unknown untracked
 file `0` and all asset files remain excluded from this fix.
+
+## Review-fix round 2
+
+Date: 2026-09-08. Scope is limited to the resize fixture, validation note, and
+this report appendix; no production or asset files changed.
+
+The backend-alignment finding is resolved in
+`resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits`:
+
+- The test stage now uses the authored 1008x764 battle-stage rectangle at
+  `(456, 204)`, and the pointer targets the known center of `GridPos(4, 7)`.
+- After each real `PickingSystems::Backend` pass, the test reads the actual
+  `HitData.position` for `StageProbe` from `HoverMap`. That normalized node-local
+  position is combined with the observed `ComputedNode.size`, adjusted by the
+  current `UiScale` to the fixed design-stage coordinate system, and passed to
+  production `grid_from_stage_point`.
+- Both the initial 1920x1080 frame and the resized 1600x1000 frame assert the
+  recovered cell is exactly `GridPos(4, 7)`. A generic stage hit with a shifted
+  cell therefore fails the test.
+
+Round 2 verification output:
+
+```text
+rtk cargo fmt --check
+PASS (exit 0)
+
+rtk cargo test --test ui_layout resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits
+PASS — 1 passed, 0 failed (7 filtered out)
+```
+
+Native title/battle proof remains pending because the Mac is locked. Unknown
+untracked file `0` remains untouched, and no asset file was edited.

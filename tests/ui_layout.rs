@@ -22,8 +22,8 @@ use bevy::{
 use scorpius::{
     domain::board::GridPos,
     presentation::layout::{
-        CanvasLayout, battle_stage_rect, grid_from_stage_point, iso_center, setup_canvas,
-        update_canvas_scale,
+        BATTLE_STAGE_SIZE, CanvasLayout, battle_stage_rect, grid_from_stage_point, iso_center,
+        setup_canvas, update_canvas_scale,
     },
     presentation::{CanvasRoot, ViewportRoot},
 };
@@ -57,15 +57,36 @@ fn setup_headless_ui_stage(mut commands: bevy::prelude::Commands) {
         Pickable::default(),
         bevy::prelude::InheritedVisibility::VISIBLE,
         Node {
-            width: Val::Px(300.0),
-            height: Val::Px(200.0),
+            width: Val::Px(BATTLE_STAGE_SIZE.x),
+            height: Val::Px(BATTLE_STAGE_SIZE.y),
             position_type: bevy::prelude::PositionType::Absolute,
-            left: Val::Px(100.0),
-            top: Val::Px(100.0),
+            left: Val::Px(battle_stage_rect().min.x),
+            top: Val::Px(battle_stage_rect().min.y),
             ..Default::default()
         },
         ChildOf(canvas),
     ));
+}
+
+fn hovered_stage_cell(app: &App, stage: Entity) -> GridPos {
+    let hit = app
+        .world()
+        .resource::<HoverMap>()
+        .get(&PointerId::Mouse)
+        .and_then(|hits| hits.get(&stage))
+        .expect("stage must be present in the UI picking hit map");
+    let normalized = hit
+        .position
+        .expect("UI picking hit must include normalized node-local position")
+        .truncate();
+    let node_size = app
+        .world()
+        .get::<bevy::prelude::ComputedNode>(stage)
+        .expect("stage must have computed UI geometry")
+        .size;
+    let node_local =
+        (normalized + Vec2::splat(0.5)) * node_size / app.world().resource::<UiScale>().0;
+    grid_from_stage_point(node_local).expect("stage hit must resolve to an authored grid cell")
 }
 
 fn sync_headless_camera_to_window(
@@ -272,15 +293,12 @@ fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
     assert!(app.world().get_entity(camera).is_ok());
     assert!(app.world().get_entity(pointer).is_ok());
 
-    let initial_window_point = initial_fit.offset + Vec2::new(250.0, 200.0) * initial_fit.scale;
+    let expected_cell = GridPos::new(4, 7);
+    let stage_design_point = iso_center(expected_cell);
+    let initial_window_point = initial_fit.offset + stage_design_point * initial_fit.scale;
     send_headless_pointer_move(&mut app, window, initial_window_point);
     app.update();
-    assert!(
-        app.world()
-            .resource::<HoverMap>()
-            .get(&PointerId::Mouse)
-            .is_some_and(|hits| hits.contains_key(&stage))
-    );
+    assert_eq!(hovered_stage_cell(&app, stage), expected_cell);
 
     app.world_mut()
         .get_mut::<Window>(window)
@@ -288,17 +306,12 @@ fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
         .resolution
         .set(1600.0, 1000.0);
     let resized_fit = CanvasLayout::fit(Vec2::new(1600.0, 1000.0));
-    let resized_window_point = resized_fit.offset + Vec2::new(250.0, 200.0) * resized_fit.scale;
+    let resized_window_point = resized_fit.offset + stage_design_point * resized_fit.scale;
     send_headless_pointer_move(&mut app, window, resized_window_point);
     app.update();
     assert_eq!(app.world().resource::<UiScale>().0, resized_fit.scale);
     // Layout refreshes in PostUpdate, so the next frame's backend consumes the resized geometry.
     send_headless_pointer_move(&mut app, window, resized_window_point);
     app.update();
-    assert!(
-        app.world()
-            .resource::<HoverMap>()
-            .get(&PointerId::Mouse)
-            .is_some_and(|hits| hits.contains_key(&stage))
-    );
+    assert_eq!(hovered_stage_cell(&app, stage), expected_cell);
 }
