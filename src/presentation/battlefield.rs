@@ -378,25 +378,27 @@ fn spawn_token(
         ChildOf(card),
     ));
 
+    let hp_bar = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(7.0),
+                top: px(8.0),
+                width: px(TOKEN_WIDTH - 14.0),
+                height: px(6.0),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(Color::srgb_u8(7, 16, 26)),
+            Pickable::IGNORE,
+            ChildOf(card),
+        ))
+        .id();
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            left: px(7.0),
-            right: px(7.0),
-            top: px(8.0),
-            height: px(6.0),
-            overflow: Overflow::clip(),
-            ..default()
-        },
-        BackgroundColor(Color::srgb_u8(7, 16, 26)),
-        Pickable::IGNORE,
-        ChildOf(card),
-    ));
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(7.0),
-            top: px(8.0),
+            left: px(0.0),
+            top: px(0.0),
             width: percent(100.0 * f32::from(unit.hp.max(0)) / f32::from(unit.stats.max_hp)),
             height: px(6.0),
             ..default()
@@ -408,7 +410,7 @@ fn spawn_token(
         }),
         TokenHpFill(unit.id),
         Pickable::IGNORE,
-        ChildOf(card),
+        ChildOf(hp_bar),
     ));
     commands.spawn((
         Text::new(unit.hp.to_string()),

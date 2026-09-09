@@ -253,11 +253,7 @@ pub fn on_battlefield_stage_out(
     _event: On<Pointer<Out>>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
-    playback: Res<EventPlayback>,
 ) {
-    if playback.input_locked {
-        return;
-    }
     interaction.hovered_cell = None;
     interaction.preview = None;
     preview_cells.0.clear();
@@ -323,12 +319,8 @@ pub fn on_battlefield_token_out(
     battle: Res<BattleRuntime>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
-    playback: Res<EventPlayback>,
 ) {
     event.propagate(false);
-    if playback.input_locked {
-        return;
-    }
     let Ok(token) = tokens.get(event.entity) else {
         return;
     };

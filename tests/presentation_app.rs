@@ -20,7 +20,7 @@ use scorpius::{
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
         CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, PresentationRoot,
-        TelegraphVisual, TokenFootprintVisual, TokenSelectionVisual, UnitVisual,
+        TelegraphVisual, TokenFootprintVisual, TokenHpFill, TokenSelectionVisual, UnitVisual,
         assets::UiAssets,
         battlefield::{mission_grid_cells, setup_mission_scene},
         interaction::{
@@ -29,7 +29,7 @@ use scorpius::{
         },
         sync::{
             apply_unit_transforms, reconcile_extraction_marker, reconcile_telegraph_markers,
-            sync_cell_highlights,
+            sync_cell_highlights, sync_token_cards,
         },
         theme,
         ui::{HudSnapshot, ObjectiveTrackSnapshot, result_overlay_copy},
@@ -229,6 +229,66 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
     assert_eq!(inset.1.height, px(50.0));
     assert_eq!(inset.2.color, theme::BOARD_LIGHT);
     assert_eq!(inset.3, &Pickable::IGNORE);
+}
+
+#[test]
+fn token_health_bar_clips_full_and_partial_fill_to_sixty_two_pixels() {
+    let mut full_app = App::new();
+    full_app
+        .insert_resource(BattleRuntime(mission_one(7)))
+        .insert_resource(blank_ui_assets())
+        .add_systems(Update, setup_mission_scene);
+    full_app.update();
+
+    let (full_width, full_left, full_parent) = {
+        let mut fills = full_app
+            .world_mut()
+            .query::<(&TokenHpFill, &Node, &ChildOf)>();
+        let (_, node, child) = fills
+            .iter(full_app.world())
+            .find(|(fill, ..)| fill.0 == ids::VANGUARD)
+            .expect("full-health Vanguard bar");
+        (node.width, node.left, child.parent())
+    };
+    let full_parent_node = full_app.world().get::<Node>(full_parent).unwrap();
+    assert_eq!(full_parent_node.width, px(62.0));
+    assert_eq!(full_parent_node.overflow, Overflow::clip());
+    assert_eq!(full_left, px(0.0));
+    assert_eq!(full_width, percent(100.0));
+
+    let mut partial_battle = mission_one(2);
+    partial_battle.begin_round().unwrap();
+    partial_battle.begin_activation(ids::VANGUARD).unwrap();
+    let striker_position = partial_battle.unit(ids::STRIKER).unwrap().position;
+    partial_battle
+        .attack(ids::VANGUARD, ids::REPULSOR_RAM, striker_position)
+        .unwrap();
+    assert_eq!(partial_battle.unit(ids::STRIKER).unwrap().hp, 9);
+
+    let mut partial_app = App::new();
+    partial_app
+        .insert_resource(BattleRuntime(partial_battle))
+        .insert_resource(blank_ui_assets())
+        .add_systems(Update, setup_mission_scene);
+    partial_app.update();
+    partial_app.add_systems(Update, sync_token_cards);
+    partial_app.update();
+
+    let (partial_width, partial_left, partial_parent) = {
+        let mut fills = partial_app
+            .world_mut()
+            .query::<(&TokenHpFill, &Node, &ChildOf)>();
+        let (_, node, child) = fills
+            .iter(partial_app.world())
+            .find(|(fill, ..)| fill.0 == ids::STRIKER)
+            .expect("partial-health Striker bar");
+        (node.width, node.left, child.parent())
+    };
+    let partial_parent_node = partial_app.world().get::<Node>(partial_parent).unwrap();
+    assert_eq!(partial_parent_node.width, px(62.0));
+    assert_eq!(partial_parent_node.overflow, Overflow::clip());
+    assert_eq!(partial_left, px(0.0));
+    assert_eq!(partial_width, percent(75.0));
 }
 
 #[test]
