@@ -22,6 +22,8 @@ use super::{
     layout::{BATTLE_STAGE_SIZE, grid_from_stage_point},
 };
 
+pub use super::battle_menu::MenuState;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum InteractionMode {
     #[default]
@@ -39,6 +41,7 @@ pub struct InteractionState {
     pub inspected_unit: Option<UnitId>,
     pub hovered_cell: Option<GridPos>,
     pub mode: InteractionMode,
+    pub menu: MenuState,
     pub preview: Option<AttackPreview>,
 }
 
@@ -91,6 +94,7 @@ pub fn route_cell_click(
             let unit = require_active_unit(battle)?;
             let events = battle.move_unit(unit, clicked)?;
             interaction.mode = InteractionMode::Inspect;
+            interaction.menu = MenuState::Root;
             interaction.hovered_cell = Some(clicked);
             interaction.preview = None;
             Ok(events)
@@ -99,6 +103,7 @@ pub fn route_cell_click(
             let unit = require_active_unit(battle)?;
             let events = battle.attack(unit, weapon, clicked)?;
             interaction.mode = InteractionMode::Inspect;
+            interaction.menu = MenuState::Root;
             interaction.hovered_cell = Some(clicked);
             interaction.preview = None;
             Ok(events)
@@ -109,6 +114,7 @@ pub fn route_cell_click(
                 .ok_or(BattleError::NoUnitSelected)?;
             battle.use_aegis(ally)?;
             interaction.mode = InteractionMode::Inspect;
+            interaction.menu = MenuState::Root;
             interaction.hovered_cell = Some(clicked);
             interaction.preview = None;
             Ok(Vec::new())
@@ -125,6 +131,7 @@ pub fn route_cell_click(
                         && !unit.is_knocked_out();
                     if should_begin {
                         battle.begin_activation(unit_id)?;
+                        interaction.menu = MenuState::Root;
                     }
                 }
                 set_inspected_unit(interaction, Some(unit_id));
@@ -366,6 +373,7 @@ pub(crate) fn on_command_button_click(
             preview_cells: &mut preview_cells,
             playback: &mut playback,
             restart_request: &mut restart_request,
+            asset_status: &asset_status,
         },
     );
 }
@@ -431,6 +439,7 @@ pub(crate) fn handle_keyboard_shortcuts(
             preview_cells: &mut preview_cells,
             playback: &mut playback,
             restart_request: &mut restart_request,
+            asset_status: &asset_status,
         },
     );
 }
@@ -446,6 +455,7 @@ struct CommandContext<'a> {
     preview_cells: &'a mut AttackPreviewCells,
     playback: &'a mut EventPlayback,
     restart_request: &'a mut RestartRequest,
+    asset_status: &'a AssetLoadStatus,
 }
 
 pub fn execute_command(
@@ -463,6 +473,7 @@ pub fn execute_command(
                 return Err(BattleError::MoveAlreadySpent(unit_id));
             }
             interaction.mode = InteractionMode::Move;
+            interaction.menu = MenuState::Hidden;
             interaction.preview = None;
             Ok(Vec::new())
         }
@@ -490,6 +501,7 @@ pub fn execute_command(
                 });
             }
             interaction.mode = InteractionMode::Attack(weapon_id);
+            interaction.menu = MenuState::Hidden;
             interaction.preview = interaction
                 .hovered_cell
                 .and_then(|cell| battle.preview_attack(unit_id, weapon_id, cell).ok());
@@ -503,10 +515,17 @@ pub fn execute_command(
             match unit.archetype {
                 UnitArchetype::Vanguard => {
                     interaction.mode = InteractionMode::AegisTarget;
+                    interaction.menu = MenuState::Hidden;
                     interaction.preview = None;
                 }
-                UnitArchetype::Gunner => battle.use_focus()?,
-                UnitArchetype::Interceptor => battle.use_overdrive()?,
+                UnitArchetype::Gunner => {
+                    battle.use_focus()?;
+                    interaction.menu = MenuState::Root;
+                }
+                UnitArchetype::Interceptor => {
+                    battle.use_overdrive()?;
+                    interaction.menu = MenuState::Root;
+                }
                 UnitArchetype::Rifleman
                 | UnitArchetype::Striker
                 | UnitArchetype::Artillery
@@ -523,14 +542,22 @@ pub fn execute_command(
         CommandAction::Reaction(reaction) => {
             let unit = require_active_unit(battle)?;
             battle.choose_reaction(unit, reaction)?;
+            interaction.menu = MenuState::Root;
             Ok(Vec::new())
         }
         CommandAction::FinishUnit => {
             let unit = require_active_unit(battle)?;
             battle.finish_activation(unit)?;
-            set_inspected_unit(interaction, None);
             interaction.mode = InteractionMode::Inspect;
             interaction.preview = None;
+            if let Some(next) = next_ready_unit(battle) {
+                battle.begin_activation(next)?;
+                set_inspected_unit(interaction, Some(next));
+                interaction.menu = MenuState::Root;
+            } else {
+                set_inspected_unit(interaction, None);
+                interaction.menu = MenuState::Hidden;
+            }
             Ok(Vec::new())
         }
         CommandAction::ResolveAttacks => {
@@ -538,11 +565,17 @@ pub fn execute_command(
             set_inspected_unit(interaction, None);
             interaction.hovered_cell = None;
             interaction.mode = InteractionMode::Inspect;
+            interaction.menu = MenuState::Hidden;
             interaction.preview = None;
             Ok(events)
         }
         CommandAction::Cancel => {
             interaction.mode = InteractionMode::Inspect;
+            interaction.menu = if battle.active_unit().is_some() {
+                MenuState::Root
+            } else {
+                MenuState::Hidden
+            };
             interaction.preview = None;
             Ok(Vec::new())
         }
@@ -574,6 +607,18 @@ pub fn execute_command(
 fn run_command(action: CommandAction, mut context: CommandContext<'_>) {
     if action == CommandAction::ContinueVictory {
         run_continue_victory(&mut context);
+        return;
+    }
+    if action == CommandAction::Restart
+        && !restart_allowed(
+            context.battle,
+            context.asset_status,
+            context.playback,
+            context.next_state,
+            context.restart_request.0.is_some(),
+        )
+    {
+        context.status.0 = "Restart is unavailable right now.".to_owned();
         return;
     }
     match execute_command(context.battle, context.interaction, action) {
@@ -623,6 +668,47 @@ fn require_active_unit(battle: &BattleState) -> Result<UnitId, BattleError> {
         });
     }
     battle.active_unit().ok_or(BattleError::NoUnitSelected)
+}
+
+/// Return the next living, unfinished player in the authored activation order.
+/// The fixed pilot order keeps hand-off stable even when map insertion order
+/// changes.
+pub fn next_ready_unit(battle: &BattleState) -> Option<UnitId> {
+    const ORDER: [UnitArchetype; 3] = [
+        UnitArchetype::Vanguard,
+        UnitArchetype::Gunner,
+        UnitArchetype::Interceptor,
+    ];
+    ORDER
+        .into_iter()
+        .find_map(|archetype| {
+            battle.units().find(|unit| {
+                unit.faction == Faction::Player
+                    && unit.archetype == archetype
+                    && !unit.is_knocked_out()
+                    && !unit.activation.finished
+            })
+        })
+        .map(|unit| unit.id)
+}
+
+/// Restart is available only while the authored mission is idle, after assets
+/// finish loading, with no playback or queued transition/request in flight.
+pub fn restart_allowed(
+    battle: &BattleState,
+    asset_status: &AssetLoadStatus,
+    playback: &EventPlayback,
+    next_state: &NextState<GameScreen>,
+    restart_pending: bool,
+) -> bool {
+    let idle_player = battle.phase() == BattlePhase::Player && battle.active_unit().is_none();
+    let defeat = battle.result().is_some_and(|result| !result.victory);
+    (idle_player || defeat)
+        && mission_assets_ready(asset_status)
+        && !playback.input_locked
+        && playback.current.is_none()
+        && !screen_transition_pending(next_state)
+        && !restart_pending
 }
 
 fn command_success_message(action: CommandAction, mode: InteractionMode) -> &'static str {
@@ -799,6 +885,7 @@ mod tests {
         let mut preview_cells = AttackPreviewCells::default();
         let mut playback = EventPlayback::default();
         let mut restart_request = RestartRequest::default();
+        let asset_status = AssetLoadStatus::Ready;
         run_command(
             CommandAction::ContinueVictory,
             CommandContext {
@@ -812,6 +899,7 @@ mod tests {
                 preview_cells: &mut preview_cells,
                 playback: &mut playback,
                 restart_request: &mut restart_request,
+                asset_status: &asset_status,
             },
         );
     }

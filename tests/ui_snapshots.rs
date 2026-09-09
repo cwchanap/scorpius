@@ -12,17 +12,24 @@ use scorpius::{
         save::SaveFile,
         session::CampaignSession,
     },
+    mission::mission_one::{ids, mission_one},
     mission::{MissionId, mission_definition},
     presentation::{
-        ActiveMission, CampaignCamera, CampaignRuntime, CanvasRoot,
+        ActiveMission, BattleRuntime, CampaignCamera, CampaignRuntime, CanvasRoot, EventPlayback,
         assets::UiAssets,
+        battle_menu::{MenuRegion, MenuState, TargetingPanel},
         campaign_ui::{
             CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, ScreenRoot, UpgradePip,
             UpgradeRow,
         },
+        interaction::{InteractionState, StatusMessage},
         screens::{
             setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
             setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
+        },
+        ui::{
+            BattleHeader, BattleRightbar, BattleSidebar, InspectorPanel, PreviewText,
+            ResultOverlay, ThreatList, setup_mission_ui, update_hud,
         },
     },
 };
@@ -77,6 +84,29 @@ fn fixture_app(state: CampaignState) -> App {
             ..default()
         },
     ));
+    app
+}
+
+fn battle_fixture_app(
+    battle: scorpius::domain::battle::BattleState,
+    inspected: Option<scorpius::domain::model::UnitId>,
+) -> App {
+    let mut interaction = InteractionState {
+        inspected_unit: inspected,
+        menu: MenuState::Root,
+        ..Default::default()
+    };
+    if inspected.is_none() {
+        interaction.menu = MenuState::Hidden;
+    }
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(battle))
+        .insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()))
+        .insert_resource(test_assets())
+        .insert_resource(interaction)
+        .insert_resource(StatusMessage::default())
+        .insert_resource(EventPlayback::default())
+        .add_systems(Update, (setup_mission_ui, update_hud).chain());
     app
 }
 
@@ -250,4 +280,125 @@ fn campaign_controls_are_marked_for_required_ui_picking() {
             );
         }
     }
+}
+
+#[test]
+fn battle_snapshot_spawns_source_fixed_header_sidebar_and_menu_regions() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut app = battle_fixture_app(battle, Some(ids::VANGUARD));
+    app.update();
+
+    let header = app
+        .world_mut()
+        .query_filtered::<&Node, With<BattleHeader>>()
+        .single(app.world())
+        .expect("fixed header must be present");
+    assert_eq!(header.left, Val::Px(22.0));
+    assert_eq!(header.top, Val::Px(22.0));
+    assert_eq!(header.height, Val::Px(78.0));
+
+    let sidebar = app
+        .world_mut()
+        .query_filtered::<&Node, With<BattleSidebar>>()
+        .single(app.world())
+        .expect("fixed left sidebar must be present");
+    assert_eq!(sidebar.left, Val::Px(22.0));
+    assert_eq!(sidebar.width, Val::Px(352.0));
+    assert_eq!(sidebar.top, Val::Px(114.0));
+    assert_eq!(sidebar.height, Val::Px(944.0));
+
+    let rightbar = app
+        .world_mut()
+        .query_filtered::<&Node, With<BattleRightbar>>()
+        .single(app.world())
+        .expect("fixed right sidebar must be present");
+    assert_eq!(rightbar.right, Val::Px(22.0));
+    assert_eq!(rightbar.width, Val::Px(352.0));
+    assert_eq!(
+        app.world_mut()
+            .query::<&MenuRegion>()
+            .iter(app.world())
+            .count(),
+        3
+    );
+    assert_eq!(
+        app.world_mut()
+            .query::<&TargetingPanel>()
+            .iter(app.world())
+            .count(),
+        1
+    );
+    assert_eq!(
+        app.world_mut()
+            .query::<&InspectorPanel>()
+            .iter(app.world())
+            .count(),
+        1
+    );
+    assert!(
+        app.world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .any(|text| text.0 == "Player Phase")
+    );
+}
+
+#[test]
+fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut app = battle_fixture_app(battle, Some(ids::VANGUARD));
+    app.update();
+
+    let texts: Vec<_> = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|text| text.0.clone())
+        .collect();
+    assert!(
+        texts.iter().any(|text| text.contains("Vanguard")),
+        "{texts:?}"
+    );
+    assert!(texts.iter().any(|text| text.contains("HP")), "{texts:?}");
+
+    let threats = app
+        .world_mut()
+        .query_filtered::<&Text, With<ThreatList>>()
+        .single(app.world())
+        .expect("threat list must be present");
+    assert!(threats.0.contains("Striker"));
+    assert!(threats.0.contains("Artillery"));
+    assert!(!threats.0.contains("Rifleman L"));
+
+    let preview = app
+        .world_mut()
+        .query_filtered::<&Text, With<PreviewText>>()
+        .single(app.world())
+        .expect("preview panel must be present");
+    assert!(preview.0.contains("TARGET PREVIEW"));
+}
+
+#[test]
+fn battle_result_snapshot_renders_terminal_overlay_and_result_metrics() {
+    let battle = mission_one(7);
+    let mut app = battle_fixture_app(battle, None);
+    app.update();
+
+    let overlay = app
+        .world_mut()
+        .query_filtered::<&Visibility, With<ResultOverlay>>()
+        .single(app.world())
+        .expect("result overlay must be present");
+    assert_eq!(*overlay, Visibility::Hidden);
+    let texts: Vec<_> = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|text| text.0.clone())
+        .collect();
+    assert!(texts.iter().any(|text| text == "—"));
 }

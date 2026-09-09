@@ -12,6 +12,7 @@ use crate::{
         CampaignRuntime, EventPlayback, PresentationRoot, RecentBattleLog, RestartRequest,
         RestartRoundPending,
         assets::{AssetLoadStatus, UiAssets, monitor_mission_assets},
+        battle_menu::update_battle_menu,
         battlefield::{rebuild_mission_scene, setup_mission_scene},
         campaign_ui::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, update_campaign_status_text,
@@ -175,7 +176,7 @@ impl Plugin for ScorpiusPlugin {
             )
             .add_systems(
                 Update,
-                (update_hud, update_asset_status_text)
+                (update_hud, update_battle_menu, update_asset_status_text)
                     .after(play_battle_events)
                     .run_if(in_state(GameScreen::Battle)),
             )

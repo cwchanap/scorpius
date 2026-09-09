@@ -1,4 +1,5 @@
 pub mod assets;
+pub mod battle_menu;
 pub mod battlefield;
 pub mod campaign_ui;
 pub mod interaction;
@@ -9,6 +10,7 @@ pub mod sync;
 pub mod theme;
 pub mod ui;
 
+pub use battle_menu::MenuState;
 pub use layout::{CanvasRoot, ViewportRoot};
 
 use std::collections::{BTreeSet, VecDeque};
@@ -152,7 +154,7 @@ impl RecentBattleLog {
 pub(crate) struct RestartRoundPending(pub bool);
 
 #[derive(Resource, Default)]
-pub(crate) struct RestartRequest(pub Option<u64>);
+pub struct RestartRequest(pub(crate) Option<u64>);
 
 #[derive(Component)]
 pub(crate) struct EventEffect;

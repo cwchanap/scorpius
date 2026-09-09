@@ -1,21 +1,25 @@
 use bevy::{ecs::system::SystemParam, prelude::*};
 
+use crate::app::GameScreen;
 use crate::domain::{
     battle::BattleState,
+    board::GridPos,
     combat::AttackPreview,
     model::{
-        BattleEvent, BattlePhase, Faction, MissionResult, PrimaryObjective, Reaction,
-        UnitArchetype, UnitId,
+        BattleEvent, BattlePhase, Faction, MissionResult, OptionalObjective, PrimaryObjective,
+        Reaction, UnitArchetype, UnitId, WeaponId,
     },
 };
 use crate::mission::MissionDefinition;
 
 use super::{
-    ActiveMission, BattleRuntime, CanvasRoot, EventPlayback, RecentBattleLog,
+    ActiveMission, BattleRuntime, CampaignRuntime, CanvasRoot, EventPlayback, RecentBattleLog,
+    RestartRequest,
     assets::{AssetLoadStatus, UiAssets},
+    battle_menu::spawn_battle_menu,
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
-        on_command_button_click,
+        on_command_button_click, restart_allowed,
     },
     layout::spawn_canvas_root,
     theme,
@@ -23,33 +27,108 @@ use super::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ThreatSnapshot {
+    pub attacker_id: UnitId,
     pub attacker: &'static str,
+    pub weapon_id: WeaponId,
     pub weapon: &'static str,
-    pub cells: String,
+    pub cells: Vec<crate::domain::board::GridPos>,
+    pub intended_occupant_id: Option<UnitId>,
     pub intended_occupant: Option<&'static str>,
     pub normal_damage: i16,
     pub hit_chance: u8,
 }
 
-/// Live tracker derived from the mission's primary objective: the protected
-/// unit's HP in protect missions, the hunted unit's Manhattan distance to the
-/// exit in intercept missions, the marked target's HP in target-elimination
-/// missions. `None` when nothing is tracked (full elimination).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct InspectorSnapshot {
+    pub unit_id: Option<UnitId>,
+    pub name: Option<&'static str>,
+    pub archetype: Option<UnitArchetype>,
+    pub faction: Option<Faction>,
+    pub hp: Option<i16>,
+    pub max_hp: Option<i16>,
+    pub en: Option<i16>,
+    pub max_en: Option<i16>,
+    pub armor: Option<i16>,
+    pub movement: Option<u8>,
+    pub evasion: Option<i16>,
+    pub moved: bool,
+    pub acted: bool,
+    pub finished: bool,
+    pub reaction: Option<Reaction>,
+}
+
+impl InspectorSnapshot {
+    fn from_unit(unit: &crate::domain::model::UnitState) -> Self {
+        Self {
+            unit_id: Some(unit.id),
+            name: Some(unit.name),
+            archetype: Some(unit.archetype),
+            faction: Some(unit.faction),
+            hp: Some(unit.hp),
+            max_hp: Some(unit.stats.max_hp),
+            en: Some(unit.en),
+            max_en: Some(unit.stats.max_en),
+            armor: Some(unit.stats.armor),
+            movement: Some(unit.stats.movement),
+            evasion: Some(unit.stats.evasion),
+            moved: unit.activation.moved,
+            acted: unit.activation.acted,
+            finished: unit.activation.finished,
+            reaction: unit.reaction,
+        }
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.unit_id.is_none()
+    }
+}
+
+/// Live tracker derived from the mission's primary objective. It carries the
+/// numbers and map cells needed by the right rail and objective header.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ObjectiveTrackSnapshot {
+    EliminateAll {
+        remaining: usize,
+        total: usize,
+    },
     Protect {
         name: &'static str,
         hp: i16,
         max_hp: i16,
+        round: u16,
+        position: GridPos,
     },
     Intercept {
         name: &'static str,
         distance: u8,
+        deadline_round: u16,
+        position: GridPos,
+        escape: GridPos,
     },
     Target {
         name: &'static str,
         hp: i16,
         max_hp: i16,
+        position: GridPos,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OptionalProgressSnapshot {
+    Turnabout {
+        complete: bool,
+    },
+    ProtectTargetAtHalfHp {
+        target: UnitId,
+        name: &'static str,
+        hp: i16,
+        max_hp: i16,
+        complete: bool,
+    },
+    VictoryByRound {
+        round: u16,
+        current_round: u16,
+        complete: bool,
     },
 }
 
@@ -59,9 +138,13 @@ pub struct HudSnapshot {
     pub primary: String,
     pub optional: String,
     pub objective_track: Option<ObjectiveTrackSnapshot>,
+    pub optional_progress: OptionalProgressSnapshot,
     pub selected_name: Option<&'static str>,
-    pub selected_summary: String,
+    pub inspector: InspectorSnapshot,
     pub threats: Vec<ThreatSnapshot>,
+    pub ally_count: usize,
+    pub enemy_count: usize,
+    pub awaiting_count: usize,
     pub weapon_names: [Option<&'static str>; 3],
     pub weapon_enabled: [bool; 3],
     pub can_move: bool,
@@ -78,6 +161,14 @@ pub struct HudSnapshot {
 }
 
 impl HudSnapshot {
+    pub const fn optional_progress_complete(&self) -> bool {
+        match self.optional_progress {
+            OptionalProgressSnapshot::Turnabout { complete }
+            | OptionalProgressSnapshot::ProtectTargetAtHalfHp { complete, .. }
+            | OptionalProgressSnapshot::VictoryByRound { complete, .. } => complete,
+        }
+    }
+
     pub fn from_battle(
         battle: &BattleState,
         selected: Option<UnitId>,
@@ -86,6 +177,22 @@ impl HudSnapshot {
         let remaining = battle
             .units()
             .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
+            .count();
+        let enemy_count = battle
+            .units()
+            .filter(|unit| unit.faction == Faction::Enemy)
+            .count();
+        let ally_count = battle
+            .units()
+            .filter(|unit| unit.faction == Faction::Player && !unit.is_knocked_out())
+            .count();
+        let awaiting_count = battle
+            .units()
+            .filter(|unit| {
+                unit.faction == Faction::Player
+                    && !unit.is_knocked_out()
+                    && !unit.activation.finished
+            })
             .count();
         let selected_unit = selected.and_then(|unit| battle.unit(unit));
         let active = battle
@@ -102,36 +209,8 @@ impl HudSnapshot {
                 }
             }
         }
-        let selected_summary = selected_unit.map_or_else(
-            || "NO MECH SELECTED\nChoose a player unit on the board.".to_owned(),
-            |unit| {
-                let move_state = if unit.activation.moved {
-                    "SPENT"
-                } else {
-                    "READY"
-                };
-                let action_state = if unit.activation.acted {
-                    "SPENT"
-                } else {
-                    "READY"
-                };
-                let stance = unit
-                    .reaction
-                    .map(|reaction| format!("{reaction:?}"))
-                    .unwrap_or_else(|| "--".to_owned());
-                format!(
-                    "{}\nHP {}/{}   EN {}/{}\nMOVE {}   ACTION {}\nSTANCE {}",
-                    unit.name,
-                    unit.hp,
-                    unit.stats.max_hp,
-                    unit.en,
-                    unit.stats.max_en,
-                    move_state,
-                    action_state,
-                    stance.to_uppercase()
-                )
-            },
-        );
+        let inspector =
+            selected_unit.map_or_else(InspectorSnapshot::default, InspectorSnapshot::from_unit);
 
         let pilot = battle.pilot_skills();
         let pilot_status = |used: bool, active_now: bool| {
@@ -145,20 +224,29 @@ impl HudSnapshot {
         };
 
         let objective_track = match battle.rules().primary {
-            PrimaryObjective::ProtectThroughRound { target, .. } => {
+            PrimaryObjective::ProtectThroughRound { target, round } => {
                 battle
                     .unit(target)
                     .map(|unit| ObjectiveTrackSnapshot::Protect {
                         name: unit.name,
                         hp: unit.hp,
                         max_hp: unit.stats.max_hp,
+                        round,
+                        position: unit.position,
                     })
             }
-            PrimaryObjective::InterceptBeforeEscape { target, escape, .. } => battle
+            PrimaryObjective::InterceptBeforeEscape {
+                target,
+                escape,
+                deadline_round,
+            } => battle
                 .unit(target)
                 .map(|unit| ObjectiveTrackSnapshot::Intercept {
                     name: unit.name,
                     distance: unit.position.manhattan(escape),
+                    deadline_round,
+                    position: unit.position,
+                    escape,
                 }),
             PrimaryObjective::EliminateTarget { target } => {
                 battle
@@ -167,9 +255,13 @@ impl HudSnapshot {
                         name: unit.name,
                         hp: unit.hp,
                         max_hp: unit.stats.max_hp,
+                        position: unit.position,
                     })
             }
-            PrimaryObjective::EliminateAllEnemies => None,
+            PrimaryObjective::EliminateAllEnemies => Some(ObjectiveTrackSnapshot::EliminateAll {
+                remaining,
+                total: enemy_count,
+            }),
         };
         let round_cap = match battle.rules().primary {
             PrimaryObjective::ProtectThroughRound { round, .. } => Some(round),
@@ -205,7 +297,8 @@ impl HudSnapshot {
                 }
             ),
             selected_name: selected_unit.map(|unit| unit.name),
-            selected_summary,
+            inspector,
+            optional_progress: optional_progress_snapshot(battle),
             objective_track,
             threats: battle
                 .intents()
@@ -229,14 +322,12 @@ impl HudSnapshot {
                         |preview| preview.hit_chance,
                     );
                     Some(ThreatSnapshot {
+                        attacker_id: intent.attacker,
                         attacker: attacker.name,
+                        weapon_id: intent.profile.weapon,
                         weapon: weapon.name,
-                        cells: intent
-                            .footprint
-                            .iter()
-                            .map(|cell| format!("{},{}", cell.x, cell.y))
-                            .collect::<Vec<_>>()
-                            .join(" "),
+                        cells: intent.footprint.to_vec(),
+                        intended_occupant_id: intent.intended_occupant,
                         intended_occupant,
                         normal_damage,
                         hit_chance,
@@ -244,6 +335,9 @@ impl HudSnapshot {
                 })
                 .collect(),
             can_move: active.is_some_and(|unit| !unit.activation.moved),
+            ally_count,
+            enemy_count,
+            awaiting_count,
             can_pilot: active.is_some_and(|unit| match unit.archetype {
                 UnitArchetype::Vanguard => !pilot.aegis_used,
                 UnitArchetype::Gunner => !pilot.focus_used,
@@ -284,6 +378,34 @@ impl HudSnapshot {
     }
 }
 
+fn optional_progress_snapshot(battle: &BattleState) -> OptionalProgressSnapshot {
+    let complete = battle.objectives().optional_complete;
+    match battle.rules().optional {
+        OptionalObjective::Turnabout => OptionalProgressSnapshot::Turnabout { complete },
+        OptionalObjective::ProtectTargetAtHalfHp { target } => battle.unit(target).map_or(
+            OptionalProgressSnapshot::ProtectTargetAtHalfHp {
+                target,
+                name: "UNKNOWN",
+                hp: 0,
+                max_hp: 0,
+                complete,
+            },
+            |unit| OptionalProgressSnapshot::ProtectTargetAtHalfHp {
+                target,
+                name: unit.name,
+                hp: unit.hp,
+                max_hp: unit.stats.max_hp,
+                complete,
+            },
+        ),
+        OptionalObjective::VictoryByRound { round } => OptionalProgressSnapshot::VictoryByRound {
+            round,
+            current_round: battle.round(),
+            complete,
+        },
+    }
+}
+
 const fn phase_label(phase: BattlePhase) -> &'static str {
     match phase {
         BattlePhase::EnemyPlanning => "Enemy Planning",
@@ -304,9 +426,6 @@ pub struct ThreatList;
 pub struct UnitSummary;
 
 #[derive(Component)]
-pub struct CommandBar;
-
-#[derive(Component)]
 pub struct PreviewText;
 
 #[derive(Component)]
@@ -324,21 +443,60 @@ pub struct AssetStatusText;
 #[derive(Component)]
 pub struct HudRoot;
 
+#[derive(Component)]
+pub struct BattleHeader;
+
+#[derive(Component)]
+pub struct BattleSidebar;
+
+#[derive(Component)]
+pub struct InspectorPanel;
+
+#[derive(Component)]
+pub struct BattleRightbar;
+
+#[derive(Component)]
+struct InspectorPortrait;
+
+#[derive(Component)]
+struct HeaderRestart;
+
+#[derive(Component)]
+struct HeaderPrimaryPip(usize);
+
+#[derive(Component)]
+struct HeaderBonusDot;
+
+#[derive(Component)]
+struct ResultIcon;
+
+#[derive(Component, Clone, Copy)]
+pub(crate) enum HeaderValue {
+    Round,
+    Phase,
+    Allies,
+    Enemies,
+    Awaiting,
+    Credits,
+}
+
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HudTextRole {
     Objective,
     Threats,
+    ThreatCount,
     Unit,
     Preview,
     Status,
     Playback,
     Result,
+    ResultPrimary,
+    ResultBonus,
 }
 
 #[derive(Component)]
 pub(crate) enum CommandButtonLabel {
     WeaponSlot(usize),
-    Pilot,
 }
 
 pub fn setup_mission_ui(
@@ -364,122 +522,458 @@ pub fn setup_mission_ui(
         ))
         .id();
 
+    let header = commands
+        .spawn((
+            BattleHeader,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(22),
+                right: px(22),
+                top: px(22),
+                height: px(78),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(20),
+                padding: UiRect::horizontal(px(22)),
+                ..default()
+            },
+            BackgroundColor(theme::PANEL),
+            Pickable::IGNORE,
+            ChildOf(root),
+        ))
+        .id();
     commands.spawn((
-        Text::new("// OBJECTIVES"),
-        theme::chakra_petch(&ui_assets.fonts, 16.0, FontWeight::NORMAL),
-        TextColor(Color::srgb(0.82, 0.94, 1.0)),
-        panel_node(20.0, 18.0, 330.0),
-        panel_background(),
-        ObjectiveText,
-        HudTextRole::Objective,
+        Text::new("01"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 34.0, FontWeight(600)),
+        TextColor(theme::ACCENT),
+        HeaderValue::Round,
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(header),
     ));
     commands.spawn((
-        Text::new("// LOCKED THREATS"),
-        theme::chakra_petch(&ui_assets.fonts, 13.5, FontWeight::NORMAL),
-        TextColor(Color::srgb(1.0, 0.76, 0.72)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(18),
-            right: px(20),
-            width: px(390),
-            padding: UiRect::all(px(12)),
-            ..default()
-        },
-        panel_background(),
-        ThreatList,
-        HudTextRole::Threats,
+        Text::new("PLAYER PHASE"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        TextColor(theme::MUTED),
+        HeaderValue::Phase,
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(header),
     ));
     commands.spawn((
-        Text::new("// UNIT"),
-        theme::chakra_petch(&ui_assets.fonts, 14.0, FontWeight::NORMAL),
-        TextColor(Color::srgb(0.76, 0.93, 1.0)),
         Node {
-            position_type: PositionType::Absolute,
-            left: px(20),
-            bottom: px(20),
-            width: px(300),
-            padding: UiRect::all(px(12)),
+            width: px(1),
+            height: px(38),
+            margin: UiRect::horizontal(px(2)),
             ..default()
         },
-        panel_background(),
-        UnitSummary,
+        BackgroundColor(theme::BORDER),
+        Pickable::IGNORE,
+        ChildOf(header),
+    ));
+    spawn_header_metric(
+        &mut commands,
+        header,
+        &ui_assets,
+        theme::ICON_FORWARD_COMPACT,
+        theme::ACCENT,
+        HeaderValue::Allies,
+        "0",
+    );
+    spawn_header_metric(
+        &mut commands,
+        header,
+        &ui_assets,
+        theme::ICON_ATTACK,
+        theme::ENEMY,
+        HeaderValue::Enemies,
+        "0",
+    );
+    spawn_header_metric(
+        &mut commands,
+        header,
+        &ui_assets,
+        theme::ICON_WAIT,
+        theme::GOLD,
+        HeaderValue::Awaiting,
+        "0",
+    );
+    commands.spawn((
+        Node {
+            width: px(1),
+            height: px(38),
+            margin: UiRect::horizontal(px(2)),
+            ..default()
+        },
+        BackgroundColor(theme::BORDER),
+        Pickable::IGNORE,
+        ChildOf(header),
+    ));
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::ICON_FORWARD, theme::MUTED),
+        Node {
+            width: px(24),
+            height: px(24),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(header),
+    ));
+    commands.spawn((
+        Text::new("SCORPIUS // COMBAT LINK"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        TextColor(theme::MUTED),
+        Node {
+            margin: UiRect::left(Val::Auto),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(header),
+    ));
+    let primary = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(10),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(header),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::ICON_ATTACK, theme::ACCENT),
+        Node {
+            width: px(24),
+            height: px(24),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(primary),
+    ));
+    let pips = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                column_gap: px(4),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(primary),
+        ))
+        .id();
+    for index in 0..4 {
+        commands.spawn((
+            Node {
+                width: px(14),
+                height: px(6),
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            HeaderPrimaryPip(index),
+            Pickable::IGNORE,
+            ChildOf(pips),
+        ));
+    }
+    commands.spawn((
+        Node {
+            width: px(8),
+            height: px(8),
+            ..default()
+        },
+        BackgroundColor(theme::GOLD),
+        HeaderBonusDot,
+        Pickable::IGNORE,
+        ChildOf(primary),
+    ));
+    spawn_header_metric(
+        &mut commands,
+        header,
+        &ui_assets,
+        theme::ICON_GUARD,
+        theme::GOLD,
+        HeaderValue::Credits,
+        "—",
+    );
+    commands
+        .spawn((
+            Button,
+            CommandButton(CommandAction::Restart),
+            HeaderRestart,
+            Node {
+                width: px(46),
+                height: px(46),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                margin: UiRect::left(px(8)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb_u8(14, 26, 38)),
+            Pickable::default(),
+            ChildOf(header),
+        ))
+        .observe(on_command_button_click)
+        .with_children(|parent| {
+            parent.spawn((
+                theme::icon_node(ui_assets.icons.clone(), theme::icon_rect(5), theme::MUTED),
+                Node {
+                    width: px(22),
+                    height: px(22),
+                    ..default()
+                },
+                Pickable::IGNORE,
+            ));
+        });
+
+    let sidebar = commands
+        .spawn((
+            BattleSidebar,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(22),
+                top: px(114),
+                width: px(352),
+                height: px(944),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(12),
+                min_height: px(0),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(root),
+        ))
+        .id();
+    let inspector = commands
+        .spawn((
+            InspectorPanel,
+            UnitSummary,
+            Node {
+                width: percent(100),
+                height: px(190),
+                flex_shrink: 0.0,
+                display: Display::Flex,
+                padding: UiRect::all(px(16)),
+                ..default()
+            },
+            BackgroundColor(theme::PANEL),
+            Pickable::IGNORE,
+            ChildOf(sidebar),
+        ))
+        .id();
+    commands.spawn((
+        Node {
+            width: px(92),
+            height: px(92),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        ImageNode::new(ui_assets.icons.clone())
+            .with_rect(theme::UNIT_GLYPH_HEX_RECT)
+            .with_color(theme::MUTED),
+        InspectorPortrait,
+        Visibility::Visible,
+        Pickable::IGNORE,
+        ChildOf(inspector),
+    ));
+    commands.spawn((
+        Text::new("NO MECH SELECTED\nChoose a player unit on the board."),
+        theme::chakra_petch(&ui_assets.fonts, 15.0, FontWeight(500)),
+        TextColor(theme::TEXT),
+        Node {
+            margin: UiRect::left(px(14)),
+            min_width: px(0),
+            ..default()
+        },
         HudTextRole::Unit,
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(inspector),
+    ));
+    spawn_battle_menu(&mut commands, sidebar, &ui_assets);
+
+    let log_panel = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                flex_grow: 1.0,
+                min_height: px(0),
+                padding: UiRect::all(px(16)),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(10),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(theme::PANEL),
+            Pickable::IGNORE,
+            ChildOf(sidebar),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("LOG"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        TextColor(theme::MUTED),
+        Pickable::IGNORE,
+        ChildOf(log_panel),
     ));
     commands.spawn((
-        Text::new("TARGET PREVIEW"),
-        theme::chakra_petch(&ui_assets.fonts, 13.0, FontWeight::NORMAL),
-        TextColor(Color::srgb(1.0, 0.82, 0.46)),
+        Text::new(""),
+        theme::ibm_plex_mono(&ui_assets.fonts, 14.0, FontWeight(400)),
+        TextColor(theme::MUTED),
         Node {
-            position_type: PositionType::Absolute,
-            left: px(340),
-            bottom: px(92),
-            width: px(435),
-            padding: UiRect::all(px(9)),
+            min_height: px(0),
+            overflow: Overflow::clip(),
             ..default()
         },
-        panel_background(),
-        PreviewText,
-        HudTextRole::Preview,
+        PlaybackText,
+        HudTextRole::Playback,
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(log_panel),
     ));
     commands.spawn((
-        Text::new("Select a mech to begin."),
-        theme::chakra_petch(&ui_assets.fonts, 12.5, FontWeight::NORMAL),
-        TextColor(Color::srgb(0.78, 0.84, 0.9)),
+        Text::new(""),
+        theme::chakra_petch(&ui_assets.fonts, 13.0, FontWeight(400)),
+        TextColor(theme::GOLD),
         Node {
-            position_type: PositionType::Absolute,
-            left: px(340),
-            bottom: px(66),
-            width: px(900),
+            margin: UiRect::top(px(8)),
             ..default()
         },
         StatusText,
         HudTextRole::Status,
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(log_panel),
+    ));
+
+    let rightbar = commands
+        .spawn((
+            BattleRightbar,
+            Node {
+                position_type: PositionType::Absolute,
+                right: px(22),
+                top: px(114),
+                width: px(352),
+                height: px(944),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(12),
+                min_height: px(0),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(root),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("// OBJECTIVES"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        TextColor(theme::ACCENT),
+        Node {
+            width: percent(100),
+            display: Display::None,
+            ..default()
+        },
+        BackgroundColor(theme::PANEL),
+        ObjectiveText,
+        HudTextRole::Objective,
+        Visibility::Hidden,
+        Pickable::IGNORE,
+        ChildOf(rightbar),
+    ));
+    let locked = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                height: px(64),
+                flex_shrink: 0.0,
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(12),
+                padding: UiRect::horizontal(px(16)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb_u8(22, 13, 13)),
+            Pickable::IGNORE,
+            ChildOf(rightbar),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::ICON_ATTACK, theme::ENEMY),
+        Node {
+            width: px(24),
+            height: px(24),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(locked),
+    ));
+    commands.spawn((
+        Text::new("LOCKED"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 14.0, FontWeight(500)),
+        TextColor(Color::srgb_u8(255, 156, 144)),
+        Pickable::IGNORE,
+        ChildOf(locked),
+    ));
+    commands.spawn((
+        Text::new("0"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 26.0, FontWeight(600)),
+        TextColor(theme::ENEMY),
+        Node {
+            margin: UiRect::left(Val::Auto),
+            ..default()
+        },
+        HudTextRole::ThreatCount,
+        Pickable::IGNORE,
+        ChildOf(locked),
+    ));
+    commands.spawn((
+        Text::new("TARGET PREVIEW\nArm a weapon and hover a target."),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        TextColor(theme::GOLD),
+        Node {
+            width: percent(100),
+            min_height: px(106),
+            padding: UiRect::all(px(16)),
+            ..default()
+        },
+        BackgroundColor(theme::PANEL),
+        PreviewText,
+        HudTextRole::Preview,
+        Pickable::IGNORE,
+        ChildOf(rightbar),
     ));
     commands.spawn((
         Text::new(""),
-        theme::chakra_petch(&ui_assets.fonts, 22.0, FontWeight::NORMAL),
-        TextColor(Color::srgb(1.0, 0.88, 0.52)),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        TextColor(theme::ENEMY),
         Node {
-            position_type: PositionType::Absolute,
-            left: percent(38),
-            top: percent(45),
-            width: percent(24),
-            padding: UiRect::all(px(10)),
+            width: percent(100),
+            flex_grow: 1.0,
+            min_height: px(0),
+            padding: UiRect::all(px(16)),
+            overflow: Overflow::clip(),
             ..default()
         },
-        BackgroundColor(Color::srgba(0.04, 0.025, 0.015, 0.86)),
-        Visibility::Hidden,
-        PlaybackText,
-        HudTextRole::Playback,
+        BackgroundColor(Color::srgb_u8(22, 13, 13)),
+        ThreatList,
+        HudTextRole::Threats,
         Pickable::IGNORE,
-        ChildOf(root),
+        ChildOf(rightbar),
     ));
 
     let result_overlay = commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: percent(32),
-                top: percent(30),
-                width: percent(36),
-                padding: UiRect::all(px(28)),
+                left: px(0),
+                top: px(0),
+                width: percent(100),
+                height: percent(100),
                 display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                row_gap: px(18),
                 align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.015, 0.025, 0.045, 0.97)),
+            BackgroundColor(Color::srgba(0.008, 0.016, 0.04, 0.86)),
             Visibility::Hidden,
             GlobalZIndex(50),
             ResultOverlay,
@@ -487,139 +981,116 @@ pub fn setup_mission_ui(
             ChildOf(root),
         ))
         .id();
-    commands.spawn((
-        Text::new(""),
-        theme::chakra_petch(&ui_assets.fonts, 28.0, FontWeight::NORMAL),
-        TextColor(Color::WHITE),
-        HudTextRole::Result,
-        Pickable::IGNORE,
-        ChildOf(result_overlay),
-    ));
-    spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        result_overlay,
-        CommandAction::Restart,
-        "[R] RESTART MISSION",
-        190.0,
-        None,
-    );
-    spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        result_overlay,
-        CommandAction::ContinueVictory,
-        "CONTINUE",
-        190.0,
-        None,
-    );
-
-    let command_bar = commands
+    let result_card = commands
         .spawn((
-            CommandBar,
             Node {
-                position_type: PositionType::Absolute,
-                left: px(340),
-                right: px(20),
-                bottom: px(14),
-                height: px(46),
+                width: px(690),
+                padding: UiRect::all(px(28)),
                 display: Display::Flex,
-                flex_direction: FlexDirection::Row,
-                column_gap: px(5),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(18),
                 align_items: AlignItems::Center,
                 ..default()
             },
+            BackgroundColor(theme::PANEL),
             Pickable::IGNORE,
-            ChildOf(root),
+            ChildOf(result_overlay),
         ))
         .id();
-    spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        command_bar,
-        CommandAction::Move,
-        "[M] MOVE",
-        76.0,
-        None,
-    );
-    for slot in 0..3 {
-        spawn_command_button(
-            &mut commands,
-            &ui_assets.fonts,
-            command_bar,
-            CommandAction::WeaponSlot(slot),
-            "--",
-            112.0,
-            Some(slot),
-        );
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::ICON_WAIT, theme::MINT),
+        Node {
+            width: px(86),
+            height: px(86),
+            ..default()
+        },
+        ResultIcon,
+        Pickable::IGNORE,
+        ChildOf(result_card),
+    ));
+    commands.spawn((
+        Text::new(""),
+        theme::chakra_petch(&ui_assets.fonts, 28.0, FontWeight(600)),
+        TextColor(theme::TEXT),
+        HudTextRole::Result,
+        Pickable::IGNORE,
+        ChildOf(result_card),
+    ));
+    let result_metrics = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                column_gap: px(14),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(result_card),
+        ))
+        .id();
+    for (label, role, color) in [
+        ("PRIMARY", HudTextRole::ResultPrimary, theme::ACCENT),
+        ("BONUS", HudTextRole::ResultBonus, theme::GOLD),
+    ] {
+        let metric = commands
+            .spawn((
+                Node {
+                    width: percent(50),
+                    padding: UiRect::all(px(16)),
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(8),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb_u8(11, 20, 32)),
+                Pickable::IGNORE,
+                ChildOf(result_metrics),
+            ))
+            .id();
+        commands.spawn((
+            Text::new(label),
+            theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+            TextColor(color),
+            Pickable::IGNORE,
+            ChildOf(metric),
+        ));
+        commands.spawn((
+            Text::new("—"),
+            theme::ibm_plex_mono(&ui_assets.fonts, 25.0, FontWeight(600)),
+            TextColor(theme::TEXT),
+            role,
+            Pickable::IGNORE,
+            ChildOf(metric),
+        ));
     }
-    let pilot_label = spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        command_bar,
-        CommandAction::PilotSkill,
-        "[P] PILOT",
-        96.0,
-        None,
-    );
-    commands
-        .entity(pilot_label)
-        .insert(CommandButtonLabel::Pilot);
     spawn_command_button(
         &mut commands,
         &ui_assets.fonts,
-        command_bar,
-        CommandAction::Reaction(Reaction::Counter),
-        "[C] COUNTER",
-        82.0,
+        result_card,
+        CommandAction::Restart,
+        "RESTART MISSION",
+        260.0,
         None,
     );
     spawn_command_button(
         &mut commands,
         &ui_assets.fonts,
-        command_bar,
-        CommandAction::Reaction(Reaction::Guard),
-        "[G] GUARD",
-        72.0,
-        None,
-    );
-    spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        command_bar,
-        CommandAction::Reaction(Reaction::Evade),
-        "[E] EVADE",
-        72.0,
-        None,
-    );
-    spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        command_bar,
-        CommandAction::FinishUnit,
-        "[F] FINISH",
-        82.0,
-        None,
-    );
-    spawn_command_button(
-        &mut commands,
-        &ui_assets.fonts,
-        command_bar,
-        CommandAction::ResolveAttacks,
-        "[SPACE] RESOLVE",
-        112.0,
+        result_card,
+        CommandAction::ContinueVictory,
+        "CONTINUE",
+        260.0,
         None,
     );
 
     commands.spawn((
         Text::new("Loading battle UI assets..."),
-        theme::chakra_petch(&ui_assets.fonts, 18.0, FontWeight::NORMAL),
-        TextColor(Color::srgb(1.0, 0.78, 0.34)),
+        theme::chakra_petch(&ui_assets.fonts, 18.0, FontWeight(500)),
+        TextColor(theme::GOLD),
         BackgroundColor(Color::srgba(0.08, 0.025, 0.025, 0.94)),
         Node {
             position_type: PositionType::Absolute,
             right: px(24),
-            bottom: px(154),
+            top: px(122),
             padding: UiRect::all(px(12)),
             ..default()
         },
@@ -629,9 +1100,50 @@ pub fn setup_mission_ui(
     ));
 }
 
+fn spawn_header_metric(
+    commands: &mut Commands,
+    parent: Entity,
+    assets: &UiAssets,
+    icon: Rect,
+    color: Color,
+    value: HeaderValue,
+    initial: &'static str,
+) {
+    let metric = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(assets.icons.clone(), icon, color),
+        Node {
+            width: px(24),
+            height: px(24),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(metric),
+    ));
+    commands.spawn((
+        Text::new(initial),
+        theme::ibm_plex_mono(&assets.fonts, 24.0, FontWeight(600)),
+        TextColor(color),
+        value,
+        Pickable::IGNORE,
+        ChildOf(metric),
+    ));
+}
+
 #[derive(SystemParam)]
 #[allow(clippy::type_complexity)]
-pub(crate) struct HudQueries<'w, 's> {
+pub struct HudQueries<'w, 's> {
     texts: Query<
         'w,
         's,
@@ -640,15 +1152,24 @@ pub(crate) struct HudQueries<'w, 's> {
             &'static mut Text,
             Option<&'static mut Visibility>,
         ),
-        Without<ResultOverlay>,
+        (
+            Without<ResultOverlay>,
+            Without<HeaderValue>,
+            Without<InspectorPortrait>,
+        ),
     >,
-    weapon_labels:
-        Query<'w, 's, (&'static CommandButtonLabel, &'static mut Text), Without<HudTextRole>>,
+    weapon_labels: Query<
+        'w,
+        's,
+        (&'static CommandButtonLabel, &'static mut Text),
+        (Without<HudTextRole>, Without<HeaderValue>),
+    >,
     buttons: Query<
         'w,
         's,
         (
             &'static CommandButton,
+            Option<&'static HeaderRestart>,
             &'static mut BackgroundColor,
             &'static mut Pickable,
             &'static mut Visibility,
@@ -657,19 +1178,58 @@ pub(crate) struct HudQueries<'w, 's> {
     >,
     result_overlays:
         Query<'w, 's, &'static mut Visibility, (With<ResultOverlay>, Without<HudTextRole>)>,
+    header_values: Query<'w, 's, (&'static HeaderValue, &'static mut Text), Without<HudTextRole>>,
+    inspector_portraits: Query<
+        'w,
+        's,
+        (&'static mut ImageNode, &'static mut Visibility),
+        (
+            With<InspectorPortrait>,
+            Without<ResultOverlay>,
+            Without<CommandButton>,
+        ),
+    >,
+    primary_pips: Query<
+        'w,
+        's,
+        (&'static HeaderPrimaryPip, &'static mut BackgroundColor),
+        (
+            Without<HeaderBonusDot>,
+            Without<CommandButtonLabel>,
+            Without<CommandButton>,
+        ),
+    >,
+    bonus_dots: Query<
+        'w,
+        's,
+        &'static mut BackgroundColor,
+        (
+            With<HeaderBonusDot>,
+            Without<HeaderPrimaryPip>,
+            Without<CommandButton>,
+        ),
+    >,
+    result_icons:
+        Query<'w, 's, &'static mut ImageNode, (With<ResultIcon>, Without<InspectorPortrait>)>,
 }
 
-pub(crate) fn update_hud(
+#[allow(clippy::too_many_arguments)]
+pub fn update_hud(
     battle: Res<BattleRuntime>,
     interaction: Res<InteractionState>,
     status: Res<StatusMessage>,
     playback: Res<EventPlayback>,
     recent_log: Option<Res<RecentBattleLog>>,
     active_mission: Res<ActiveMission>,
+    campaign: Option<Res<CampaignRuntime>>,
+    ui_assets: Res<UiAssets>,
+    asset_status: Option<Res<AssetLoadStatus>>,
+    next_state: Option<Res<NextState<GameScreen>>>,
+    restart_request: Option<Res<RestartRequest>>,
     mut queries: HudQueries,
 ) {
     let hud = HudSnapshot::from_battle(&battle.0, interaction.inspected_unit, active_mission.0);
-    let threat_text = format_threats(&hud);
+    let threat_text = format_threats(&hud, interaction.inspected_unit);
     let preview_text = interaction.preview.as_ref().map_or_else(
         || "TARGET PREVIEW\nArm a weapon and hover a target.".to_owned(),
         |preview| format_preview(&battle.0, preview),
@@ -700,9 +1260,13 @@ pub(crate) fn update_hud(
                 text
             }
             HudTextRole::Threats => threat_text.clone(),
+            HudTextRole::ThreatCount => hud.threats.len().to_string(),
             HudTextRole::Unit => format!(
-                "// UNIT\n{}\nPILOT  AEGIS {}  FOCUS {}  OVERDRIVE {}",
-                hud.selected_summary, hud.pilot_aegis, hud.pilot_focus, hud.pilot_overdrive
+                "{}\nPILOT  AEGIS {}  FOCUS {}  OVERDRIVE {}",
+                format_inspector(hud.inspector),
+                hud.pilot_aegis,
+                hud.pilot_focus,
+                hud.pilot_overdrive
             ),
             HudTextRole::Preview => preview_text.clone(),
             HudTextRole::Status => status_text.clone(),
@@ -712,6 +1276,21 @@ pub(crate) fn update_hud(
             HudTextRole::Result => battle.0.result().map_or_else(String::new, |result| {
                 result_overlay_copy(result, battle.0.rules().primary, active_mission.0)
             }),
+            HudTextRole::ResultPrimary => battle.0.result().map_or_else(
+                || "—".to_owned(),
+                |result| if result.victory { "CLEAR" } else { "FAILED" }.to_owned(),
+            ),
+            HudTextRole::ResultBonus => battle.0.result().map_or_else(
+                || "—".to_owned(),
+                |result| {
+                    if result.optional_complete {
+                        "ACHIEVED"
+                    } else {
+                        "MISSED"
+                    }
+                    .to_owned()
+                },
+            ),
         };
         if matches!(role, HudTextRole::Playback)
             && let Some(mut visibility) = visibility
@@ -725,6 +1304,85 @@ pub(crate) fn update_hud(
         }
     }
 
+    for (value, mut text) in &mut queries.header_values {
+        text.0 = match value {
+            HeaderValue::Round => format!("{:02}", battle.0.round()),
+            HeaderValue::Phase => phase_label(battle.0.phase()).to_owned(),
+            HeaderValue::Allies => hud.ally_count.to_string(),
+            HeaderValue::Enemies => hud.enemy_count.to_string(),
+            HeaderValue::Awaiting => hud.awaiting_count.to_string(),
+            HeaderValue::Credits => campaign
+                .as_ref()
+                .and_then(|runtime| runtime.0.state.as_ref())
+                .map_or_else(|| "—".to_owned(), |state| state.credits.to_string()),
+        };
+    }
+
+    let primary_pip_count = hud.objective_track.as_ref().map_or(0, |track| match track {
+        ObjectiveTrackSnapshot::EliminateAll { remaining, .. } => (*remaining).min(4),
+        ObjectiveTrackSnapshot::Protect { hp, .. } | ObjectiveTrackSnapshot::Target { hp, .. } => {
+            usize::from(*hp > 0)
+        }
+        ObjectiveTrackSnapshot::Intercept { distance, .. } => usize::from(*distance > 0),
+    });
+    for (pip, mut background) in &mut queries.primary_pips {
+        background.0 = if pip.0 < primary_pip_count {
+            theme::ACCENT
+        } else {
+            theme::BORDER
+        };
+    }
+    for mut background in &mut queries.bonus_dots {
+        background.0 = if hud.optional_progress_complete() {
+            theme::GOLD
+        } else {
+            theme::BORDER
+        };
+    }
+
+    for (mut image, mut visibility) in &mut queries.inspector_portraits {
+        let (source, rect, color) = match (hud.inspector.faction, hud.inspector.archetype) {
+            (Some(Faction::Player), Some(UnitArchetype::Vanguard)) => {
+                (ui_assets.vanguard_art.clone(), None, Color::WHITE)
+            }
+            (Some(Faction::Player), Some(UnitArchetype::Gunner)) => {
+                (ui_assets.gunner_art.clone(), None, Color::WHITE)
+            }
+            (Some(Faction::Player), Some(UnitArchetype::Interceptor)) => {
+                (ui_assets.interceptor_art.clone(), None, Color::WHITE)
+            }
+            (_, Some(archetype)) => {
+                let style = theme::unit_archetype_style(archetype);
+                (ui_assets.icons.clone(), Some(style.glyph_rect), style.color)
+            }
+            _ => (
+                ui_assets.icons.clone(),
+                Some(theme::UNIT_GLYPH_HEX_RECT),
+                theme::MUTED,
+            ),
+        };
+        image.image = source;
+        image.rect = rect;
+        image.color = color;
+        *visibility = Visibility::Visible;
+    }
+
+    for mut image in &mut queries.result_icons {
+        if hud.is_victory {
+            image.image = ui_assets.icons.clone();
+            image.rect = Some(theme::ICON_WAIT);
+            image.color = theme::MINT;
+        } else if hud.is_terminal {
+            image.image = ui_assets.icons.clone();
+            image.rect = Some(theme::ICON_COUNTER);
+            image.color = theme::ENEMY;
+        } else {
+            image.image = ui_assets.icons.clone();
+            image.rect = Some(theme::ICON_ATTACK);
+            image.color = theme::GOLD;
+        }
+    }
+
     for (label, mut text) in &mut queries.weapon_labels {
         text.0 = match *label {
             CommandButtonLabel::WeaponSlot(slot) => hud
@@ -734,7 +1392,6 @@ pub(crate) fn update_hud(
                 .flatten()
                 .map(|name| format!("[{}] {name}", slot + 1))
                 .unwrap_or_else(|| format!("[{}] --", slot + 1)),
-            CommandButtonLabel::Pilot => hud.pilot_label.to_owned(),
         };
     }
     for mut visibility in &mut queries.result_overlays {
@@ -744,8 +1401,28 @@ pub(crate) fn update_hud(
             Visibility::Hidden
         };
     }
-    for (button, mut background, mut pickable, mut visibility) in &mut queries.buttons {
-        let enabled = !playback.input_locked && command_enabled(button.0, &hud);
+    let restart_ok = match (
+        asset_status.as_ref(),
+        next_state.as_ref(),
+        restart_request.as_ref(),
+    ) {
+        (Some(asset_status), Some(next_state), Some(restart_request)) => restart_allowed(
+            &battle.0,
+            asset_status,
+            &playback,
+            next_state,
+            restart_request.0.is_some(),
+        ),
+        _ => hud.is_terminal && !hud.is_victory && !playback.input_locked,
+    };
+    for (button, header_restart, mut background, mut pickable, mut visibility) in
+        &mut queries.buttons
+    {
+        let enabled = !playback.input_locked
+            && match button.0 {
+                CommandAction::Restart => restart_ok,
+                action => command_enabled(action, &hud),
+            };
         let armed = match (button.0, interaction.mode) {
             (CommandAction::Move, InteractionMode::Move) => true,
             (CommandAction::PilotSkill, InteractionMode::AegisTarget) => true,
@@ -780,7 +1457,13 @@ pub(crate) fn update_hud(
             CommandAction::Restart | CommandAction::ContinueVictory
         ) {
             let shown = match button.0 {
-                CommandAction::Restart => hud.is_terminal && !hud.is_victory,
+                CommandAction::Restart => {
+                    if header_restart.is_some() {
+                        !hud.is_terminal
+                    } else {
+                        hud.is_terminal && !hud.is_victory
+                    }
+                }
                 _ => hud.is_victory,
             };
             let shown = shown && !playback.input_locked;
@@ -958,24 +1641,29 @@ fn unit_name(battle: &BattleState, unit: UnitId) -> &'static str {
     battle.unit(unit).map_or("UNKNOWN", |unit| unit.name)
 }
 
-fn format_threats(hud: &HudSnapshot) -> String {
-    let mut text = String::from("// LOCKED THREATS");
-    if hud.threats.is_empty() {
-        text.push_str("\nNONE");
-        return text;
-    }
-    for threat in &hud.threats {
+fn format_threats(hud: &HudSnapshot, inspected: Option<UnitId>) -> String {
+    let threats = hud.threats.iter().filter(|threat| {
+        inspected.is_some_and(|unit| {
+            threat.attacker_id == unit || threat.intended_occupant_id == Some(unit)
+        })
+    });
+    let mut text = String::new();
+    for threat in threats {
         text.push_str(&format!(
-            "\n! {} / {} -> {}\n  {} DMG  {}% HIT  [{}]",
+            "! {} / {} -> {}\n  {} DMG  {}% HIT  [{}]\n",
             threat.attacker,
             threat.weapon,
             threat.intended_occupant.unwrap_or("EMPTY"),
             threat.normal_damage,
             threat.hit_chance,
-            threat.cells
+            format_cells(&threat.cells)
         ));
     }
-    text
+    if text.is_empty() {
+        "NO SELECTED THREAT".to_owned()
+    } else {
+        text.trim_end().to_owned()
+    }
 }
 
 fn format_preview(battle: &BattleState, preview: &AttackPreview) -> String {
@@ -1031,29 +1719,48 @@ fn ascii_separators(value: &str) -> String {
 
 fn format_track(track: &ObjectiveTrackSnapshot) -> String {
     match track {
-        ObjectiveTrackSnapshot::Protect { name, hp, max_hp } => format!("{name} HP {hp}/{max_hp}"),
-        ObjectiveTrackSnapshot::Intercept { name, distance } => {
+        ObjectiveTrackSnapshot::EliminateAll { remaining, total } => {
+            format!("{remaining}/{total} ENEMIES REMAIN")
+        }
+        ObjectiveTrackSnapshot::Protect {
+            name, hp, max_hp, ..
+        } => format!("{name} HP {hp}/{max_hp}"),
+        ObjectiveTrackSnapshot::Intercept { name, distance, .. } => {
             format!("{name} {distance} FROM EXIT")
         }
-        ObjectiveTrackSnapshot::Target { name, hp, max_hp } => {
+        ObjectiveTrackSnapshot::Target {
+            name, hp, max_hp, ..
+        } => {
             format!("TARGET {name} HP {hp}/{max_hp}")
         }
     }
 }
 
-fn panel_node(left: f32, top: f32, width: f32) -> Node {
-    Node {
-        position_type: PositionType::Absolute,
-        left: px(left),
-        top: px(top),
-        width: px(width),
-        padding: UiRect::all(px(12)),
-        ..default()
-    }
+fn format_cells(cells: &[crate::domain::board::GridPos]) -> String {
+    cells
+        .iter()
+        .map(|cell| format!("{},{}", cell.x, cell.y))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
-fn panel_background() -> BackgroundColor {
-    BackgroundColor(Color::srgba(0.018, 0.035, 0.055, 0.88))
+fn format_inspector(inspector: InspectorSnapshot) -> String {
+    let Some(name) = inspector.name else {
+        return "NO MECH SELECTED\nChoose a player unit on the board.".to_owned();
+    };
+    let move_state = if inspector.moved { "SPENT" } else { "READY" };
+    let action_state = if inspector.acted { "SPENT" } else { "READY" };
+    let stance = inspector
+        .reaction
+        .map(|reaction| format!("{reaction:?}").to_uppercase())
+        .unwrap_or_else(|| "--".to_owned());
+    format!(
+        "{name}\nHP {}/{}   EN {}/{}\nMOVE {move_state}   ACTION {action_state}\nSTANCE {stance}",
+        inspector.hp.unwrap_or_default(),
+        inspector.max_hp.unwrap_or_default(),
+        inspector.en.unwrap_or_default(),
+        inspector.max_en.unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]
@@ -1190,6 +1897,7 @@ mod tests {
                 name: "Striker",
                 hp: 12,
                 max_hp: 12,
+                position: GridPos::new(4, 4),
             })
         );
         assert_eq!(hud.primary, "Destroy the Striker.");
@@ -1210,7 +1918,13 @@ mod tests {
             "primary: {}",
             hud.primary
         );
-        assert!(hud.objective_track.is_none());
+        assert_eq!(
+            hud.objective_track,
+            Some(ObjectiveTrackSnapshot::EliminateAll {
+                remaining: 4,
+                total: 4,
+            })
+        );
     }
 
     #[test]
