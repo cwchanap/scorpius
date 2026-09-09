@@ -9,7 +9,7 @@ use super::{
     ReactionVisual, TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard,
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
-    interaction::InteractionState,
+    interaction::{InteractionMode, InteractionState},
     layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center},
     theme,
 };
@@ -558,22 +558,25 @@ pub fn sync_cell_highlights(
     let hovered = interaction
         .as_deref()
         .and_then(|interaction| interaction.hovered_cell);
-    let selected_unit = interaction
+    let command_unit = interaction
         .as_deref()
-        .and_then(inspected_unit)
-        .or_else(|| {
+        .filter(|interaction| matches!(interaction.mode, InteractionMode::Move))
+        .and_then(|_| battle.0.active_unit());
+    let selected_unit = command_unit.or_else(|| {
+        interaction.as_deref().and_then(inspected_unit).or_else(|| {
             hovered
                 .and_then(|cell| battle.0.occupant_at(cell))
                 .and_then(|id| battle.0.unit(id))
                 .filter(|unit| unit.faction == Faction::Player)
                 .map(|unit| unit.id)
         })
-        .filter(|id| {
-            battle
-                .0
-                .unit(*id)
-                .is_some_and(|unit| unit.faction == Faction::Player)
-        });
+    });
+    let selected_unit = selected_unit.filter(|id| {
+        battle
+            .0
+            .unit(*id)
+            .is_some_and(|unit| unit.faction == Faction::Player)
+    });
     let reachable = selected_unit
         .and_then(|unit| battle.0.reachable_cells(unit).ok())
         .unwrap_or_default();
