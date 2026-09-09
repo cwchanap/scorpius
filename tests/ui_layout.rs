@@ -588,3 +588,82 @@ fn production_stage_observers_route_blockers_tokens_and_targets_once() {
     assert_eq!(attacks, 1, "one token click routes one attack");
     assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
 }
+
+#[test]
+fn production_pointer_out_clears_hover_and_preview_while_playback_locked() {
+    let (mut app, window) = production_picker_app();
+    let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
+    app.world_mut()
+        .resource_mut::<BattleRuntime>()
+        .0
+        .begin_activation(ids::VANGUARD)
+        .unwrap();
+
+    let blocker = GridPos::new(3, 5);
+    let blocker_point = fit.offset + (iso_center(blocker) + Vec2::new(0.0, -13.0)) * fit.scale;
+    send_headless_pointer_move(&mut app, window, blocker_point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(blocker)
+    );
+
+    let target = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .unit(ids::STRIKER)
+        .unwrap()
+        .position;
+    let preview = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .preview_attack(
+            ids::VANGUARD,
+            scorpius::mission::squad::ids::REPULSOR_RAM,
+            target,
+        )
+        .unwrap();
+    {
+        let mut interaction = app.world_mut().resource_mut::<InteractionState>();
+        interaction.mode = InteractionMode::Attack(scorpius::mission::squad::ids::REPULSOR_RAM);
+        interaction.hovered_cell = Some(target);
+        interaction.preview = Some(preview);
+    }
+    app.world_mut()
+        .resource_mut::<AttackPreviewCells>()
+        .0
+        .insert(target);
+    app.world_mut().resource_mut::<EventPlayback>().input_locked = true;
+
+    let outside = fit.offset + Vec2::new(100.0, 100.0) * fit.scale;
+    send_headless_pointer_move(&mut app, window, outside);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
+    );
+    assert!(app.world().resource::<InteractionState>().preview.is_none());
+    assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
+
+    app.world_mut().resource_mut::<EventPlayback>().input_locked = false;
+    let token_point = fit.offset + (iso_center(target) + Vec2::new(0.0, -36.0)) * fit.scale;
+    send_headless_pointer_move(&mut app, window, token_point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(target)
+    );
+    assert!(app.world().resource::<InteractionState>().preview.is_some());
+    app.world_mut().resource_mut::<EventPlayback>().input_locked = true;
+
+    send_headless_pointer_move(&mut app, window, outside);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
+    );
+    assert!(app.world().resource::<InteractionState>().preview.is_none());
+    assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
+}
