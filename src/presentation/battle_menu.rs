@@ -7,7 +7,6 @@ use super::{
         CommandAction, CommandButton, InteractionMode, InteractionState, on_command_button_click,
     },
     theme,
-    ui::CommandButtonLabel,
 };
 
 /// Presentation-only drill-down state for the fixed left sidebar.
@@ -37,6 +36,35 @@ pub struct TargetingPanel;
 
 #[derive(Component)]
 pub struct TargetingLabel;
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WeaponRow(pub usize);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WeaponText {
+    pub slot: usize,
+    pub kind: WeaponTextKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WeaponTextKind {
+    Name,
+    Damage,
+    Hit,
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WeaponMeter {
+    pub slot: usize,
+    pub kind: WeaponMeterKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WeaponMeterKind {
+    Range,
+    Energy(usize),
+    Shape(usize),
+}
 
 /// Apply a sidebar navigation action after the shared interaction guard has
 /// established that the active pilot owns the command area.
@@ -122,13 +150,11 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         .id();
     spawn_back_row(commands, weapons, assets);
     for slot in 0..3 {
-        spawn_command_row_with_label(
+        spawn_weapon_row(
             commands,
             weapons,
             assets,
             CommandAction::WeaponSlot(slot),
-            theme::ICON_ATTACK,
-            "--",
             slot,
         );
     }
@@ -408,40 +434,251 @@ fn spawn_command_row(
     ));
 }
 
-fn spawn_command_row_with_label(
+fn spawn_weapon_row(
     commands: &mut Commands,
     parent: Entity,
     assets: &UiAssets,
     action: CommandAction,
-    icon: Rect,
-    label: &'static str,
     slot: usize,
 ) {
     let row = commands
         .spawn((
             Button,
             CommandButton(action),
-            targeting_row_node(72.0),
+            WeaponRow(slot),
+            Node {
+                width: percent(100),
+                height: px(72),
+                flex_shrink: 0.0,
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(14),
+                padding: UiRect::horizontal(px(16)),
+                ..default()
+            },
             BackgroundColor(Color::srgb_u8(10, 26, 38)),
             Pickable::default(),
             ChildOf(parent),
         ))
         .observe(on_command_button_click)
         .id();
+    let shape = commands
+        .spawn((
+            Node {
+                width: px(48),
+                height: px(48),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(3),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(row),
+        ))
+        .id();
+    for row_index in 0..3 {
+        let shape_row = commands
+            .spawn((
+                Node {
+                    width: percent(100),
+                    height: px(14),
+                    display: Display::Flex,
+                    column_gap: px(3),
+                    ..default()
+                },
+                Pickable::IGNORE,
+                ChildOf(shape),
+            ))
+            .id();
+        for column_index in 0..3 {
+            commands.spawn((
+                Node {
+                    width: px(14),
+                    height: px(14),
+                    ..default()
+                },
+                BackgroundColor(theme::BORDER),
+                WeaponMeter {
+                    slot,
+                    kind: WeaponMeterKind::Shape(row_index * 3 + column_index),
+                },
+                Pickable::IGNORE,
+                ChildOf(shape_row),
+            ));
+        }
+    }
+
+    let body = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                min_width: px(0),
+                flex_grow: 1.0,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(4),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(row),
+        ))
+        .id();
     commands.spawn((
-        theme::icon_node(assets.icons.clone(), icon, theme::GOLD),
-        icon_node(28.0),
-        Pickable::IGNORE,
-        ChildOf(row),
-    ));
-    commands.spawn((
-        Text::new(label),
-        theme::chakra_petch(&assets.fonts, 18.0, FontWeight(600)),
+        Text::new("—"),
+        theme::chakra_petch(&assets.fonts, 13.0, FontWeight(600)),
         TextColor(theme::TEXT),
-        CommandButtonLabel::WeaponSlot(slot),
+        WeaponText {
+            slot,
+            kind: WeaponTextKind::Name,
+        },
         Pickable::IGNORE,
-        ChildOf(row),
+        ChildOf(body),
     ));
+    let details = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(10),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(body),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(600)),
+        TextColor(theme::GOLD),
+        WeaponText {
+            slot,
+            kind: WeaponTextKind::Damage,
+        },
+        Pickable::IGNORE,
+        ChildOf(details),
+    ));
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(500)),
+        TextColor(theme::MUTED),
+        WeaponText {
+            slot,
+            kind: WeaponTextKind::Hit,
+        },
+        Pickable::IGNORE,
+        ChildOf(details),
+    ));
+    let range_track = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Relative,
+                width: percent(100),
+                height: px(4),
+                flex_grow: 1.0,
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            Pickable::IGNORE,
+            ChildOf(details),
+        ))
+        .id();
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            top: px(0),
+            bottom: px(0),
+            width: percent(0),
+            ..default()
+        },
+        BackgroundColor(theme::GOLD),
+        WeaponMeter {
+            slot,
+            kind: WeaponMeterKind::Range,
+        },
+        Pickable::IGNORE,
+        ChildOf(range_track),
+    ));
+
+    let tags = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexEnd,
+                row_gap: px(5),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(row),
+        ))
+        .id();
+    let energy = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                column_gap: px(3),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(tags),
+        ))
+        .id();
+    for index in 0..5 {
+        commands.spawn((
+            Node {
+                width: px(7),
+                height: px(5),
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            WeaponMeter {
+                slot,
+                kind: WeaponMeterKind::Energy(index),
+            },
+            Pickable::IGNORE,
+            ChildOf(energy),
+        ));
+    }
+    let tag_row = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                column_gap: px(4),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(tags),
+        ))
+        .id();
+    for (marker, icon) in [
+        (WeaponTag::Push, theme::ICON_MOVE),
+        (WeaponTag::Counter, theme::ICON_COUNTER),
+    ] {
+        commands.spawn((
+            theme::icon_node(assets.icons.clone(), icon, theme::MUTED),
+            icon_node(15.0),
+            WeaponTagIcon { slot, marker },
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(tag_row),
+        ));
+    }
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WeaponTagIcon {
+    pub slot: usize,
+    pub marker: WeaponTag,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WeaponTag {
+    Push,
+    Counter,
 }
 
 fn spawn_back_row(commands: &mut Commands, parent: Entity, assets: &UiAssets) {

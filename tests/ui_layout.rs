@@ -383,27 +383,29 @@ fn setup_production_picker_scene(mut commands: Commands, battle: Res<BattleRunti
         .observe(count_stage_move)
         .id();
 
-    let token_cell = battle.0.unit(ids::STRIKER).unwrap().position;
-    let token_center = iso_center(token_cell) - battle_stage_rect().min;
-    commands
-        .spawn((
-            TokenCard(ids::STRIKER),
-            Pickable::default(),
-            Visibility::Visible,
-            InheritedVisibility::VISIBLE,
-            Node {
-                width: Val::Px(76.0),
-                height: Val::Px(64.0),
-                position_type: bevy::prelude::PositionType::Absolute,
-                left: Val::Px(token_center.x - 38.0),
-                top: Val::Px(token_center.y - 68.0),
-                ..Default::default()
-            },
-            ChildOf(stage),
-        ))
-        .observe(on_battlefield_token_click)
-        .observe(on_battlefield_token_move)
-        .observe(on_battlefield_token_out);
+    for unit_id in [ids::STRIKER, ids::VANGUARD] {
+        let token_cell = battle.0.unit(unit_id).unwrap().position;
+        let token_center = iso_center(token_cell) - battle_stage_rect().min;
+        commands
+            .spawn((
+                TokenCard(unit_id),
+                Pickable::default(),
+                Visibility::Visible,
+                InheritedVisibility::VISIBLE,
+                Node {
+                    width: Val::Px(76.0),
+                    height: Val::Px(64.0),
+                    position_type: bevy::prelude::PositionType::Absolute,
+                    left: Val::Px(token_center.x - 38.0),
+                    top: Val::Px(token_center.y - 68.0),
+                    ..Default::default()
+                },
+                ChildOf(stage),
+            ))
+            .observe(on_battlefield_token_click)
+            .observe(on_battlefield_token_move)
+            .observe(on_battlefield_token_out);
+    }
 
     let blocker_cell = GridPos::new(3, 5);
     let blocker_center = iso_center(blocker_cell) - battle_stage_rect().min;
@@ -586,6 +588,46 @@ fn production_stage_observers_route_blockers_tokens_and_targets_once() {
         })
         .count();
     assert_eq!(attacks, 1, "one token click routes one attack");
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
+}
+
+#[test]
+fn production_ready_token_click_starts_activation_without_bubbling_to_stage() {
+    let (mut app, window) = production_picker_app();
+    let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
+    let vanguard_cell = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .unit(ids::VANGUARD)
+        .unwrap()
+        .position;
+    let token_point = fit.offset + (iso_center(vanguard_cell) + Vec2::new(0.0, -36.0)) * fit.scale;
+    send_headless_pointer_move(&mut app, window, token_point);
+    app.update();
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        token_point,
+        PointerAction::Press(PointerButton::Primary),
+    );
+    app.update();
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        token_point,
+        PointerAction::Release(PointerButton::Primary),
+    );
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<BattleRuntime>().0.active_unit(),
+        Some(ids::VANGUARD)
+    );
+    assert_eq!(
+        app.world().resource::<InteractionState>().inspected_unit,
+        Some(ids::VANGUARD)
+    );
     assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
 }
 
