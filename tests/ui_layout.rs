@@ -6,13 +6,15 @@ use bevy::{
     input::InputPlugin,
     picking::{
         PickingSystems,
+        events::{Click, Move, Pointer},
         hover::HoverMap,
-        pointer::{Location, PointerAction, PointerId, PointerInput},
+        pointer::{Location, PointerAction, PointerButton, PointerId, PointerInput},
         prelude::{InteractionPlugin, Pickable, PickingPlugin},
     },
     prelude::{
-        App, ChildOf, Component, Entity, IntoScheduleConfigs, Node, Query, Rect, TransformPlugin,
-        UiPickingSettings, UiScale, Val, Vec2, Window, With,
+        App, ChildOf, Commands, Component, Entity, InheritedVisibility, IntoScheduleConfigs, Node,
+        On, Query, Rect, Res, ResMut, Resource, TransformPlugin, UiPickingSettings, UiScale, Val,
+        Vec2, Visibility, Window, With,
     },
     text::TextPlugin,
     time::TimePlugin,
@@ -21,11 +23,22 @@ use bevy::{
 };
 use scorpius::{
     domain::board::GridPos,
+    domain::model::BattleEvent,
+    mission::mission_one::{ids, mission_one},
     presentation::layout::{
         BATTLE_STAGE_SIZE, CanvasLayout, battle_stage_rect, grid_from_stage_point, iso_center,
         setup_canvas, update_canvas_scale,
     },
-    presentation::{CanvasRoot, ViewportRoot},
+    presentation::{
+        AttackPreviewCells, BattleEventQueue, BattleRuntime, BattleStage, CanvasRoot,
+        EventPlayback, TokenCard, ViewportRoot,
+        assets::AssetLoadStatus,
+        interaction::{
+            InteractionMode, InteractionState, StatusMessage, on_battlefield_stage_click,
+            on_battlefield_stage_move, on_battlefield_stage_out, on_battlefield_token_click,
+            on_battlefield_token_move, on_battlefield_token_out,
+        },
+    },
 };
 
 #[test]
@@ -110,13 +123,29 @@ fn sync_headless_camera_to_window(
 }
 
 fn send_headless_pointer_move(app: &mut App, window: Entity, position: Vec2) {
+    send_headless_pointer_action(
+        app,
+        window,
+        position,
+        PointerAction::Move {
+            delta: Vec2::new(1.0, 0.0),
+        },
+    );
+}
+
+fn send_headless_pointer_action(
+    app: &mut App,
+    window: Entity,
+    position: Vec2,
+    action: PointerAction,
+) {
     let target = RenderTarget::Window(bevy::window::WindowRef::Entity(window))
         .normalize(Some(window))
         .expect("headless test window should normalize");
     app.world_mut().write_message(PointerInput::new(
         PointerId::Mouse,
         Location { target, position },
-        PointerAction::Move { delta: Vec2::ZERO },
+        action,
     ));
 }
 
@@ -314,4 +343,248 @@ fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
     send_headless_pointer_move(&mut app, window, resized_window_point);
     app.update();
     assert_eq!(hovered_stage_cell(&app, stage), expected_cell);
+}
+
+#[derive(Debug, Resource, Default)]
+struct StagePointerCounts {
+    clicks: usize,
+    moves: usize,
+}
+
+fn count_stage_click(_event: On<Pointer<Click>>, mut counts: ResMut<StagePointerCounts>) {
+    counts.clicks += 1;
+}
+
+fn count_stage_move(_event: On<Pointer<Move>>, mut counts: ResMut<StagePointerCounts>) {
+    counts.moves += 1;
+}
+
+fn setup_production_picker_scene(mut commands: Commands, battle: Res<BattleRuntime>) {
+    let canvas = scorpius::presentation::layout::spawn_canvas_root(&mut commands);
+    let stage = commands
+        .spawn((
+            BattleStage,
+            Pickable::default(),
+            InheritedVisibility::VISIBLE,
+            Node {
+                width: Val::Px(BATTLE_STAGE_SIZE.x),
+                height: Val::Px(BATTLE_STAGE_SIZE.y),
+                position_type: bevy::prelude::PositionType::Absolute,
+                left: Val::Px(battle_stage_rect().min.x),
+                top: Val::Px(battle_stage_rect().min.y),
+                ..Default::default()
+            },
+            ChildOf(canvas),
+        ))
+        .observe(on_battlefield_stage_click)
+        .observe(on_battlefield_stage_move)
+        .observe(on_battlefield_stage_out)
+        .observe(count_stage_click)
+        .observe(count_stage_move)
+        .id();
+
+    let token_cell = battle.0.unit(ids::STRIKER).unwrap().position;
+    let token_center = iso_center(token_cell) - battle_stage_rect().min;
+    commands
+        .spawn((
+            TokenCard(ids::STRIKER),
+            Pickable::default(),
+            Visibility::Visible,
+            InheritedVisibility::VISIBLE,
+            Node {
+                width: Val::Px(76.0),
+                height: Val::Px(64.0),
+                position_type: bevy::prelude::PositionType::Absolute,
+                left: Val::Px(token_center.x - 38.0),
+                top: Val::Px(token_center.y - 68.0),
+                ..Default::default()
+            },
+            ChildOf(stage),
+        ))
+        .observe(on_battlefield_token_click)
+        .observe(on_battlefield_token_move)
+        .observe(on_battlefield_token_out);
+
+    let blocker_cell = GridPos::new(3, 5);
+    let blocker_center = iso_center(blocker_cell) - battle_stage_rect().min;
+    commands.spawn((
+        Node {
+            width: Val::Px(112.0),
+            height: Val::Px(82.0),
+            position_type: bevy::prelude::PositionType::Absolute,
+            left: Val::Px(blocker_center.x - 56.0),
+            top: Val::Px(blocker_center.y - 54.0),
+            ..Default::default()
+        },
+        Pickable::IGNORE,
+        ChildOf(stage),
+    ));
+}
+
+fn production_picker_app() -> (App, Entity) {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut app = App::new();
+    app.add_plugins((
+        TaskPoolPlugin::default(),
+        AssetPlugin::default(),
+        ImagePlugin::default(),
+        TextureAtlasPlugin,
+        InputPlugin,
+        TimePlugin,
+        TransformPlugin,
+        TextPlugin,
+        UiPlugin,
+        PickingPlugin,
+        InteractionPlugin,
+    ))
+    .insert_resource(BattleRuntime(battle))
+    .init_resource::<InteractionState>()
+    .init_resource::<StatusMessage>()
+    .init_resource::<BattleEventQueue>()
+    .init_resource::<EventPlayback>()
+    .init_resource::<AttackPreviewCells>()
+    .insert_resource(AssetLoadStatus::Ready)
+    .insert_resource(StagePointerCounts::default())
+    .init_resource::<UiScale>()
+    .insert_resource(UiPickingSettings {
+        require_markers: true,
+    })
+    .add_systems(
+        bevy::app::PreUpdate,
+        sync_headless_camera_to_window
+            .before(update_canvas_scale)
+            .before(PickingSystems::Backend),
+    )
+    .add_systems(
+        bevy::app::PreUpdate,
+        update_canvas_scale.before(PickingSystems::Backend),
+    )
+    .add_systems(Startup, setup_production_picker_scene);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                resolution: (1920, 1080).into(),
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ))
+        .id();
+    app.world_mut().spawn((Camera2d, UiPickingCamera));
+    app.world_mut().spawn(PointerId::Mouse);
+    app.update();
+    (app, window)
+}
+
+#[test]
+fn production_stage_observers_route_blockers_tokens_and_targets_once() {
+    let (mut app, window) = production_picker_app();
+    let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
+
+    let blocker = GridPos::new(3, 5);
+    let blocker_point = fit.offset + (iso_center(blocker) + Vec2::new(0.0, -13.0)) * fit.scale;
+    send_headless_pointer_move(&mut app, window, blocker_point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(blocker),
+        "an ignored blocker must leave the stage as the hover target",
+    );
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
+    assert_eq!(app.world().resource::<StagePointerCounts>().moves, 1);
+
+    let striker_cell = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .unit(ids::STRIKER)
+        .unwrap()
+        .position;
+    let token_point = fit.offset + (iso_center(striker_cell) + Vec2::new(0.0, -36.0)) * fit.scale;
+    send_headless_pointer_move(&mut app, window, token_point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(striker_cell),
+        "token-local hover must resolve through the domain position",
+    );
+    assert_eq!(
+        app.world().resource::<StagePointerCounts>().moves,
+        1,
+        "token move must stop before the stage observer"
+    );
+
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        token_point,
+        PointerAction::Press(PointerButton::Primary),
+    );
+    app.update();
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        token_point,
+        PointerAction::Release(PointerButton::Primary),
+    );
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().inspected_unit,
+        Some(ids::STRIKER)
+    );
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
+
+    app.world_mut()
+        .resource_mut::<BattleRuntime>()
+        .0
+        .begin_activation(ids::VANGUARD)
+        .unwrap();
+    {
+        let mut interaction = app.world_mut().resource_mut::<InteractionState>();
+        interaction.mode = InteractionMode::Attack(scorpius::mission::squad::ids::REPULSOR_RAM);
+    }
+    send_headless_pointer_move(&mut app, window, token_point);
+    app.update();
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        token_point,
+        PointerAction::Press(PointerButton::Primary),
+    );
+    app.update();
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        token_point,
+        PointerAction::Release(PointerButton::Primary),
+    );
+    app.update();
+
+    assert!(
+        app.world()
+            .resource::<BattleRuntime>()
+            .0
+            .unit(ids::VANGUARD)
+            .unwrap()
+            .activation
+            .acted
+    );
+    let attacks = app
+        .world()
+        .resource::<BattleEventQueue>()
+        .0
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                BattleEvent::AttackRolled {
+                    attacker: ids::VANGUARD,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(attacks, 1, "one token click routes one attack");
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
 }

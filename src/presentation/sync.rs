@@ -4,10 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::domain::model::{Faction, PrimaryObjective, Reaction};
 
 use super::{
-    AttackPreviewCells, BattleRuntime, BattleStage, CellVisual, EventPlayback, ExtractionVisual,
-    IntentLineVisual, IntentTargetVisual, PresentationRoot, PropVisual, ReactionVisual,
-    TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard, TokenHpFill, TokenHpText,
-    UnitVisual,
+    AttackPreviewCells, BattleRuntime, BattleStage, CellInsetVisual, CellVisual, EventPlayback,
+    ExtractionVisual, IntentLineVisual, IntentTargetVisual, PresentationRoot, PropVisual,
+    ReactionVisual, TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard,
+    TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::InteractionState,
     layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center},
@@ -64,10 +64,45 @@ fn insert_icon_image(
     }
 }
 
+type UnitTransformQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static UnitVisual,
+        &'static mut Node,
+        &'static mut Visibility,
+    ),
+    (Without<TokenFootprintVisual>, Without<TokenSelectionVisual>),
+>;
+type FootprintTransformQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static TokenFootprintVisual,
+        &'static mut Node,
+        &'static mut Visibility,
+    ),
+    (Without<UnitVisual>, Without<TokenSelectionVisual>),
+>;
+type SelectionFootprintQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static TokenSelectionVisual,
+        &'static mut Node,
+        &'static mut ImageNode,
+        &'static mut Visibility,
+    ),
+    (Without<UnitVisual>, Without<TokenFootprintVisual>),
+>;
+
 pub fn apply_unit_transforms(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
-    mut visuals: Query<(&UnitVisual, &mut Node, &mut Visibility)>,
+    mut visuals: UnitTransformQuery,
+    mut footprints: FootprintTransformQuery,
+    mut selection_footprints: SelectionFootprintQuery,
+    interaction: Option<Res<InteractionState>>,
 ) {
     if playback.is_some_and(|playback| playback.input_locked) {
         return;
@@ -82,6 +117,45 @@ pub fn apply_unit_transforms(
             } else {
                 Visibility::Visible
             };
+        }
+    }
+    for (footprint, mut node, mut visibility) in &mut footprints {
+        if let Some(unit) = battle.0.unit(footprint.0) {
+            let center = stage_point(unit.position);
+            node.left = px(center.x - 56.0);
+            node.top = px(center.y - 68.0);
+            *visibility = if unit.is_knocked_out() {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+        }
+    }
+    let inspected = interaction
+        .as_deref()
+        .and_then(|interaction| interaction.inspected_unit);
+    for (footprint, mut node, mut image, mut visibility) in &mut selection_footprints {
+        if let Some(unit) = battle.0.unit(footprint.0) {
+            let center = stage_point(unit.position);
+            node.left = px(center.x - 56.0);
+            node.top = px(center.y - 28.0);
+            let tint = if unit.is_knocked_out() {
+                None
+            } else if battle.0.active_unit() == Some(unit.id) {
+                Some(theme::BOARD_SELECTED)
+            } else if inspected == Some(unit.id) {
+                Some(theme::BOARD_INSPECTED)
+            } else {
+                None
+            };
+            *visibility = if tint.is_some() {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+            if let Some(tint) = tint {
+                image.color = tint;
+            }
         }
     }
 }
@@ -482,7 +556,8 @@ pub fn sync_cell_highlights(
     battle: Res<BattleRuntime>,
     interaction: Option<Res<InteractionState>>,
     attack_preview: Option<Res<AttackPreviewCells>>,
-    mut cells: Query<(&CellVisual, &mut ImageNode)>,
+    mut cells: Query<(&CellVisual, &mut ImageNode), Without<CellInsetVisual>>,
+    mut insets: Query<(&CellInsetVisual, &mut ImageNode), Without<CellVisual>>,
 ) {
     let hovered = interaction
         .as_deref()
@@ -506,21 +581,25 @@ pub fn sync_cell_highlights(
     let reachable = selected_unit
         .and_then(|unit| battle.0.reachable_cells(unit).ok())
         .unwrap_or_default();
-    for (cell, mut image) in &mut cells {
-        image.color = if attack_preview
+    let tint_for = |cell: crate::domain::board::GridPos| {
+        if attack_preview
             .as_ref()
-            .is_some_and(|preview| preview.0.contains(&cell.0))
+            .is_some_and(|preview| preview.0.contains(&cell))
         {
-            theme::BOARD_ATTACK
-        } else if hovered == Some(cell.0) {
-            theme::BOARD_SELECTED
-        } else if reachable.contains(&cell.0) {
-            theme::BOARD_REACHABLE
-        } else if (cell.0.x + cell.0.y) % 2 == 0 {
-            theme::BOARD_LIGHT
+            (theme::BOARD_ATTACK, theme::BOARD_ATTACK_INSET)
+        } else if hovered == Some(cell) || reachable.contains(&cell) {
+            (theme::BOARD_SELECTED, theme::BOARD_REACHABLE)
+        } else if (cell.x + cell.y).is_multiple_of(2) {
+            (theme::BOARD_STROKE, theme::BOARD_LIGHT)
         } else {
-            theme::BOARD_DARK
-        };
+            (theme::BOARD_STROKE, theme::BOARD_DARK)
+        }
+    };
+    for (cell, mut image) in &mut cells {
+        image.color = tint_for(cell.0).0;
+    }
+    for (cell, mut image) in &mut insets {
+        image.color = tint_for(cell.0).1;
     }
 }
 

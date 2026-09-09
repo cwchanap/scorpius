@@ -72,6 +72,7 @@ pub fn spawn_canvas_root(commands: &mut Commands) -> Entity {
                 justify_content: JustifyContent::Center,
                 ..default()
             },
+            Visibility::Visible,
         ))
         .id();
     commands
@@ -83,6 +84,7 @@ pub fn spawn_canvas_root(commands: &mut Commands) -> Entity {
                 height: Val::Px(DESIGN_SIZE.y),
                 ..default()
             },
+            Visibility::Visible,
             ChildOf(viewport),
         ))
         .id()

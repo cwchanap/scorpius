@@ -19,13 +19,16 @@ use scorpius::{
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        EventPlayback, ExtractionVisual, PresentationRoot, TelegraphVisual, UnitVisual,
-        battlefield::mission_grid_cells,
+        CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, PresentationRoot,
+        TelegraphVisual, TokenFootprintVisual, TokenSelectionVisual, UnitVisual,
+        assets::UiAssets,
+        battlefield::{mission_grid_cells, setup_mission_scene},
         interaction::{
             CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
             handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
         },
         sync::{apply_unit_transforms, reconcile_extraction_marker, reconcile_telegraph_markers},
+        theme,
         ui::{HudSnapshot, ObjectiveTrackSnapshot, result_overlay_copy},
     },
 };
@@ -58,6 +61,19 @@ fn presentation_fixture_app() -> App {
     app
 }
 
+fn blank_ui_assets() -> UiAssets {
+    UiAssets {
+        key_art: Handle::default(),
+        briefing_art: Handle::default(),
+        vanguard_art: Handle::default(),
+        gunner_art: Handle::default(),
+        interceptor_art: Handle::default(),
+        icons: Handle::default(),
+        board: Handle::default(),
+        fonts: std::array::from_fn(|_| Handle::default()),
+    }
+}
+
 #[test]
 fn canonical_move_drives_visual_transform_without_renderer() {
     let mut app = App::new();
@@ -85,6 +101,157 @@ fn canonical_move_drives_visual_transform_without_renderer() {
         - scorpius::presentation::layout::battle_stage_rect().min;
     assert_eq!(node.left, px(center.x - 38.0));
     assert_eq!(node.top, px(center.y - 68.0));
+}
+
+#[test]
+fn token_shadow_and_selection_footprints_follow_domain_positions() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(battle))
+        .insert_resource(InteractionState {
+            inspected_unit: Some(ids::STRIKER),
+            ..default()
+        })
+        .add_systems(Update, apply_unit_transforms);
+    let shadow = app
+        .world_mut()
+        .spawn((
+            TokenFootprintVisual(ids::VANGUARD),
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            Visibility::Hidden,
+        ))
+        .id();
+    let active_ring = app
+        .world_mut()
+        .spawn((
+            TokenSelectionVisual(ids::VANGUARD),
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            ImageNode::default(),
+            Visibility::Hidden,
+        ))
+        .id();
+    let inspected_ring = app
+        .world_mut()
+        .spawn((
+            TokenSelectionVisual(ids::STRIKER),
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            ImageNode::default(),
+            Visibility::Hidden,
+        ))
+        .id();
+
+    app.update();
+    let moved_to = GridPos::new(4, 8);
+    app.world_mut()
+        .resource_mut::<BattleRuntime>()
+        .0
+        .move_unit(ids::VANGUARD, moved_to)
+        .unwrap();
+    app.update();
+
+    let center = scorpius::presentation::layout::iso_center(moved_to)
+        - scorpius::presentation::layout::battle_stage_rect().min;
+    let shadow_node = app.world().get::<Node>(shadow).unwrap();
+    assert_eq!(shadow_node.left, px(center.x - 56.0));
+    assert_eq!(shadow_node.top, px(center.y - 68.0));
+    assert_eq!(
+        app.world().get::<Visibility>(shadow),
+        Some(&Visibility::Visible)
+    );
+
+    let active_node = app.world().get::<Node>(active_ring).unwrap();
+    assert_eq!(active_node.left, px(center.x - 56.0));
+    assert_eq!(active_node.top, px(center.y - 28.0));
+    assert_eq!(
+        app.world().get::<Visibility>(active_ring),
+        Some(&Visibility::Visible)
+    );
+    assert_eq!(
+        app.world().get::<ImageNode>(active_ring).unwrap().color,
+        theme::BOARD_SELECTED
+    );
+
+    assert_eq!(
+        app.world().get::<Visibility>(inspected_ring),
+        Some(&Visibility::Visible)
+    );
+    assert_eq!(
+        app.world().get::<ImageNode>(inspected_ring).unwrap().color,
+        theme::BOARD_INSPECTED
+    );
+}
+
+#[test]
+fn mission_cells_have_source_stroke_and_inset_layers() {
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(mission_one(7)))
+        .insert_resource(blank_ui_assets())
+        .add_systems(Update, setup_mission_scene);
+    app.update();
+
+    let mut cells = app
+        .world_mut()
+        .query::<(&CellVisual, &Node, &ImageNode, Option<&Pickable>)>();
+    let cell = cells
+        .iter(app.world())
+        .find(|(visual, ..)| visual.0 == GridPos::new(0, 0))
+        .expect("authored cell root");
+    assert_eq!(cell.1.width, px(112.0));
+    assert_eq!(cell.1.height, px(56.0));
+    assert_eq!(cell.2.color, theme::BOARD_STROKE);
+    assert!(cell.3.is_none(), "outer stroke must not be pickable");
+
+    let mut insets = app
+        .world_mut()
+        .query::<(&CellInsetVisual, &Node, &ImageNode, &Pickable)>();
+    let inset = insets
+        .iter(app.world())
+        .find(|(visual, ..)| visual.0 == GridPos::new(0, 0))
+        .expect("authored cell inset");
+    assert_eq!(inset.1.left, px(3.0));
+    assert_eq!(inset.1.top, px(3.0));
+    assert_eq!(inset.1.width, px(106.0));
+    assert_eq!(inset.1.height, px(50.0));
+    assert_eq!(inset.2.color, theme::BOARD_LIGHT);
+    assert_eq!(inset.3, &Pickable::IGNORE);
+}
+
+#[test]
+fn inspecting_enemy_keeps_active_unit_commands_and_preview_authority() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut interaction = InteractionState::default();
+    let striker_position = battle.unit(ids::STRIKER).unwrap().position;
+
+    route_cell_click(&mut battle, &mut interaction, striker_position).unwrap();
+    assert_eq!(interaction.inspected_unit, Some(ids::STRIKER));
+    interaction.mode = InteractionMode::Attack(ids::REPULSOR_RAM);
+    update_hover_preview(&battle, &mut interaction, striker_position);
+    assert_eq!(
+        interaction.preview.as_ref().map(|preview| preview.attacker),
+        Some(ids::VANGUARD)
+    );
+
+    interaction.mode = InteractionMode::Move;
+    execute_command(&mut battle, &mut interaction, CommandAction::Move).unwrap();
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 8)).unwrap();
+    assert_eq!(
+        battle.unit(ids::VANGUARD).unwrap().position,
+        GridPos::new(4, 8)
+    );
 }
 
 #[test]
