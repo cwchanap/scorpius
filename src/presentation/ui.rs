@@ -864,6 +864,7 @@ pub fn setup_mission_ui(
                 height: px(190),
                 flex_shrink: 0.0,
                 display: Display::Flex,
+                flex_direction: FlexDirection::Column,
                 padding: UiRect::all(px(16)),
                 ..default()
             },

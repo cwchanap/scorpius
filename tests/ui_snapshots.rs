@@ -2,8 +2,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use bevy::{
-    app::TaskPoolPlugin, asset::AssetPlugin, prelude::*, state::app::StatesPlugin,
-    ui::prelude::UiPickingCamera,
+    app::TaskPoolPlugin,
+    asset::AssetPlugin,
+    image::{ImagePlugin, TextureAtlasPlugin},
+    input::InputPlugin,
+    picking::{InteractionPlugin, PickingPlugin},
+    prelude::*,
+    state::app::StatesPlugin,
+    text::TextPlugin,
+    time::TimePlugin,
+    ui::{UiGlobalTransform, UiPlugin, prelude::UiPickingCamera},
 };
 use scorpius::{
     campaign::{
@@ -32,8 +40,9 @@ use scorpius::{
             setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
         },
         ui::{
-            BattleHeader, BattleRightbar, BattleSidebar, InspectorPanel, PreviewText, ResultIcon,
-            ResultOverlay, ThreatCard, setup_mission_ui, update_hud,
+            BattleHeader, BattleRightbar, BattleSidebar, InspectorEmpty, InspectorPanel,
+            InspectorStats, InspectorTop, PreviewText, ResultIcon, ResultOverlay, ThreatCard,
+            setup_mission_ui, update_hud,
         },
     },
 };
@@ -408,6 +417,74 @@ fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
         .single(app.world())
         .expect("preview panel must be present");
     assert!(preview.0.contains("TARGET PREVIEW"));
+}
+
+#[test]
+fn inspector_children_stay_within_the_fixed_panel_bounds() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut app = battle_fixture_app(battle, Some(ids::VANGUARD));
+    app.add_plugins((
+        TaskPoolPlugin::default(),
+        AssetPlugin::default(),
+        ImagePlugin::default(),
+        TextureAtlasPlugin,
+        InputPlugin,
+        PickingPlugin,
+        InteractionPlugin,
+        TimePlugin,
+        TextPlugin,
+        TransformPlugin,
+        UiPlugin,
+    ));
+    app.update();
+
+    let panel = app
+        .world_mut()
+        .query_filtered::<Entity, With<InspectorPanel>>()
+        .single(app.world())
+        .expect("one inspector panel");
+    let panel_rect = computed_rect(&app, panel);
+    let mut children = app.world_mut().query_filtered::<Entity, Or<(
+        With<InspectorTop>,
+        With<InspectorStats>,
+        With<InspectorEmpty>,
+    )>>();
+    let direct_children: Vec<_> = children
+        .iter(app.world())
+        .filter(|entity| {
+            app.world()
+                .get::<ChildOf>(*entity)
+                .is_some_and(|parent| parent.parent() == panel)
+        })
+        .collect();
+    assert_eq!(direct_children.len(), 3);
+
+    for child in direct_children {
+        let rect = computed_rect(&app, child);
+        assert!(
+            rect.min.x >= panel_rect.min.x - 0.5,
+            "inspector child starts outside panel: {rect:?} vs {panel_rect:?}"
+        );
+        assert!(
+            rect.max.x <= panel_rect.max.x + 0.5,
+            "inspector child ends outside panel: {rect:?} vs {panel_rect:?}"
+        );
+    }
+}
+
+fn computed_rect(app: &App, entity: Entity) -> Rect {
+    let node = app
+        .world()
+        .get::<ComputedNode>(entity)
+        .expect("layout must compute every inspector node");
+    let transform = app
+        .world()
+        .get::<UiGlobalTransform>(entity)
+        .expect("layout must compute every inspector transform");
+    let (_, _, center) = transform.to_scale_angle_translation();
+    Rect::from_center_size(center, node.size)
 }
 
 fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
