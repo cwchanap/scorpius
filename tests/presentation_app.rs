@@ -27,7 +27,10 @@ use scorpius::{
             CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
             handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
         },
-        sync::{apply_unit_transforms, reconcile_extraction_marker, reconcile_telegraph_markers},
+        sync::{
+            apply_unit_transforms, reconcile_extraction_marker, reconcile_telegraph_markers,
+            sync_cell_highlights,
+        },
         theme,
         ui::{HudSnapshot, ObjectiveTrackSnapshot, result_overlay_copy},
     },
@@ -247,6 +250,42 @@ fn inspecting_enemy_keeps_active_unit_commands_and_preview_authority() {
 
     interaction.mode = InteractionMode::Move;
     execute_command(&mut battle, &mut interaction, CommandAction::Move).unwrap();
+
+    let reachable_cell = battle
+        .reachable_cells(ids::VANGUARD)
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("the active Vanguard must have a reachable cell");
+    let mut highlight_app = App::new();
+    highlight_app
+        .insert_resource(BattleRuntime(battle.clone()))
+        .insert_resource(InteractionState {
+            inspected_unit: interaction.inspected_unit,
+            hovered_cell: interaction.hovered_cell,
+            mode: interaction.mode,
+            preview: None,
+        })
+        .add_systems(Update, sync_cell_highlights);
+    let outer = highlight_app
+        .world_mut()
+        .spawn((CellVisual(reachable_cell), ImageNode::default()))
+        .id();
+    let inset = highlight_app
+        .world_mut()
+        .spawn((CellInsetVisual(reachable_cell), ImageNode::default()))
+        .id();
+    highlight_app.update();
+    assert_eq!(
+        highlight_app.world().get::<ImageNode>(outer).unwrap().color,
+        theme::BOARD_SELECTED,
+        "Move highlights must follow the active ally after inspecting an enemy"
+    );
+    assert_eq!(
+        highlight_app.world().get::<ImageNode>(inset).unwrap().color,
+        theme::BOARD_REACHABLE,
+    );
+
     route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 8)).unwrap();
     assert_eq!(
         battle.unit(ids::VANGUARD).unwrap().position,
