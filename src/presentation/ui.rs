@@ -7,7 +7,7 @@ use crate::domain::{
     combat::AttackPreview,
     model::{
         BattleEvent, BattlePhase, Faction, MissionResult, OptionalObjective, PrimaryObjective,
-        Reaction, UnitArchetype, UnitId, WeaponId,
+        Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
     },
 };
 use crate::mission::MissionDefinition;
@@ -16,7 +16,10 @@ use super::{
     ActiveMission, BattleRuntime, CampaignRuntime, CanvasRoot, EventPlayback, RecentBattleLog,
     RestartRequest,
     assets::{AssetLoadStatus, UiAssets},
-    battle_menu::spawn_battle_menu,
+    battle_menu::{
+        WeaponMeter, WeaponMeterKind, WeaponTag, WeaponTagIcon, WeaponText, WeaponTextKind,
+        spawn_battle_menu,
+    },
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
         on_command_button_click, restart_allowed,
@@ -29,13 +32,31 @@ use super::{
 pub struct ThreatSnapshot {
     pub attacker_id: UnitId,
     pub attacker: &'static str,
+    pub attacker_archetype: UnitArchetype,
     pub weapon_id: WeaponId,
     pub weapon: &'static str,
+    pub shape: WeaponShape,
     pub cells: Vec<crate::domain::board::GridPos>,
     pub intended_occupant_id: Option<UnitId>,
     pub intended_occupant: Option<&'static str>,
     pub normal_damage: i16,
     pub hit_chance: u8,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WeaponSnapshot {
+    pub id: WeaponId,
+    pub name: &'static str,
+    pub shape: WeaponShape,
+    pub min_range: u8,
+    pub max_range: u8,
+    pub base_damage: i16,
+    pub hit_modifier: i16,
+    pub crit_chance: u8,
+    pub en_cost: i16,
+    pub push: bool,
+    pub counter_weapon: bool,
+    pub enabled: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -146,6 +167,7 @@ pub struct HudSnapshot {
     pub enemy_count: usize,
     pub awaiting_count: usize,
     pub weapon_names: [Option<&'static str>; 3],
+    pub weapon_specs: [Option<WeaponSnapshot>; 3],
     pub weapon_enabled: [bool; 3],
     pub can_move: bool,
     pub can_pilot: bool,
@@ -201,11 +223,27 @@ impl HudSnapshot {
             .filter(|unit| battle.phase() == BattlePhase::Player && !unit.is_knocked_out());
         let mut weapon_names = [None; 3];
         let mut weapon_enabled = [false; 3];
+        let mut weapon_specs = std::array::from_fn(|_| None);
         if let Some(unit) = active {
             for (slot, weapon_id) in unit.weapons.iter().take(3).enumerate() {
                 if let Some(weapon) = battle.weapon(*weapon_id) {
                     weapon_names[slot] = Some(weapon.name);
-                    weapon_enabled[slot] = !unit.activation.acted && unit.en >= weapon.en_cost;
+                    let enabled = !unit.activation.acted && unit.en >= weapon.en_cost;
+                    weapon_enabled[slot] = enabled;
+                    weapon_specs[slot] = Some(WeaponSnapshot {
+                        id: weapon.id,
+                        name: weapon.name,
+                        shape: weapon.shape,
+                        min_range: weapon.min_range,
+                        max_range: weapon.max_range,
+                        base_damage: weapon.base_damage,
+                        hit_modifier: weapon.hit_modifier,
+                        crit_chance: weapon.crit_chance,
+                        en_cost: weapon.en_cost,
+                        push: weapon.push,
+                        counter_weapon: weapon.counter_weapon,
+                        enabled,
+                    });
                 }
             }
         }
@@ -324,8 +362,10 @@ impl HudSnapshot {
                     Some(ThreatSnapshot {
                         attacker_id: intent.attacker,
                         attacker: attacker.name,
+                        attacker_archetype: attacker.archetype,
                         weapon_id: intent.profile.weapon,
                         weapon: weapon.name,
+                        shape: weapon.shape,
                         cells: intent.footprint.to_vec(),
                         intended_occupant_id: intent.intended_occupant,
                         intended_occupant,
@@ -374,6 +414,7 @@ impl HudSnapshot {
             pilot_overdrive: pilot_status(pilot.overdrive_used, pilot.overdrive_active),
             weapon_names,
             weapon_enabled,
+            weapon_specs,
         }
     }
 }
@@ -456,7 +497,84 @@ pub struct InspectorPanel;
 pub struct BattleRightbar;
 
 #[derive(Component)]
-struct InspectorPortrait;
+pub struct InspectorPortrait;
+
+#[derive(Component)]
+pub struct InspectorTop;
+
+#[derive(Component)]
+pub struct InspectorDetails;
+
+#[derive(Component)]
+pub struct InspectorStats;
+
+#[derive(Component)]
+pub struct InspectorEmpty;
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InspectorText(pub InspectorTextKind);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectorTextKind {
+    Name,
+    Hp,
+    En,
+    Armor,
+    Movement,
+    Evasion,
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InspectorIcon(pub InspectorIconKind);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectorIconKind {
+    Glyph,
+    Reaction,
+    Activation,
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InspectorMeter(pub InspectorMeterKind);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectorMeterKind {
+    Hp,
+    Energy(usize),
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ThreatCard(pub usize);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ThreatText {
+    pub card: usize,
+    pub kind: ThreatTextKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ThreatTextKind {
+    Attacker,
+    Weapon,
+    Target,
+    Damage,
+    Hit,
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ThreatIcon {
+    pub card: usize,
+    pub target: bool,
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ThreatMeter(pub ThreatMeterKind);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ThreatMeterKind {
+    Hit(usize),
+    Shape { card: usize, index: usize },
+}
 
 #[derive(Component)]
 struct HeaderRestart;
@@ -468,7 +586,7 @@ struct HeaderPrimaryPip(usize);
 struct HeaderBonusDot;
 
 #[derive(Component)]
-struct ResultIcon;
+pub struct ResultIcon;
 
 #[derive(Component, Clone, Copy)]
 pub(crate) enum HeaderValue {
@@ -483,20 +601,13 @@ pub(crate) enum HeaderValue {
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HudTextRole {
     Objective,
-    Threats,
     ThreatCount,
-    Unit,
     Preview,
     Status,
     Playback,
     Result,
     ResultPrimary,
     ResultBonus,
-}
-
-#[derive(Component)]
-pub(crate) enum CommandButtonLabel {
-    WeaponSlot(usize),
 }
 
 pub fn setup_mission_ui(
@@ -761,6 +872,22 @@ pub fn setup_mission_ui(
             ChildOf(sidebar),
         ))
         .id();
+    let inspector_top = commands
+        .spawn((
+            InspectorTop,
+            Node {
+                width: percent(100),
+                height: px(92),
+                flex_shrink: 0.0,
+                display: Display::Flex,
+                column_gap: px(14),
+                ..default()
+            },
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(inspector),
+        ))
+        .id();
     commands.spawn((
         Node {
             width: px(92),
@@ -774,20 +901,316 @@ pub fn setup_mission_ui(
         InspectorPortrait,
         Visibility::Visible,
         Pickable::IGNORE,
-        ChildOf(inspector),
+        ChildOf(inspector_top),
     ));
+    let inspector_details = commands
+        .spawn((
+            InspectorDetails,
+            Node {
+                width: percent(100),
+                min_width: px(0),
+                flex_grow: 1.0,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(7),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(inspector_top),
+        ))
+        .id();
+    let name_row = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(inspector_details),
+        ))
+        .id();
     commands.spawn((
-        Text::new("NO MECH SELECTED\nChoose a player unit on the board."),
-        theme::chakra_petch(&ui_assets.fonts, 15.0, FontWeight(500)),
-        TextColor(theme::TEXT),
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::UNIT_GLYPH_HEX_RECT,
+            theme::ACCENT,
+        ),
         Node {
-            margin: UiRect::left(px(14)),
-            min_width: px(0),
+            width: px(18),
+            height: px(18),
+            flex_shrink: 0.0,
             ..default()
         },
-        HudTextRole::Unit,
+        InspectorIcon(InspectorIconKind::Glyph),
         Pickable::IGNORE,
-        ChildOf(inspector),
+        ChildOf(name_row),
+    ));
+    commands.spawn((
+        Text::new("—"),
+        theme::chakra_petch(&ui_assets.fonts, 18.0, FontWeight(600)),
+        TextColor(theme::TEXT),
+        InspectorText(InspectorTextKind::Name),
+        Pickable::IGNORE,
+        ChildOf(name_row),
+    ));
+    let hp_row = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(inspector_details),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::ICON_FORWARD_COMPACT,
+            theme::MINT,
+        ),
+        Node {
+            width: px(16),
+            height: px(16),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(hp_row),
+    ));
+    let hp_track = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Relative,
+                width: percent(100),
+                height: px(10),
+                flex_grow: 1.0,
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            Pickable::IGNORE,
+            ChildOf(hp_row),
+        ))
+        .id();
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            top: px(0),
+            bottom: px(0),
+            width: percent(0),
+            ..default()
+        },
+        BackgroundColor(theme::MINT),
+        InspectorMeter(InspectorMeterKind::Hp),
+        Pickable::IGNORE,
+        ChildOf(hp_track),
+    ));
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 15.0, FontWeight(600)),
+        TextColor(theme::TEXT),
+        InspectorText(InspectorTextKind::Hp),
+        Pickable::IGNORE,
+        ChildOf(hp_row),
+    ));
+    let energy_row = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(inspector_details),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::ICON_SKILL, theme::GOLD),
+        Node {
+            width: px(16),
+            height: px(16),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(energy_row),
+    ));
+    let energy_pips = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                column_gap: px(3),
+                flex_grow: 1.0,
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(energy_row),
+        ))
+        .id();
+    for index in 0..9 {
+        commands.spawn((
+            Node {
+                width: px(7),
+                height: px(5),
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            InspectorMeter(InspectorMeterKind::Energy(index)),
+            Pickable::IGNORE,
+            ChildOf(energy_pips),
+        ));
+    }
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(600)),
+        TextColor(theme::GOLD),
+        InspectorText(InspectorTextKind::En),
+        Pickable::IGNORE,
+        ChildOf(energy_row),
+    ));
+
+    let inspector_stats = commands
+        .spawn((
+            InspectorStats,
+            Node {
+                width: percent(100),
+                height: px(36),
+                flex_shrink: 0.0,
+                margin: UiRect::top(px(12)),
+                padding: UiRect::top(px(10)),
+                border: UiRect::top(px(1)),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(12),
+                ..default()
+            },
+            BorderColor::all(theme::BORDER),
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(inspector),
+        ))
+        .id();
+    spawn_inspector_stat(
+        &mut commands,
+        inspector_stats,
+        &ui_assets,
+        theme::ICON_GUARD,
+        InspectorTextKind::Armor,
+        "—",
+    );
+    spawn_inspector_stat(
+        &mut commands,
+        inspector_stats,
+        &ui_assets,
+        theme::ICON_MOVE,
+        InspectorTextKind::Movement,
+        "—",
+    );
+    spawn_inspector_stat(
+        &mut commands,
+        inspector_stats,
+        &ui_assets,
+        theme::ICON_EVADE,
+        InspectorTextKind::Evasion,
+        "—",
+    );
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::ICON_GUARD, theme::MUTED),
+        Node {
+            width: px(20),
+            height: px(20),
+            margin: UiRect::left(Val::Auto),
+            ..default()
+        },
+        InspectorIcon(InspectorIconKind::Reaction),
+        Pickable::IGNORE,
+        ChildOf(inspector_stats),
+    ));
+    commands.spawn((
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::ICON_FORWARD_COMPACT,
+            theme::MUTED,
+        ),
+        Node {
+            width: px(20),
+            height: px(20),
+            ..default()
+        },
+        InspectorIcon(InspectorIconKind::Activation),
+        Pickable::IGNORE,
+        ChildOf(inspector_stats),
+    ));
+    let empty = commands
+        .spawn((
+            InspectorEmpty,
+            Node {
+                width: percent(100),
+                height: px(150),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                row_gap: px(12),
+                ..default()
+            },
+            Visibility::Visible,
+            Pickable::IGNORE,
+            ChildOf(inspector),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::UNIT_GLYPH_HEX_RECT,
+            theme::MUTED,
+        ),
+        Node {
+            width: px(42),
+            height: px(42),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(empty),
+    ));
+    let empty_pips = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                column_gap: px(4),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(empty),
+        ))
+        .id();
+    for _ in 0..3 {
+        commands.spawn((
+            Node {
+                width: px(16),
+                height: px(6),
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            Pickable::IGNORE,
+            ChildOf(empty_pips),
+        ));
+    }
+    commands.spawn((
+        Text::new("SELECT A MECH"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 12.0, FontWeight(500)),
+        TextColor(theme::MUTED),
+        Pickable::IGNORE,
+        ChildOf(empty),
     ));
     spawn_battle_menu(&mut commands, sidebar, &ui_assets);
 
@@ -941,24 +1364,26 @@ pub fn setup_mission_ui(
         Pickable::IGNORE,
         ChildOf(rightbar),
     ));
-    commands.spawn((
-        Text::new(""),
-        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
-        TextColor(theme::ENEMY),
-        Node {
-            width: percent(100),
-            flex_grow: 1.0,
-            min_height: px(0),
-            padding: UiRect::all(px(16)),
-            overflow: Overflow::clip(),
-            ..default()
-        },
-        BackgroundColor(Color::srgb_u8(22, 13, 13)),
-        ThreatList,
-        HudTextRole::Threats,
-        Pickable::IGNORE,
-        ChildOf(rightbar),
-    ));
+    let threat_list = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                flex_grow: 1.0,
+                min_height: px(0),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(12),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            ThreatList,
+            Pickable::IGNORE,
+            ChildOf(rightbar),
+        ))
+        .id();
+    for card in 0..8 {
+        spawn_threat_card(&mut commands, threat_list, &ui_assets, card);
+    }
 
     let result_overlay = commands
         .spawn((
@@ -1070,7 +1495,6 @@ pub fn setup_mission_ui(
         CommandAction::Restart,
         "RESTART MISSION",
         260.0,
-        None,
     );
     spawn_command_button(
         &mut commands,
@@ -1079,7 +1503,6 @@ pub fn setup_mission_ui(
         CommandAction::ContinueVictory,
         "CONTINUE",
         260.0,
-        None,
     );
 
     commands.spawn((
@@ -1141,6 +1564,274 @@ fn spawn_header_metric(
     ));
 }
 
+fn spawn_inspector_stat(
+    commands: &mut Commands,
+    parent: Entity,
+    assets: &UiAssets,
+    icon: Rect,
+    kind: InspectorTextKind,
+    initial: &'static str,
+) {
+    let stat = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(5),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(assets.icons.clone(), icon, theme::MUTED),
+        Node {
+            width: px(16),
+            height: px(16),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(stat),
+    ));
+    commands.spawn((
+        Text::new(initial),
+        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(600)),
+        TextColor(theme::TEXT),
+        InspectorText(kind),
+        Pickable::IGNORE,
+        ChildOf(stat),
+    ));
+}
+
+fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets, card: usize) {
+    let card_entity = commands
+        .spawn((
+            ThreatCard(card),
+            Node {
+                width: percent(100),
+                min_height: px(148),
+                flex_shrink: 0.0,
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(10),
+                padding: UiRect::all(px(14)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb_u8(22, 13, 13)),
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id();
+    let top = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(7),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(card_entity),
+        ))
+        .id();
+    for target in [false, true] {
+        commands.spawn((
+            theme::icon_node(
+                assets.icons.clone(),
+                theme::UNIT_GLYPH_SQUARE_RECT,
+                theme::ENEMY,
+            ),
+            Node {
+                width: px(18),
+                height: px(18),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            ThreatIcon { card, target },
+            Pickable::IGNORE,
+            ChildOf(top),
+        ));
+        commands.spawn((
+            Text::new("—"),
+            theme::chakra_petch(&assets.fonts, 13.0, FontWeight(600)),
+            TextColor(theme::TEXT),
+            ThreatText {
+                card,
+                kind: if target {
+                    ThreatTextKind::Target
+                } else {
+                    ThreatTextKind::Attacker
+                },
+            },
+            Pickable::IGNORE,
+            ChildOf(top),
+        ));
+        if !target {
+            commands.spawn((
+                Text::new("→"),
+                theme::ibm_plex_mono(&assets.fonts, 16.0, FontWeight(500)),
+                TextColor(theme::ENEMY),
+                Pickable::IGNORE,
+                ChildOf(top),
+            ));
+        }
+    }
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&assets.fonts, 11.0, FontWeight(500)),
+        TextColor(theme::MUTED),
+        ThreatText {
+            card,
+            kind: ThreatTextKind::Weapon,
+        },
+        Node {
+            margin: UiRect::left(px(4)),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(card_entity),
+    ));
+
+    let details = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::FlexEnd,
+                column_gap: px(12),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(card_entity),
+        ))
+        .id();
+    let shape = commands
+        .spawn((
+            Node {
+                width: px(54),
+                height: px(54),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(3),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(details),
+        ))
+        .id();
+    for row in 0..3 {
+        let shape_row = commands
+            .spawn((
+                Node {
+                    width: percent(100),
+                    height: px(16),
+                    display: Display::Flex,
+                    column_gap: px(3),
+                    ..default()
+                },
+                Pickable::IGNORE,
+                ChildOf(shape),
+            ))
+            .id();
+        for column in 0..3 {
+            let index = row * 3 + column;
+            commands.spawn((
+                Node {
+                    width: px(16),
+                    height: px(16),
+                    ..default()
+                },
+                BackgroundColor(theme::BORDER),
+                ThreatMeter(ThreatMeterKind::Shape { card, index }),
+                Pickable::IGNORE,
+                ChildOf(shape_row),
+            ));
+        }
+    }
+    let numbers = commands
+        .spawn((
+            Node {
+                flex_grow: 1.0,
+                min_width: px(0),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexEnd,
+                row_gap: px(7),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(details),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("— DMG"),
+        theme::chakra_petch(&assets.fonts, 18.0, FontWeight(600)),
+        TextColor(theme::ENEMY),
+        ThreatText {
+            card,
+            kind: ThreatTextKind::Damage,
+        },
+        Pickable::IGNORE,
+        ChildOf(numbers),
+    ));
+    let hit = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(6),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(numbers),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(600)),
+        TextColor(theme::TEXT),
+        ThreatText {
+            card,
+            kind: ThreatTextKind::Hit,
+        },
+        Pickable::IGNORE,
+        ChildOf(hit),
+    ));
+    let hit_track = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Relative,
+                width: percent(100),
+                height: px(6),
+                flex_grow: 1.0,
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            Pickable::IGNORE,
+            ChildOf(hit),
+        ))
+        .id();
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            top: px(0),
+            bottom: px(0),
+            width: percent(0),
+            ..default()
+        },
+        BackgroundColor(theme::ENEMY),
+        ThreatMeter(ThreatMeterKind::Hit(card)),
+        Pickable::IGNORE,
+        ChildOf(hit_track),
+    ));
+}
+
 #[derive(SystemParam)]
 #[allow(clippy::type_complexity)]
 pub struct HudQueries<'w, 's> {
@@ -1156,13 +1847,25 @@ pub struct HudQueries<'w, 's> {
             Without<ResultOverlay>,
             Without<HeaderValue>,
             Without<InspectorPortrait>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
         ),
     >,
-    weapon_labels: Query<
+    native_texts: Query<
         'w,
         's,
-        (&'static CommandButtonLabel, &'static mut Text),
-        (Without<HudTextRole>, Without<HeaderValue>),
+        (
+            &'static mut Text,
+            Option<&'static InspectorText>,
+            Option<&'static WeaponText>,
+            Option<&'static ThreatText>,
+        ),
+        (
+            Or<(With<InspectorText>, With<WeaponText>, With<ThreatText>)>,
+            Without<HudTextRole>,
+            Without<HeaderValue>,
+        ),
     >,
     buttons: Query<
         'w,
@@ -1174,10 +1877,35 @@ pub struct HudQueries<'w, 's> {
             &'static mut Pickable,
             &'static mut Visibility,
         ),
-        (Without<HudTextRole>, Without<ResultOverlay>),
+        (
+            Without<HudTextRole>,
+            Without<ResultOverlay>,
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
+            Without<InspectorPortrait>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<ThreatCard>,
+            Without<WeaponTagIcon>,
+        ),
     >,
-    result_overlays:
-        Query<'w, 's, &'static mut Visibility, (With<ResultOverlay>, Without<HudTextRole>)>,
+    result_overlays: Query<
+        'w,
+        's,
+        &'static mut Visibility,
+        (
+            With<ResultOverlay>,
+            Without<HudTextRole>,
+            Without<CommandButton>,
+            Without<InspectorPortrait>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<ThreatCard>,
+            Without<WeaponTagIcon>,
+        ),
+    >,
     header_values: Query<'w, 's, (&'static HeaderValue, &'static mut Text), Without<HudTextRole>>,
     inspector_portraits: Query<
         'w,
@@ -1187,17 +1915,17 @@ pub struct HudQueries<'w, 's> {
             With<InspectorPortrait>,
             Without<ResultOverlay>,
             Without<CommandButton>,
+            Without<ResultIcon>,
+            Without<WeaponTagIcon>,
+            Without<HudTextRole>,
+            Without<ThreatCard>,
         ),
     >,
     primary_pips: Query<
         'w,
         's,
         (&'static HeaderPrimaryPip, &'static mut BackgroundColor),
-        (
-            Without<HeaderBonusDot>,
-            Without<CommandButtonLabel>,
-            Without<CommandButton>,
-        ),
+        (Without<HeaderBonusDot>, Without<CommandButton>),
     >,
     bonus_dots: Query<
         'w,
@@ -1207,6 +1935,152 @@ pub struct HudQueries<'w, 's> {
             With<HeaderBonusDot>,
             Without<HeaderPrimaryPip>,
             Without<CommandButton>,
+        ),
+    >,
+    inspector_visibility: Query<
+        'w,
+        's,
+        (
+            &'static mut Visibility,
+            &'static mut Node,
+            Option<&'static InspectorTop>,
+            Option<&'static InspectorStats>,
+            Option<&'static InspectorEmpty>,
+        ),
+        (
+            Or<(
+                With<InspectorTop>,
+                With<InspectorStats>,
+                With<InspectorEmpty>,
+            )>,
+            Without<CommandButton>,
+            Without<ResultOverlay>,
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
+            Without<ThreatCard>,
+            Without<InspectorPortrait>,
+            Without<WeaponTagIcon>,
+            Without<HudTextRole>,
+        ),
+    >,
+    inspector_icons: Query<
+        'w,
+        's,
+        (&'static mut ImageNode, &'static InspectorIcon),
+        (
+            Without<InspectorPortrait>,
+            Without<ResultIcon>,
+            Without<ThreatIcon>,
+            Without<WeaponTagIcon>,
+        ),
+    >,
+    inspector_meters: Query<
+        'w,
+        's,
+        (
+            &'static InspectorMeter,
+            &'static mut Node,
+            &'static mut BackgroundColor,
+        ),
+        (
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
+            Without<CommandButton>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
+            Without<ThreatCard>,
+            Without<ResultOverlay>,
+        ),
+    >,
+    threat_cards: Query<
+        'w,
+        's,
+        (
+            &'static ThreatCard,
+            &'static mut Visibility,
+            &'static mut Node,
+        ),
+        (
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
+            Without<ResultOverlay>,
+            Without<CommandButton>,
+            Without<InspectorPortrait>,
+            Without<WeaponTagIcon>,
+            Without<HudTextRole>,
+        ),
+    >,
+    threat_icons: Query<
+        'w,
+        's,
+        (&'static mut ImageNode, &'static ThreatIcon),
+        (
+            Without<InspectorPortrait>,
+            Without<ResultIcon>,
+            Without<InspectorIcon>,
+            Without<WeaponTagIcon>,
+        ),
+    >,
+    threat_meters: Query<
+        'w,
+        's,
+        (
+            &'static ThreatMeter,
+            &'static mut Node,
+            &'static mut BackgroundColor,
+        ),
+        (
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
+            Without<CommandButton>,
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatCard>,
+            Without<ResultOverlay>,
+        ),
+    >,
+    weapon_meters: Query<
+        'w,
+        's,
+        (
+            &'static WeaponMeter,
+            &'static mut Node,
+            &'static mut BackgroundColor,
+        ),
+        (
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
+            Without<CommandButton>,
+            Without<InspectorMeter>,
+            Without<ThreatMeter>,
+            Without<ThreatCard>,
+            Without<ResultOverlay>,
+        ),
+    >,
+    weapon_tags: Query<
+        'w,
+        's,
+        (
+            &'static WeaponTagIcon,
+            &'static mut ImageNode,
+            &'static mut Visibility,
+        ),
+        (
+            Without<InspectorPortrait>,
+            Without<InspectorIcon>,
+            Without<ThreatIcon>,
+            Without<ResultIcon>,
+            Without<CommandButton>,
+            Without<HudTextRole>,
+            Without<ThreatCard>,
+            Without<ResultOverlay>,
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
         ),
     >,
     result_icons:
@@ -1229,7 +2103,15 @@ pub fn update_hud(
     mut queries: HudQueries,
 ) {
     let hud = HudSnapshot::from_battle(&battle.0, interaction.inspected_unit, active_mission.0);
-    let threat_text = format_threats(&hud, interaction.inspected_unit);
+    let selected_threats: Vec<&ThreatSnapshot> = hud
+        .threats
+        .iter()
+        .filter(|threat| {
+            interaction.inspected_unit.is_some_and(|unit| {
+                threat.attacker_id == unit || threat.intended_occupant_id == Some(unit)
+            })
+        })
+        .collect();
     let preview_text = interaction.preview.as_ref().map_or_else(
         || "TARGET PREVIEW\nArm a weapon and hover a target.".to_owned(),
         |preview| format_preview(&battle.0, preview),
@@ -1259,15 +2141,7 @@ pub fn update_hud(
                 }
                 text
             }
-            HudTextRole::Threats => threat_text.clone(),
             HudTextRole::ThreatCount => hud.threats.len().to_string(),
-            HudTextRole::Unit => format!(
-                "{}\nPILOT  AEGIS {}  FOCUS {}  OVERDRIVE {}",
-                format_inspector(hud.inspector),
-                hud.pilot_aegis,
-                hud.pilot_focus,
-                hud.pilot_overdrive
-            ),
             HudTextRole::Preview => preview_text.clone(),
             HudTextRole::Status => status_text.clone(),
             HudTextRole::Playback => recent_log.as_deref().map_or_else(String::new, |log| {
@@ -1302,6 +2176,249 @@ pub fn update_hud(
                 Visibility::Hidden
             };
         }
+    }
+
+    for (mut text, inspector_text, weapon_text, threat_text) in &mut queries.native_texts {
+        if let Some(inspector_text) = inspector_text {
+            text.0 = match inspector_text.0 {
+                InspectorTextKind::Name => hud.inspector.name.unwrap_or("—").to_owned(),
+                InspectorTextKind::Hp => match (hud.inspector.hp, hud.inspector.max_hp) {
+                    (Some(hp), Some(max_hp)) => format!("HP {hp}/{max_hp}"),
+                    _ => "HP —".to_owned(),
+                },
+                InspectorTextKind::En => match (hud.inspector.en, hud.inspector.max_en) {
+                    (Some(en), Some(max_en)) => format!("EN {en}/{max_en}"),
+                    _ => "EN —".to_owned(),
+                },
+                InspectorTextKind::Armor => hud
+                    .inspector
+                    .armor
+                    .map_or_else(|| "—".to_owned(), |armor| format!("{armor}")),
+                InspectorTextKind::Movement => hud
+                    .inspector
+                    .movement
+                    .map_or_else(|| "—".to_owned(), |movement| format!("{movement}")),
+                InspectorTextKind::Evasion => hud
+                    .inspector
+                    .evasion
+                    .map_or_else(|| "—".to_owned(), |evasion| format!("{evasion}%")),
+            };
+        } else if let Some(weapon_text) = weapon_text {
+            let weapon = hud
+                .weapon_specs
+                .get(weapon_text.slot)
+                .and_then(Option::as_ref);
+            text.0 = match (weapon, weapon_text.kind) {
+                (Some(weapon), WeaponTextKind::Name) => weapon.name.to_owned(),
+                (Some(weapon), WeaponTextKind::Damage) => {
+                    format!("{} DMG", weapon.base_damage)
+                }
+                (Some(weapon), WeaponTextKind::Hit) => {
+                    let accuracy = battle
+                        .0
+                        .active_unit()
+                        .and_then(|unit| battle.0.unit(unit))
+                        .map_or(weapon.hit_modifier, |unit| {
+                            (unit.stats.accuracy + weapon.hit_modifier).clamp(5, 95)
+                        });
+                    format!("{accuracy}% HIT")
+                }
+                _ => "—".to_owned(),
+            };
+        } else if let Some(threat_text) = threat_text {
+            let threat = selected_threats.get(threat_text.card).copied();
+            text.0 = match (threat, threat_text.kind) {
+                (Some(threat), ThreatTextKind::Attacker) => threat.attacker.to_owned(),
+                (Some(threat), ThreatTextKind::Weapon) => threat.weapon.to_owned(),
+                (Some(threat), ThreatTextKind::Target) => {
+                    threat.intended_occupant.unwrap_or("EMPTY").to_owned()
+                }
+                (Some(threat), ThreatTextKind::Damage) => {
+                    format!("{} DMG", threat.normal_damage)
+                }
+                (Some(threat), ThreatTextKind::Hit) => {
+                    format!("{}% HIT", threat.hit_chance)
+                }
+                _ => "—".to_owned(),
+            };
+        }
+    }
+
+    let inspector_selected = !hud.inspector.is_empty();
+    for (mut visibility, mut node, top, stats, empty) in &mut queries.inspector_visibility {
+        let shown = if top.is_some() || stats.is_some() {
+            inspector_selected
+        } else {
+            !inspector_selected
+        };
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
+        let _ = empty;
+    }
+
+    for (mut image, icon) in &mut queries.inspector_icons {
+        let (rect, color) = match icon.0 {
+            InspectorIconKind::Glyph => hud.inspector.archetype.map_or(
+                (theme::UNIT_GLYPH_HEX_RECT, theme::MUTED),
+                |archetype| {
+                    let style = theme::unit_archetype_style(archetype);
+                    (style.glyph_rect, style.color)
+                },
+            ),
+            InspectorIconKind::Reaction => match hud.inspector.reaction {
+                Some(Reaction::Counter) => (theme::ICON_COUNTER, theme::ENEMY),
+                Some(Reaction::Guard) => (theme::ICON_GUARD, theme::ACCENT),
+                Some(Reaction::Evade) => (theme::ICON_EVADE, theme::MINT),
+                None => (theme::ICON_GUARD, theme::MUTED),
+            },
+            InspectorIconKind::Activation => {
+                if hud.inspector.faction == Some(Faction::Enemy) {
+                    (theme::ICON_ATTACK, theme::ENEMY)
+                } else if hud.inspector.finished {
+                    (theme::ICON_WAIT, theme::MINT)
+                } else if inspector_selected {
+                    (theme::ICON_FORWARD_COMPACT, theme::GOLD)
+                } else {
+                    (theme::ICON_FORWARD_COMPACT, theme::MUTED)
+                }
+            }
+        };
+        image.image = ui_assets.icons.clone();
+        image.rect = Some(rect);
+        image.color = color;
+    }
+
+    for (meter, mut node, mut background) in &mut queries.inspector_meters {
+        match meter.0 {
+            InspectorMeterKind::Hp => {
+                let ratio = match (hud.inspector.hp, hud.inspector.max_hp) {
+                    (Some(hp), Some(max_hp)) if max_hp > 0 => {
+                        f32::from(hp.max(0)) / f32::from(max_hp)
+                    }
+                    _ => 0.0,
+                };
+                node.width = percent((ratio * 100.0).clamp(0.0, 100.0));
+                background.0 = match hud.inspector.faction {
+                    Some(Faction::Enemy) => theme::ENEMY,
+                    Some(Faction::Player) => theme::MINT,
+                    None => theme::MUTED,
+                };
+            }
+            InspectorMeterKind::Energy(index) => {
+                let en = hud.inspector.en.unwrap_or_default().max(0) as usize;
+                background.0 = if index < en {
+                    theme::GOLD
+                } else {
+                    theme::BORDER
+                };
+            }
+        }
+    }
+
+    for (card, mut visibility, mut node) in &mut queries.threat_cards {
+        let shown = selected_threats.get(card.0).is_some();
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
+    }
+    for (mut image, icon) in &mut queries.threat_icons {
+        let threat = selected_threats.get(icon.card).copied();
+        let unit = threat.and_then(|threat| {
+            if icon.target {
+                threat.intended_occupant_id
+            } else {
+                Some(threat.attacker_id)
+            }
+        });
+        let (rect, color) = unit.and_then(|unit| battle.0.unit(unit)).map_or(
+            (theme::UNIT_GLYPH_SQUARE_RECT, theme::MUTED),
+            |unit| {
+                let style = theme::unit_archetype_style(unit.archetype);
+                (style.glyph_rect, style.color)
+            },
+        );
+        image.image = ui_assets.icons.clone();
+        image.rect = Some(rect);
+        image.color = color;
+    }
+    for (meter, mut node, mut background) in &mut queries.threat_meters {
+        match meter.0 {
+            ThreatMeterKind::Hit(card) => {
+                let chance = selected_threats
+                    .get(card)
+                    .map_or(0.0, |threat| f32::from(threat.hit_chance));
+                node.width = percent(chance);
+                background.0 = theme::ENEMY;
+            }
+            ThreatMeterKind::Shape { card, index } => {
+                let active = selected_threats
+                    .get(card)
+                    .is_some_and(|threat| shape_cell_active(threat.shape, index));
+                background.0 = if active { theme::ENEMY } else { theme::BORDER };
+            }
+        }
+    }
+    for (meter, mut node, mut background) in &mut queries.weapon_meters {
+        let weapon = hud.weapon_specs.get(meter.slot).and_then(Option::as_ref);
+        match meter.kind {
+            WeaponMeterKind::Range => {
+                if let Some(weapon) = weapon {
+                    let max_range = f32::from(weapon.max_range.max(1));
+                    let min_range = f32::from(weapon.min_range);
+                    node.left = percent((min_range / 8.0 * 100.0).clamp(0.0, 100.0));
+                    node.width =
+                        percent((((max_range - min_range + 1.0) / 8.0) * 100.0).clamp(0.0, 100.0));
+                    background.0 = if weapon.enabled {
+                        theme::GOLD
+                    } else {
+                        theme::MUTED
+                    };
+                } else {
+                    node.width = percent(0.0);
+                }
+            }
+            WeaponMeterKind::Energy(index) => {
+                background.0 = weapon.map_or(theme::BORDER, |weapon| {
+                    if index < weapon.en_cost.max(0) as usize {
+                        theme::GOLD
+                    } else {
+                        theme::BORDER
+                    }
+                });
+            }
+            WeaponMeterKind::Shape(index) => {
+                let active = weapon.is_some_and(|weapon| shape_cell_active(weapon.shape, index));
+                background.0 = if active { theme::GOLD } else { theme::BORDER };
+            }
+        }
+    }
+    for (tag, mut image, mut visibility) in &mut queries.weapon_tags {
+        let weapon = hud.weapon_specs.get(tag.slot).and_then(Option::as_ref);
+        let shown = weapon.is_some_and(|weapon| match tag.marker {
+            WeaponTag::Push => weapon.push,
+            WeaponTag::Counter => weapon.counter_weapon,
+        });
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        image.image = ui_assets.icons.clone();
+        image.rect = Some(match tag.marker {
+            WeaponTag::Push => theme::ICON_MOVE,
+            WeaponTag::Counter => theme::ICON_COUNTER,
+        });
+        image.color = match tag.marker {
+            WeaponTag::Push => theme::GOLD,
+            WeaponTag::Counter => theme::ENEMY,
+        };
     }
 
     for (value, mut text) in &mut queries.header_values {
@@ -1364,7 +2481,11 @@ pub fn update_hud(
         image.image = source;
         image.rect = rect;
         image.color = color;
-        *visibility = Visibility::Visible;
+        *visibility = if inspector_selected {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 
     for mut image in &mut queries.result_icons {
@@ -1383,17 +2504,6 @@ pub fn update_hud(
         }
     }
 
-    for (label, mut text) in &mut queries.weapon_labels {
-        text.0 = match *label {
-            CommandButtonLabel::WeaponSlot(slot) => hud
-                .weapon_names
-                .get(slot)
-                .copied()
-                .flatten()
-                .map(|name| format!("[{}] {name}", slot + 1))
-                .unwrap_or_else(|| format!("[{}] --", slot + 1)),
-        };
-    }
     for mut visibility in &mut queries.result_overlays {
         *visibility = if hud.is_terminal && !playback.input_locked {
             Visibility::Visible
@@ -1508,7 +2618,6 @@ fn spawn_command_button(
     action: CommandAction,
     label: &str,
     width: f32,
-    weapon_slot: Option<usize>,
 ) -> Entity {
     let button = commands
         .spawn((
@@ -1528,17 +2637,15 @@ fn spawn_command_button(
         ))
         .observe(on_command_button_click)
         .id();
-    let mut label_entity = commands.spawn((
-        Text::new(label),
-        theme::chakra_petch(fonts, 11.5, FontWeight::NORMAL),
-        TextColor(Color::srgb(0.88, 0.94, 1.0)),
-        Pickable::IGNORE,
-        ChildOf(button),
-    ));
-    if let Some(slot) = weapon_slot {
-        label_entity.insert(CommandButtonLabel::WeaponSlot(slot));
-    }
-    label_entity.id()
+    commands
+        .spawn((
+            Text::new(label),
+            theme::chakra_petch(fonts, 11.5, FontWeight::NORMAL),
+            TextColor(Color::srgb(0.88, 0.94, 1.0)),
+            Pickable::IGNORE,
+            ChildOf(button),
+        ))
+        .id()
 }
 
 fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
@@ -1641,31 +2748,6 @@ fn unit_name(battle: &BattleState, unit: UnitId) -> &'static str {
     battle.unit(unit).map_or("UNKNOWN", |unit| unit.name)
 }
 
-fn format_threats(hud: &HudSnapshot, inspected: Option<UnitId>) -> String {
-    let threats = hud.threats.iter().filter(|threat| {
-        inspected.is_some_and(|unit| {
-            threat.attacker_id == unit || threat.intended_occupant_id == Some(unit)
-        })
-    });
-    let mut text = String::new();
-    for threat in threats {
-        text.push_str(&format!(
-            "! {} / {} -> {}\n  {} DMG  {}% HIT  [{}]\n",
-            threat.attacker,
-            threat.weapon,
-            threat.intended_occupant.unwrap_or("EMPTY"),
-            threat.normal_damage,
-            threat.hit_chance,
-            format_cells(&threat.cells)
-        ));
-    }
-    if text.is_empty() {
-        "NO SELECTED THREAT".to_owned()
-    } else {
-        text.trim_end().to_owned()
-    }
-}
-
 fn format_preview(battle: &BattleState, preview: &AttackPreview) -> String {
     let target = battle
         .occupant_at(preview.target)
@@ -1736,31 +2818,11 @@ fn format_track(track: &ObjectiveTrackSnapshot) -> String {
     }
 }
 
-fn format_cells(cells: &[crate::domain::board::GridPos]) -> String {
-    cells
-        .iter()
-        .map(|cell| format!("{},{}", cell.x, cell.y))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn format_inspector(inspector: InspectorSnapshot) -> String {
-    let Some(name) = inspector.name else {
-        return "NO MECH SELECTED\nChoose a player unit on the board.".to_owned();
-    };
-    let move_state = if inspector.moved { "SPENT" } else { "READY" };
-    let action_state = if inspector.acted { "SPENT" } else { "READY" };
-    let stance = inspector
-        .reaction
-        .map(|reaction| format!("{reaction:?}").to_uppercase())
-        .unwrap_or_else(|| "--".to_owned());
-    format!(
-        "{name}\nHP {}/{}   EN {}/{}\nMOVE {move_state}   ACTION {action_state}\nSTANCE {stance}",
-        inspector.hp.unwrap_or_default(),
-        inspector.max_hp.unwrap_or_default(),
-        inspector.en.unwrap_or_default(),
-        inspector.max_en.unwrap_or_default(),
-    )
+const fn shape_cell_active(shape: WeaponShape, index: usize) -> bool {
+    match shape {
+        WeaponShape::Single => index == 4,
+        WeaponShape::Cross1 => matches!(index, 1 | 3 | 4 | 5 | 7),
+    }
 }
 
 #[cfg(test)]

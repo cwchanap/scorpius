@@ -154,13 +154,9 @@ pub fn route_token_click(
         .unit(unit_id)
         .ok_or(BattleError::UnknownUnit(unit_id))?
         .position;
-    if !matches!(interaction.mode, InteractionMode::Inspect) {
-        return route_cell_click(battle, interaction, position);
-    }
-    set_inspected_unit(interaction, Some(unit_id));
-    interaction.hovered_cell = Some(position);
-    interaction.preview = None;
-    Ok(Vec::new())
+    // Token-local picking stops propagation, but the cell route remains the
+    // single source of inspect/activation behavior for every board target.
+    route_cell_click(battle, interaction, position)
 }
 
 pub fn update_hover_preview(

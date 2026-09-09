@@ -12,24 +12,28 @@ use scorpius::{
         save::SaveFile,
         session::CampaignSession,
     },
+    domain::{
+        battle::BattleState,
+        model::{Reaction, UnitId},
+    },
     mission::mission_one::{ids, mission_one},
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, BattleRuntime, CampaignCamera, CampaignRuntime, CanvasRoot, EventPlayback,
         assets::UiAssets,
-        battle_menu::{MenuRegion, MenuState, TargetingPanel},
+        battle_menu::{MenuRegion, MenuState, TargetingPanel, WeaponRow},
         campaign_ui::{
             CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, ScreenRoot, UpgradePip,
             UpgradeRow,
         },
-        interaction::{InteractionState, StatusMessage},
+        interaction::{CommandAction, CommandButton, InteractionState, StatusMessage},
         screens::{
             setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
             setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
         },
         ui::{
-            BattleHeader, BattleRightbar, BattleSidebar, InspectorPanel, PreviewText,
-            ResultOverlay, ThreatList, setup_mission_ui, update_hud,
+            BattleHeader, BattleRightbar, BattleSidebar, InspectorPanel, PreviewText, ResultIcon,
+            ResultOverlay, ThreatCard, setup_mission_ui, update_hud,
         },
     },
 };
@@ -365,14 +369,38 @@ fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
     );
     assert!(texts.iter().any(|text| text.contains("HP")), "{texts:?}");
 
-    let threats = app
+    let threat_cards: Vec<_> = app
         .world_mut()
-        .query_filtered::<&Text, With<ThreatList>>()
-        .single(app.world())
-        .expect("threat list must be present");
-    assert!(threats.0.contains("Striker"));
-    assert!(threats.0.contains("Artillery"));
-    assert!(!threats.0.contains("Rifleman L"));
+        .query::<(&ThreatCard, &Visibility)>()
+        .iter(app.world())
+        .filter(|(_, visibility)| **visibility == Visibility::Visible)
+        .map(|(card, _)| card.0)
+        .collect();
+    assert_eq!(threat_cards, vec![0, 1]);
+    assert_eq!(
+        app.world_mut()
+            .query::<&ThreatCard>()
+            .iter(app.world())
+            .count(),
+        8,
+        "threat cards keep stable source slots for dynamic intents"
+    );
+    assert!(
+        texts.iter().any(|text| text.contains("Striker")),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|text| text.contains("Artillery")),
+        "{texts:?}"
+    );
+    assert!(texts.iter().any(|text| text.contains("DMG")), "{texts:?}");
+    assert_eq!(
+        app.world_mut()
+            .query::<&WeaponRow>()
+            .iter(app.world())
+            .count(),
+        3
+    );
 
     let preview = app
         .world_mut()
@@ -382,10 +410,91 @@ fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
     assert!(preview.0.contains("TARGET PREVIEW"));
 }
 
+fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
+    if victory {
+        let mut battle = BattleState::viability_fixture();
+        battle
+            .choose_reaction(UnitId(1), Reaction::Guard)
+            .expect("fixture pilot can choose a reaction");
+        battle
+            .finish_activation(UnitId(1))
+            .expect("fixture pilot can finish");
+        battle
+            .resolve_enemy_phase()
+            .expect("empty enemy phase resolves terminal victory");
+        assert!(battle.result().is_some_and(|result| result.victory));
+        battle
+    } else {
+        let mut battle = mission_one(7);
+        battle
+            .begin_round()
+            .expect("source opening enters player phase");
+        for _ in 0..8 {
+            battle
+                .resolve_push(ids::STRIKER, ids::VANGUARD)
+                .expect("source push path damages the pilot at the board edge");
+            if battle.result().is_some() {
+                break;
+            }
+            if battle
+                .unit(ids::VANGUARD)
+                .is_some_and(|unit| unit.is_knocked_out())
+            {
+                break;
+            }
+        }
+        for (id, destination, collisions) in [
+            (ids::GUNNER, scorpius::domain::board::GridPos::new(4, 7), 5),
+            (
+                ids::INTERCEPTOR,
+                scorpius::domain::board::GridPos::new(4, 7),
+                6,
+            ),
+        ] {
+            battle
+                .begin_activation(id)
+                .expect("remaining pilot activates");
+            battle
+                .move_unit(id, destination)
+                .expect("remaining pilot moves into the source push lane");
+            battle
+                .choose_reaction(id, Reaction::Guard)
+                .expect("remaining pilot guards");
+            battle
+                .finish_activation(id)
+                .expect("remaining pilot finishes");
+            battle
+                .resolve_push(ids::STRIKER, id)
+                .expect("source push starts the edge collision sequence");
+            for _ in 0..collisions {
+                if battle.unit(id).is_some_and(|unit| unit.is_knocked_out()) {
+                    break;
+                }
+                battle
+                    .resolve_push(ids::STRIKER, id)
+                    .expect("source push collision damages the pilot");
+            }
+            if battle.result().is_some() {
+                break;
+            }
+        }
+        assert!(battle.result().is_some_and(|result| !result.victory));
+        battle
+    }
+}
+
+fn result_button_state(app: &mut App, action: CommandAction) -> (Visibility, bool) {
+    app.world_mut()
+        .query::<(&CommandButton, &Visibility, &Pickable)>()
+        .iter(app.world())
+        .find(|(button, _, _)| button.0 == action)
+        .map(|(_, visibility, pickable)| (*visibility, pickable.is_hoverable))
+        .expect("result action must have a pickable button")
+}
+
 #[test]
-fn battle_result_snapshot_renders_terminal_overlay_and_result_metrics() {
-    let battle = mission_one(7);
-    let mut app = battle_fixture_app(battle, None);
+fn battle_result_snapshot_renders_terminal_victory_overlay_and_metrics() {
+    let mut app = battle_fixture_app(terminal_battle(true), None);
     app.update();
 
     let overlay = app
@@ -393,12 +502,66 @@ fn battle_result_snapshot_renders_terminal_overlay_and_result_metrics() {
         .query_filtered::<&Visibility, With<ResultOverlay>>()
         .single(app.world())
         .expect("result overlay must be present");
-    assert_eq!(*overlay, Visibility::Hidden);
+    assert_eq!(*overlay, Visibility::Visible);
     let texts: Vec<_> = app
         .world_mut()
         .query::<&Text>()
         .iter(app.world())
         .map(|text| text.0.clone())
         .collect();
-    assert!(texts.iter().any(|text| text == "—"));
+    assert!(texts.iter().any(|text| text.contains("MISSION COMPLETE")));
+    assert!(texts.iter().any(|text| text == "CLEAR"));
+    assert!(texts.iter().any(|text| text == "MISSED"));
+    let icon = app
+        .world_mut()
+        .query_filtered::<&ImageNode, With<ResultIcon>>()
+        .single(app.world())
+        .expect("victory icon must be rendered");
+    assert_eq!(icon.rect, Some(scorpius::presentation::theme::ICON_WAIT));
+    assert_eq!(icon.color, scorpius::presentation::theme::MINT);
+    assert_eq!(
+        result_button_state(&mut app, CommandAction::ContinueVictory),
+        (Visibility::Visible, true)
+    );
+    assert_eq!(
+        result_button_state(&mut app, CommandAction::Restart),
+        (Visibility::Hidden, false)
+    );
+}
+
+#[test]
+fn battle_result_snapshot_renders_terminal_defeat_overlay_and_metrics() {
+    let mut app = battle_fixture_app(terminal_battle(false), None);
+    app.update();
+
+    let overlay = app
+        .world_mut()
+        .query_filtered::<&Visibility, With<ResultOverlay>>()
+        .single(app.world())
+        .expect("result overlay must be present");
+    assert_eq!(*overlay, Visibility::Visible);
+    let texts: Vec<_> = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|text| text.0.clone())
+        .collect();
+    assert!(texts.iter().any(|text| text.contains("MISSION FAILED")));
+    assert!(texts.iter().any(|text| text == "FAILED"));
+    assert!(texts.iter().any(|text| text == "MISSED"));
+    let icon = app
+        .world_mut()
+        .query_filtered::<&ImageNode, With<ResultIcon>>()
+        .single(app.world())
+        .expect("defeat icon must be rendered");
+    assert_eq!(icon.rect, Some(scorpius::presentation::theme::ICON_COUNTER));
+    assert_eq!(icon.color, scorpius::presentation::theme::ENEMY);
+    assert_eq!(
+        result_button_state(&mut app, CommandAction::Restart),
+        (Visibility::Visible, true)
+    );
+    assert_eq!(
+        result_button_state(&mut app, CommandAction::ContinueVictory),
+        (Visibility::Hidden, false)
+    );
 }

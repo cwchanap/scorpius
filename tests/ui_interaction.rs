@@ -14,7 +14,7 @@ use scorpius::{
         battle_menu::{MenuAction, MenuState, apply_menu_action},
         interaction::{
             CommandAction, InteractionMode, InteractionState, execute_command, next_ready_unit,
-            restart_allowed, route_cell_click,
+            restart_allowed, route_cell_click, route_token_click,
         },
     },
 };
@@ -202,6 +202,40 @@ fn inspecting_enemy_or_finished_pilot_never_transfers_active_authority() {
     assert_eq!(interaction.inspected_unit, Some(ids::VANGUARD));
     assert_eq!(battle.active_unit(), Some(ids::GUNNER));
     assert_eq!(interaction.menu, MenuState::Root);
+}
+
+#[test]
+fn token_clicks_begin_ready_players_but_keep_enemy_and_finished_inspection_view_only() {
+    let mut ready_battle = mission_one(7);
+    ready_battle.begin_round().unwrap();
+    let mut ready_interaction = InteractionState::default();
+    route_token_click(&mut ready_battle, &mut ready_interaction, ids::VANGUARD).unwrap();
+    assert_eq!(ready_battle.active_unit(), Some(ids::VANGUARD));
+    assert_eq!(ready_interaction.inspected_unit, Some(ids::VANGUARD));
+    assert_eq!(ready_interaction.menu, MenuState::Root);
+
+    route_token_click(&mut ready_battle, &mut ready_interaction, ids::STRIKER).unwrap();
+    assert_eq!(ready_battle.active_unit(), Some(ids::VANGUARD));
+    assert_eq!(ready_interaction.inspected_unit, Some(ids::STRIKER));
+    assert_eq!(ready_interaction.menu, MenuState::Root);
+
+    let mut finished_battle = mission_one(7);
+    finished_battle.begin_round().unwrap();
+    finished_battle.begin_activation(ids::VANGUARD).unwrap();
+    finished_battle
+        .choose_reaction(ids::VANGUARD, Reaction::Guard)
+        .unwrap();
+    finished_battle.finish_activation(ids::VANGUARD).unwrap();
+    let mut finished_interaction = InteractionState::default();
+    route_token_click(
+        &mut finished_battle,
+        &mut finished_interaction,
+        ids::VANGUARD,
+    )
+    .unwrap();
+    assert_eq!(finished_battle.active_unit(), None);
+    assert_eq!(finished_interaction.inspected_unit, Some(ids::VANGUARD));
+    assert_eq!(finished_interaction.menu, MenuState::Hidden);
 }
 
 #[test]
