@@ -223,6 +223,8 @@ Play Mission 1 through to Victory using the cutover board and currently wired co
 
 ---
 
+> Execution update (user-approved, 2026-09-08): Task 4 may proceed while the Task 3 native Mission 1-to-Victory check remains pending because computer-use input returns `noWindowsAvailable`. This changes execution order only; native Victory and visual acceptance remain required and must not be reported as passed.
+
 ## Task 4 — Reuse HUD types, inspection/commands, new fixed-sidebar `MenuState`
 
 **Files:** `ui.rs`, `interaction.rs`, new `battle_menu.rs`, `app.rs`, `mod.rs`; `tests/ui_interaction.rs`, `ui_snapshots.rs`.
