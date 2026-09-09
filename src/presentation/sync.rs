@@ -277,7 +277,6 @@ pub fn reconcile_telegraph_markers(
                 TelegraphGlyphVisual(shape),
                 marker_node(stage_point(cell), 112.0, 56.0, 0.0),
                 UiTransform::IDENTITY,
-                BackgroundColor(theme::BOARD_TELEGRAPH),
                 ZIndex(5),
                 Pickable::IGNORE,
             ))
@@ -366,7 +365,6 @@ pub fn reconcile_intent_guides(
             .spawn((
                 IntentTargetVisual { attacker, target },
                 marker_node(stage_point(target_unit.position), 112.0, 56.0, 0.0),
-                BackgroundColor(theme::BOARD_ATTACK),
                 ZIndex(22),
                 Pickable::IGNORE,
             ))
@@ -438,7 +436,6 @@ pub fn reconcile_extraction_marker(
         .spawn((
             ExtractionVisual(escape),
             marker_node(stage_point(escape), 112.0, 56.0, 0.0),
-            BackgroundColor(theme::BOARD_EXTRACTION),
             ZIndex(7),
             Pickable::IGNORE,
         ))
@@ -491,7 +488,6 @@ pub fn reconcile_reaction_markers(
             .spawn((
                 ReactionVisual { unit, reaction },
                 marker_node(stage_point(unit_state.position), 32.0, 32.0, -48.0),
-                BackgroundColor(theme::MINT),
                 ZIndex(23),
                 Pickable::IGNORE,
             ))
