@@ -19,7 +19,7 @@ use scorpius::{
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, PresentationRoot,
+        CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, MenuState, PresentationRoot,
         TelegraphVisual, TokenFootprintVisual, TokenHpFill, TokenSelectionVisual, UnitVisual,
         assets::UiAssets,
         battlefield::{mission_grid_cells, setup_mission_scene},
@@ -324,6 +324,7 @@ fn inspecting_enemy_keeps_active_unit_commands_and_preview_authority() {
             inspected_unit: interaction.inspected_unit,
             hovered_cell: interaction.hovered_cell,
             mode: interaction.mode,
+            menu: MenuState::Hidden,
             preview: None,
         })
         .add_systems(Update, sync_cell_highlights);
@@ -484,7 +485,13 @@ fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
 
     assert_eq!(hud.round_phase, "Round 1 · Player Phase");
     assert_eq!(hud.primary, "Eliminate all enemies. · 4 remaining");
-    assert_eq!(hud.objective_track, None, "M1 has no tracked unit");
+    assert_eq!(
+        hud.objective_track,
+        Some(ObjectiveTrackSnapshot::EliminateAll {
+            remaining: 4,
+            total: 4,
+        })
+    );
     assert_eq!(
         hud.optional,
         "Turnabout: damage an enemy with enemy fire, collision, hazard, or explosion. · Not yet"
@@ -540,7 +547,9 @@ fn hud_tracks_protect_mission_round_cap_and_gunner_hp() {
         Some(ObjectiveTrackSnapshot::Protect {
             name: "Gunner",
             hp: 15,
-            max_hp: 15
+            max_hp: 15,
+            round: 3,
+            position: GridPos::new(4, 6),
         })
     );
 }
@@ -557,7 +566,10 @@ fn hud_tracks_intercept_mission_round_cap_and_courier_distance_to_exit() {
         hud.objective_track,
         Some(ObjectiveTrackSnapshot::Intercept {
             name: "Courier",
-            distance: 14
+            distance: 14,
+            deadline_round: 5,
+            position: GridPos::new(0, 6),
+            escape: GridPos::new(8, 0),
         })
     );
 }
@@ -573,7 +585,8 @@ fn mission_four_target_hud_pins_the_gate_bulwark() {
         Some(ObjectiveTrackSnapshot::Target {
             name: "Gate Bulwark",
             hp: 16,
-            max_hp: 16
+            max_hp: 16,
+            position: GridPos::new(4, 4),
         })
     );
 }
@@ -590,7 +603,8 @@ fn mission_seven_target_hud_pins_the_regent() {
         Some(ObjectiveTrackSnapshot::Target {
             name: "Regent",
             hp: 52,
-            max_hp: 52
+            max_hp: 52,
+            position: GridPos::new(4, 2),
         })
     );
 }
