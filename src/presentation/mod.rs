@@ -40,6 +40,12 @@ pub struct UnitVisual(pub UnitId);
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CellVisual(pub GridPos);
 
+/// The inset fill for a board diamond. The outer `CellVisual` remains the
+/// source-style stroke and both nodes stay inert under marker-required UI
+/// picking.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CellInsetVisual(pub GridPos);
+
 #[derive(Component)]
 pub struct PresentationRoot;
 
@@ -103,6 +109,10 @@ pub struct TokenCard(pub UnitId);
 /// Flat sibling footprint/shadow beneath a token card.
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenFootprintVisual(pub UnitId);
+
+/// Non-pickable selection/inspection diamond beneath a token card.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenSelectionVisual(pub UnitId);
 
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenHpFill(pub UnitId);

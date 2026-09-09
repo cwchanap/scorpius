@@ -77,10 +77,6 @@ pub fn grid_from_hit(hit: &HitData) -> Option<GridPos> {
     grid_from_stage_point(stage_point_from_hit(hit)?)
 }
 
-fn inspected_unit(interaction: &InteractionState) -> Option<UnitId> {
-    interaction.inspected_unit
-}
-
 fn set_inspected_unit(interaction: &mut InteractionState, unit: Option<UnitId>) {
     interaction.inspected_unit = unit;
 }
@@ -92,7 +88,7 @@ pub fn route_cell_click(
 ) -> Result<Vec<BattleEvent>, BattleError> {
     match interaction.mode {
         InteractionMode::Move => {
-            let unit = require_active_unit(battle, interaction)?;
+            let unit = require_active_unit(battle)?;
             let events = battle.move_unit(unit, clicked)?;
             interaction.mode = InteractionMode::Inspect;
             interaction.hovered_cell = Some(clicked);
@@ -100,7 +96,7 @@ pub fn route_cell_click(
             Ok(events)
         }
         InteractionMode::Attack(weapon) => {
-            let unit = require_active_unit(battle, interaction)?;
+            let unit = require_active_unit(battle)?;
             let events = battle.attack(unit, weapon, clicked)?;
             interaction.mode = InteractionMode::Inspect;
             interaction.hovered_cell = Some(clicked);
@@ -166,7 +162,7 @@ pub fn update_hover_preview(
     cell: GridPos,
 ) {
     interaction.hovered_cell = Some(cell);
-    interaction.preview = match (inspected_unit(interaction), interaction.mode) {
+    interaction.preview = match (battle.active_unit(), interaction.mode) {
         (Some(attacker), InteractionMode::Attack(weapon)) => {
             battle.preview_attack(attacker, weapon, cell).ok()
         }
@@ -467,7 +463,7 @@ pub fn execute_command(
 ) -> Result<Vec<BattleEvent>, BattleError> {
     match action {
         CommandAction::Move => {
-            let unit_id = require_active_unit(battle, interaction)?;
+            let unit_id = require_active_unit(battle)?;
             let unit = battle
                 .unit(unit_id)
                 .ok_or(BattleError::UnknownUnit(unit_id))?;
@@ -479,7 +475,7 @@ pub fn execute_command(
             Ok(Vec::new())
         }
         CommandAction::WeaponSlot(slot) => {
-            let unit_id = require_active_unit(battle, interaction)?;
+            let unit_id = require_active_unit(battle)?;
             let unit = battle
                 .unit(unit_id)
                 .ok_or(BattleError::UnknownUnit(unit_id))?;
@@ -508,7 +504,7 @@ pub fn execute_command(
             Ok(Vec::new())
         }
         CommandAction::PilotSkill => {
-            let unit_id = require_active_unit(battle, interaction)?;
+            let unit_id = require_active_unit(battle)?;
             let unit = battle
                 .unit(unit_id)
                 .ok_or(BattleError::UnknownUnit(unit_id))?;
@@ -533,12 +529,12 @@ pub fn execute_command(
             Ok(Vec::new())
         }
         CommandAction::Reaction(reaction) => {
-            let unit = require_active_unit(battle, interaction)?;
+            let unit = require_active_unit(battle)?;
             battle.choose_reaction(unit, reaction)?;
             Ok(Vec::new())
         }
         CommandAction::FinishUnit => {
-            let unit = require_active_unit(battle, interaction)?;
+            let unit = require_active_unit(battle)?;
             battle.finish_activation(unit)?;
             set_inspected_unit(interaction, None);
             interaction.mode = InteractionMode::Inspect;
@@ -627,21 +623,14 @@ fn run_continue_victory(context: &mut CommandContext<'_>) {
     }
 }
 
-fn require_active_unit(
-    battle: &BattleState,
-    interaction: &InteractionState,
-) -> Result<UnitId, BattleError> {
+fn require_active_unit(battle: &BattleState) -> Result<UnitId, BattleError> {
     if battle.phase() != BattlePhase::Player {
         return Err(BattleError::WrongPhase {
             expected: BattlePhase::Player,
             actual: battle.phase(),
         });
     }
-    let unit = inspected_unit(interaction).ok_or(BattleError::NoUnitSelected)?;
-    if battle.active_unit() != Some(unit) {
-        return Err(BattleError::UnitNotActive(unit));
-    }
-    Ok(unit)
+    battle.active_unit().ok_or(BattleError::NoUnitSelected)
 }
 
 fn command_success_message(action: CommandAction, mode: InteractionMode) -> &'static str {

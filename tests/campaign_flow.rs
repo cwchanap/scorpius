@@ -18,15 +18,18 @@ use scorpius::mission::mission_four;
 use scorpius::mission::mission_one::ids;
 use scorpius::mission::mission_three;
 use scorpius::mission::{DialogueLine, MissionId};
+use scorpius::presentation::assets::UiAssets;
+use scorpius::presentation::battlefield::setup_mission_scene;
 use scorpius::presentation::campaign_ui::{
-    BriefingSnapshot, CampaignStatus, CampaignUiAction, DialogueCursor,
+    BriefingSnapshot, CampaignStatus, CampaignUiAction, DialogueCursor, ScreenRoot,
     apply_campaign_action as apply_campaign_action_for_screen, briefing_snapshot,
     dialogue_snapshot, ending_snapshot, upgrade_row_snapshot,
 };
+use scorpius::presentation::screens::setup_title_screen;
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
     ActiveMission, AttackPreviewCells, BattleCamera2d, BattleEventQueue, BattleRuntime,
-    CampaignRuntime, EventPlayback, PresentationRoot,
+    CampaignCamera, CampaignRuntime, EventPlayback, PresentationRoot,
     interaction::{InteractionState, StatusMessage, restart_battle},
 };
 
@@ -46,6 +49,26 @@ fn init_battle_transients(app: &mut App) {
         .init_resource::<BattleEventQueue>()
         .init_resource::<EventPlayback>()
         .init_resource::<AttackPreviewCells>();
+}
+
+fn blank_ui_assets() -> UiAssets {
+    UiAssets {
+        key_art: Handle::default(),
+        briefing_art: Handle::default(),
+        vanguard_art: Handle::default(),
+        gunner_art: Handle::default(),
+        interceptor_art: Handle::default(),
+        icons: Handle::default(),
+        board: Handle::default(),
+        fonts: std::array::from_fn(|_| Handle::default()),
+    }
+}
+
+fn entity_count<T: Component>(app: &mut App) -> usize {
+    app.world_mut()
+        .query_filtered::<Entity, With<T>>()
+        .iter(app.world())
+        .count()
 }
 
 fn pending(next: &NextState<GameScreen>) -> Option<GameScreen> {
@@ -1026,6 +1049,91 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
     );
     assert!(app.world().get_entity(stale_child).is_err());
     assert_eq!(app.world().resource::<BattleRuntime>().0.round(), 1);
+}
+
+#[test]
+fn title_battle_exit_battle_restart_keeps_one_owned_camera_and_root() {
+    let mut app = App::new();
+    app.add_plugins(StatesPlugin)
+        .insert_resource(CampaignRuntime(CampaignSession {
+            state: Some(CampaignState::new_game()),
+            save: SaveFile::new(temp_save_path("lifecycle")),
+            last_completion: None,
+        }))
+        .insert_resource(blank_ui_assets())
+        .init_resource::<CampaignStatus>()
+        .init_state::<GameScreen>()
+        .add_systems(OnEnter(GameScreen::Title), setup_title_screen)
+        .add_systems(
+            OnExit(GameScreen::Title),
+            scorpius::presentation::campaign_ui::despawn_campaign_screen,
+        )
+        .add_systems(
+            OnEnter(GameScreen::Battle),
+            (
+                teardown_battle_screen,
+                enter_battle,
+                setup_mission_scene,
+                scorpius::presentation::ui::setup_mission_ui,
+            )
+                .chain(),
+        )
+        .add_systems(OnExit(GameScreen::Battle), teardown_battle_screen);
+    init_battle_transients(&mut app);
+
+    app.update();
+    assert_eq!(entity_count::<CampaignCamera>(&mut app), 1);
+    assert_eq!(entity_count::<BattleCamera2d>(&mut app), 0);
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 1);
+    assert_eq!(entity_count::<PresentationRoot>(&mut app), 0);
+
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(GameScreen::Battle);
+    app.update();
+    assert_eq!(entity_count::<CampaignCamera>(&mut app), 0);
+    assert_eq!(entity_count::<BattleCamera2d>(&mut app), 1);
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 0);
+    assert_eq!(entity_count::<PresentationRoot>(&mut app), 1);
+
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(GameScreen::Title);
+    app.update();
+    assert_eq!(entity_count::<CampaignCamera>(&mut app), 1);
+    assert_eq!(entity_count::<BattleCamera2d>(&mut app), 0);
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 1);
+    assert_eq!(entity_count::<PresentationRoot>(&mut app), 0);
+
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(GameScreen::Battle);
+    app.update();
+    assert_eq!(entity_count::<CampaignCamera>(&mut app), 0);
+    assert_eq!(entity_count::<BattleCamera2d>(&mut app), 1);
+    assert_eq!(entity_count::<PresentationRoot>(&mut app), 1);
+
+    let old_root = app
+        .world_mut()
+        .query_filtered::<Entity, With<PresentationRoot>>()
+        .single(app.world())
+        .unwrap();
+    restart_battle(app.world_mut(), 4_242);
+    assert!(app.world().get_entity(old_root).is_err());
+    app.update();
+    assert_eq!(entity_count::<BattleCamera2d>(&mut app), 1);
+    assert_eq!(entity_count::<PresentationRoot>(&mut app), 1);
+    assert_eq!(entity_count::<CampaignCamera>(&mut app), 0);
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 0);
+    assert_eq!(
+        app.world()
+            .resource::<BattleRuntime>()
+            .0
+            .unit(ids::VANGUARD)
+            .unwrap()
+            .position,
+        GridPos::new(4, 7)
+    );
 }
 
 static AFTERMATH_FIXTURE_RECEIPTS: [CompletionReceipt; 2] = [

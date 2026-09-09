@@ -88,19 +88,17 @@ impl HudSnapshot {
             .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
             .count();
         let selected_unit = selected.and_then(|unit| battle.unit(unit));
-        let active = selected
-            .filter(|unit| battle.active_unit() == Some(*unit))
+        let active = battle
+            .active_unit()
             .and_then(|unit| battle.unit(unit))
             .filter(|unit| battle.phase() == BattlePhase::Player && !unit.is_knocked_out());
         let mut weapon_names = [None; 3];
         let mut weapon_enabled = [false; 3];
-        if let Some(unit) = selected_unit {
+        if let Some(unit) = active {
             for (slot, weapon_id) in unit.weapons.iter().take(3).enumerate() {
                 if let Some(weapon) = battle.weapon(*weapon_id) {
                     weapon_names[slot] = Some(weapon.name);
-                    weapon_enabled[slot] = active.is_some_and(|active| {
-                        !active.activation.acted && active.en >= weapon.en_cost
-                    });
+                    weapon_enabled[slot] = !unit.activation.acted && unit.en >= weapon.en_cost;
                 }
             }
         }
@@ -755,8 +753,9 @@ pub(crate) fn update_hud(
                 hud.weapon_names
                     .get(slot)
                     .is_some_and(|name| name.is_some())
-                    && interaction
-                        .inspected_unit
+                    && battle
+                        .0
+                        .active_unit()
                         .and_then(|unit| battle.0.unit(unit))
                         .is_some_and(|unit| unit.weapons.get(slot).copied() == Some(weapon))
             }

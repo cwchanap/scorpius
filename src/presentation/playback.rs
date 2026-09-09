@@ -31,7 +31,7 @@ type UnitVisualQuery<'w, 's> = Query<
 type EventEffectQuery<'w, 's> =
     Query<'w, 's, (Entity, &'static mut UiTransform), (With<EventEffect>, Without<UnitVisual>)>;
 type DamageNumberQuery<'w, 's> =
-    Query<'w, 's, (Entity, &'static DamageNumberEffect, &'static mut Node)>;
+    Query<'w, 's, (Entity, &'static DamageNumberEffect, &'static mut Node), Without<UnitVisual>>;
 
 #[derive(Component)]
 pub(crate) struct DamageNumberEffect {

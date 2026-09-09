@@ -3,9 +3,9 @@ use bevy::prelude::*;
 use crate::domain::{board::GridPos, model::Faction};
 
 use super::{
-    BattleCamera2d, BattleRuntime, BattleStage, CanvasRoot, CellVisual, PresentationNeedsRebuild,
-    PresentationRoot, PropVisual, TokenAwaiting, TokenCard, TokenFootprintVisual, TokenHpFill,
-    TokenHpText, UnitVisual,
+    BattleCamera2d, BattleRuntime, BattleStage, CanvasRoot, CellInsetVisual, CellVisual,
+    PresentationNeedsRebuild, PresentationRoot, PropVisual, TokenAwaiting, TokenCard,
+    TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::{
         on_battlefield_stage_click, on_battlefield_stage_move, on_battlefield_stage_out,
@@ -116,21 +116,31 @@ fn populate_mission_root(
         .id();
 
     for cell in mission_grid_cells(BATTLE_GRID_WIDTH, BATTLE_GRID_HEIGHT) {
+        let fill = if (cell.x + cell.y) % 2 == 0 {
+            theme::BOARD_LIGHT
+        } else {
+            theme::BOARD_DARK
+        };
+        let outer = commands
+            .spawn((
+                Name::new(format!("Cell {},{}", cell.x, cell.y)),
+                cell_node(cell),
+                theme::board_node(
+                    ui_assets.board.clone(),
+                    theme::BOARD_DIAMOND_RECT,
+                    theme::BOARD_STROKE,
+                ),
+                CellVisual(cell),
+                ZIndex(0),
+                ChildOf(stage),
+            ))
+            .id();
         commands.spawn((
-            Name::new(format!("Cell {},{}", cell.x, cell.y)),
-            cell_node(cell),
-            theme::board_node(
-                ui_assets.board.clone(),
-                theme::BOARD_DIAMOND_RECT,
-                if (cell.x + cell.y) % 2 == 0 {
-                    theme::BOARD_LIGHT
-                } else {
-                    theme::BOARD_DARK
-                },
-            ),
-            CellVisual(cell),
-            ZIndex(0),
-            ChildOf(stage),
+            cell_inset_node(),
+            theme::board_node(ui_assets.board.clone(), theme::BOARD_DIAMOND_RECT, fill),
+            CellInsetVisual(cell),
+            Pickable::IGNORE,
+            ChildOf(outer),
         ));
     }
 
@@ -172,6 +182,17 @@ fn cell_node(cell: GridPos) -> Node {
         top: px(center.y - 28.0),
         width: px(112.0),
         height: px(56.0),
+        ..default()
+    }
+}
+
+fn cell_inset_node() -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: px(3.0),
+        top: px(3.0),
+        width: px(TILE_WIDTH - 6.0),
+        height: px(TILE_HEIGHT - 6.0),
         ..default()
     }
 }
@@ -281,9 +302,44 @@ fn spawn_token(
             Color::srgba(0.0, 0.0, 0.0, 0.58),
         ),
         TokenFootprintVisual(unit.id),
+        Visibility::Visible,
         ZIndex(depth - 1),
         Pickable::IGNORE,
         ChildOf(stage),
+    ));
+
+    let selection = commands
+        .spawn((
+            Name::new(format!("{} selection footprint", unit.name)),
+            token_selection_node(unit.position),
+            theme::board_node(
+                ui_assets.board.clone(),
+                theme::BOARD_DIAMOND_RECT,
+                theme::BOARD_SELECTED,
+            ),
+            TokenSelectionVisual(unit.id),
+            Visibility::Hidden,
+            ZIndex(depth),
+            Pickable::IGNORE,
+            ChildOf(stage),
+        ))
+        .id();
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(3.0),
+            top: px(3.0),
+            width: px(TILE_WIDTH - 6.0),
+            height: px(TILE_HEIGHT - 6.0),
+            ..default()
+        },
+        theme::board_node(
+            ui_assets.board.clone(),
+            theme::BOARD_DIAMOND_RECT,
+            theme::BOARD_DARK,
+        ),
+        Pickable::IGNORE,
+        ChildOf(selection),
     ));
 
     let card = commands
@@ -397,6 +453,18 @@ fn token_card_node(position: GridPos) -> Node {
         top: px(center.y - TOKEN_HEIGHT - 4.0),
         width: px(TOKEN_WIDTH),
         height: px(TOKEN_HEIGHT),
+        ..default()
+    }
+}
+
+fn token_selection_node(position: GridPos) -> Node {
+    let center = stage_point(position);
+    Node {
+        position_type: PositionType::Absolute,
+        left: px(center.x - TILE_WIDTH * 0.5),
+        top: px(center.y - TILE_HEIGHT * 0.5),
+        width: px(TILE_WIDTH),
+        height: px(TILE_HEIGHT),
         ..default()
     }
 }
