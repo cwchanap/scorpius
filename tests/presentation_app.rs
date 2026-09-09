@@ -294,6 +294,7 @@ fn committed_footprints_create_one_marker_per_unique_cell() {
 
     let mut app = App::new();
     app.insert_resource(BattleRuntime(battle))
+        .insert_resource(blank_ui_assets())
         .add_systems(Update, reconcile_telegraph_markers);
     app.update();
 
@@ -304,6 +305,17 @@ fn committed_footprints_create_one_marker_per_unique_cell() {
         .map(|marker| (marker.attacker, marker.cell))
         .collect();
     assert_eq!(actual, expected);
+
+    let mut markers = app
+        .world_mut()
+        .query::<(&TelegraphVisual, &ImageNode, Option<&BackgroundColor>)>();
+    for (_, image, background) in markers.iter(app.world()) {
+        assert_eq!(image.color, theme::BOARD_TELEGRAPH);
+        assert!(
+            background.is_none_or(|background| background.0 == Color::NONE),
+            "telegraph background must stay transparent; color comes from ImageNode"
+        );
+    }
 }
 
 #[test]
@@ -506,20 +518,28 @@ fn intercept_mission_spawns_one_white_extraction_ring_at_the_escape_cell() {
     battle.begin_round().unwrap();
     let mut app = App::new();
     app.insert_resource(BattleRuntime(battle))
+        .insert_resource(blank_ui_assets())
         .add_systems(Update, reconcile_extraction_marker);
     app.world_mut().spawn(PresentationRoot);
     app.update();
 
-    let mut markers = app
-        .world_mut()
-        .query::<(&ExtractionVisual, &Node, &BackgroundColor)>();
+    let mut markers = app.world_mut().query::<(
+        &ExtractionVisual,
+        &Node,
+        &ImageNode,
+        Option<&BackgroundColor>,
+    )>();
     let markers: Vec<_> = markers.iter(app.world()).collect();
     assert_eq!(markers.len(), 1, "exactly one extraction ring");
-    let (marker, node, color) = markers[0];
+    let (marker, node, image, background) = markers[0];
     assert_eq!(marker.0, GridPos::new(8, 0));
     assert_eq!(marker.0, mission_three::EXTRACTION);
     assert_eq!(node.width, px(112.0));
-    assert_eq!(color.0, scorpius::presentation::theme::BOARD_EXTRACTION);
+    assert_eq!(image.color, scorpius::presentation::theme::BOARD_EXTRACTION);
+    assert!(
+        background.is_none_or(|background| background.0 == Color::NONE),
+        "extraction background must stay transparent; color comes from ImageNode"
+    );
 }
 
 #[test]
