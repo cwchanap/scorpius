@@ -391,4 +391,38 @@ mod tests {
         assert!(app.world().resource::<EventPlayback>().input_locked);
         assert!(!app.world().resource::<RestartRoundPending>().0);
     }
+
+    #[test]
+    fn playback_records_each_event_in_the_recent_battle_log() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin)
+            .insert_resource(BattleRuntime(mission_one(7)))
+            .insert_resource(UiAssets {
+                key_art: Handle::default(),
+                briefing_art: Handle::default(),
+                vanguard_art: Handle::default(),
+                gunner_art: Handle::default(),
+                interceptor_art: Handle::default(),
+                icons: Handle::default(),
+                board: Handle::default(),
+                fonts: std::array::from_fn(|_| Handle::default()),
+            })
+            .insert_resource(BattleEventQueue(std::collections::VecDeque::from([
+                BattleEvent::OptionalObjectiveCompleted,
+            ])))
+            .init_resource::<EventPlayback>()
+            .init_resource::<RecentBattleLog>()
+            .add_systems(Update, play_battle_events);
+
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .resource::<RecentBattleLog>()
+                .0
+                .front()
+                .map(String::as_str),
+            Some("BONUS ACHIEVED")
+        );
+    }
 }

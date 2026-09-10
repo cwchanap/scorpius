@@ -107,6 +107,49 @@ fn canonical_move_drives_visual_transform_without_renderer() {
 }
 
 #[test]
+fn move_highlight_does_not_mark_an_unreachable_hovered_cell() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let hovered = GridPos::new(0, 0);
+    assert!(
+        !battle
+            .reachable_cells(ids::VANGUARD)
+            .unwrap()
+            .contains(&hovered),
+        "fixture cell must be outside Vanguard movement range"
+    );
+
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(battle))
+        .insert_resource(InteractionState {
+            hovered_cell: Some(hovered),
+            mode: InteractionMode::Move,
+            ..Default::default()
+        })
+        .add_systems(Update, sync_cell_highlights);
+    let outer = app
+        .world_mut()
+        .spawn((CellVisual(hovered), ImageNode::default()))
+        .id();
+    let inset = app
+        .world_mut()
+        .spawn((CellInsetVisual(hovered), ImageNode::default()))
+        .id();
+
+    app.update();
+
+    assert_eq!(
+        app.world().get::<ImageNode>(outer).unwrap().color,
+        theme::BOARD_STROKE
+    );
+    assert_eq!(
+        app.world().get::<ImageNode>(inset).unwrap().color,
+        theme::BOARD_LIGHT
+    );
+}
+
+#[test]
 fn token_shadow_and_selection_footprints_follow_domain_positions() {
     let mut battle = mission_one(7);
     battle.begin_round().unwrap();

@@ -37,6 +37,9 @@ pub struct TargetingPanel;
 #[derive(Component)]
 pub struct TargetingLabel;
 
+#[derive(Component)]
+pub struct ResolveButton;
+
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WeaponRow(pub usize);
 
@@ -238,6 +241,44 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         Pickable::IGNORE,
         ChildOf(cancel),
     ));
+
+    let resolve = commands
+        .spawn((
+            Button,
+            CommandButton(CommandAction::ResolveAttacks),
+            ResolveButton,
+            Node {
+                width: percent(100),
+                height: px(72),
+                flex_shrink: 0.0,
+                display: Display::None,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                column_gap: px(16),
+                border: UiRect::all(px(2)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb_u8(63, 42, 6)),
+            BorderColor::all(theme::GOLD),
+            Visibility::Hidden,
+            Pickable::default(),
+            ChildOf(parent),
+        ))
+        .observe(on_command_button_click)
+        .id();
+    commands.spawn((
+        theme::icon_node(assets.icons.clone(), theme::ICON_FORWARD, theme::GOLD),
+        icon_node(34.0),
+        Pickable::IGNORE,
+        ChildOf(resolve),
+    ));
+    commands.spawn((
+        Text::new("RESOLVE"),
+        theme::chakra_petch(&assets.fonts, 24.0, FontWeight(600)),
+        TextColor(Color::srgb_u8(255, 228, 173)),
+        Pickable::IGNORE,
+        ChildOf(resolve),
+    ));
 }
 
 /// Route sidebar-only navigation. Domain commands never come through this
@@ -257,14 +298,22 @@ pub fn on_menu_button_click(
 
 /// Keep the three menu blocks and the source-style targeting row mutually
 /// exclusive as interaction state changes.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn update_battle_menu(
     battle: Res<BattleRuntime>,
     interaction: Res<InteractionState>,
     playback: Res<EventPlayback>,
-    mut regions: Query<(&MenuRegion, &mut Visibility, &mut Node), Without<TargetingPanel>>,
-    mut targeting: Query<(&TargetingPanel, &mut Visibility, &mut Node), Without<MenuRegion>>,
+    mut regions: Query<
+        (&MenuRegion, &mut Visibility, &mut Node),
+        (Without<TargetingPanel>, Without<ResolveButton>),
+    >,
+    mut targeting: Query<
+        (&TargetingPanel, &mut Visibility, &mut Node),
+        (Without<MenuRegion>, Without<ResolveButton>),
+    >,
     mut labels: Query<&mut Text, With<TargetingLabel>>,
     mut buttons: Query<(&MenuButton, &mut Pickable)>,
+    mut resolve: Query<(&mut Visibility, &mut Node), With<ResolveButton>>,
 ) {
     let active = battle.0.phase() == crate::domain::model::BattlePhase::Player
         && battle.0.active_unit().is_some()
@@ -291,6 +340,19 @@ pub fn update_battle_menu(
             Visibility::Hidden
         };
         node.display = if targeting_active {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    let resolve_shown = battle.0.ready_to_resolve() && !playback.input_locked;
+    for (mut visibility, mut node) in &mut resolve {
+        *visibility = if resolve_shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if resolve_shown {
             Display::Flex
         } else {
             Display::None

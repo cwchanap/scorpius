@@ -586,7 +586,7 @@ pub fn sync_cell_highlights(
             .is_some_and(|preview| preview.0.contains(&cell))
         {
             (theme::BOARD_ATTACK, theme::BOARD_ATTACK_INSET)
-        } else if hovered == Some(cell) || reachable.contains(&cell) {
+        } else if reachable.contains(&cell) {
             (theme::BOARD_SELECTED, theme::BOARD_REACHABLE)
         } else if (cell.x + cell.y).is_multiple_of(2) {
             (theme::BOARD_STROKE, theme::BOARD_LIGHT)
