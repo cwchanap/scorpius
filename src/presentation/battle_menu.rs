@@ -213,11 +213,13 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
             ChildOf(parent),
         ))
         .id();
+    let mut cancel_node = targeting_row_node(64.0);
+    cancel_node.border = UiRect::all(px(2));
     let cancel = commands
         .spawn((
             Button,
             CommandButton(CommandAction::Cancel),
-            targeting_row_node(64.0),
+            cancel_node,
             BackgroundColor(theme::TARGETING_CANCEL_BACKGROUND),
             BorderColor::all(theme::TARGETING_CANCEL_BORDER),
             Pickable::default(),
