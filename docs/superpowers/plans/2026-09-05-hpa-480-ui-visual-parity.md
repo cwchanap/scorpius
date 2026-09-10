@@ -391,4 +391,4 @@ Record final commit, device/DPI, typed fixture table version, source/native capt
 
 ## Present status
 
-This branch is still planning-only. These revisions do not implement the 2.5D UI, tests, capture example, or binary asset intake, and no native build/parity claim is made.
+Implementation is in progress. Tasks 1–4 have been implemented; native Mission 1 Victory and Result Continue were observed at `7cd91e6`, and subsequent HUD fixes have focused verification. Task 5 capture automation is next. Updated-source screenshots, full visual comparison, the complete native campaign matrix, and final branch acceptance remain pending. See `docs/validation/hpa-480.md` and the local SDD ledger for exact commits and evidence.
