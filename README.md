@@ -14,6 +14,10 @@ cargo run
 
 The game starts at the **Title** screen.
 
+The current presentation is a fixed 2.5D battlefield with an icon-led native
+Bevy UI. The authored 1008×764 battle stage is fitted into a resizable canvas;
+the canvas scale is refreshed before UI picking after a resize.
+
 - **NEW GAME** starts a fresh campaign at Mission 1 and immediately overwrites any existing pre-release progress.
 - **CONTINUE** loads the saved campaign. It is disabled when no save exists (and shows the same error shape for an unreadable/corrupted one). Progress at Mission 1 resumes at the pre-mission story; progress at Missions 2–7 resumes at the upgrade screen; a completed campaign resumes at the ending screen. It never replays a reward: mission completion is granted exactly once, and a repeated victory Continue fails the advancement guard instead of paying twice.
 
@@ -67,13 +71,13 @@ Objectives are labeled `PRIMARY` / `BONUS`; `[P]` is reserved for the pilot comm
 For each Vanguard, Gunner, and Interceptor activation:
 
 1. Click a player mech.
-2. Optionally click **Move**, then a cyan destination cell.
-3. Optionally click one of the mech's three weapons, hover or inspect the preview, then click an amber target cell.
-4. Choose **Counter**, **Guard**, or **Evade**.
-5. Click **Finish**.
-6. After every surviving mech has finished, click **Resolve**.
+2. In the left command rail, optionally choose **MOVE**, then a cyan destination cell.
+3. Choose **ATTACK**, select one of the mech's three weapon rows, inspect the typed preview, then click an amber target cell.
+4. Choose **STANCE**, then **Counter**, **Guard**, or **Evade**.
+5. Choose **WAIT** to finish the active unit.
+6. After every surviving mech has finished, choose **RESOLVE**.
 
-Enemy footprints, expected damage, and hit chance remain locked throughout the player phase. Moving never retargets a committed attack. On defeat, use the visible **Restart Mission** button or press `R`; on victory, **CONTINUE** advances the campaign.
+Enemy footprints, expected damage, and hit chance remain locked throughout the player phase. Moving never retargets a committed attack. On defeat, use the visible **RETRY** action or press `R`; restart is guarded to defeat results. On victory, **CONTINUE** advances the campaign.
 
 ### Pilot skills
 
@@ -85,7 +89,10 @@ Each pilot has one signature skill usable once per mission, armed with the `[P] 
 
 ### Keyboard mirrors
 
-Pointer input selects mechs, destinations, and targets. These keys mirror the command buttons:
+Pointer input selects mechs, destinations, and targets. **CANCEL** and `Escape`
+close the current menu or targeting mode. The **SKIP** button is rendered only
+for pre-mission story dialogue (`PreMissionStory`); it does not skip briefing,
+aftermath, or upgrade screens. These keys mirror the battle command buttons:
 
 | Key | Command |
 | --- | --- |
@@ -95,9 +102,28 @@ Pointer input selects mechs, destinations, and targets. These keys mirror the co
 | `C` | Counter |
 | `G` | Guard |
 | `E` | Evade |
-| `F` | Finish unit |
+| `F` | Wait / finish active unit |
 | `Space` | Resolve committed attacks |
-| `R` | Restart from a defeat (rejected on victory; victory shows **CONTINUE**) |
+| `Escape` | Cancel the current menu or targeting mode |
+| `R` | Restart Mission from a defeat result (guarded elsewhere) |
+
+### Native UI capture
+
+Build the opt-in renderer fixture and pass a typed fixture ID, output size,
+seed, and presentation time:
+
+```bash
+cargo build --features ui-capture --example ui_capture
+target/debug/examples/ui_capture \
+  --scenario battle-active-vanguard \
+  --size 1920x1080 --seed 7 --time-ms 0 \
+  --output target/ui-capture/battle-active-vanguard.png
+```
+
+Use `--time-ms 250` to capture playback after 250 ms, or
+`--size 1600x1000 --scenario letterbox-1600x1000` for the letterbox fixture.
+Captures use the production Bevy UI tree and an isolated temporary save; they
+never read or write the platform campaign save.
 
 ## Verify
 
@@ -107,6 +133,7 @@ The local commands match `.github/workflows/ci.yml`:
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
+cargo test --all-targets --all-features
 cargo build --release
 ```
 

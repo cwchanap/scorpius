@@ -391,4 +391,11 @@ Record final commit, device/DPI, typed fixture table version, source/native capt
 
 ## Present status
 
-Implementation is in progress. Tasks 1–4 have been implemented; native Mission 1 Victory and Result Continue were observed at `7cd91e6`, and subsequent HUD fixes have focused verification. Task 5 capture automation is next. Updated-source screenshots, full visual comparison, the complete native campaign matrix, and final branch acceptance remain pending. See `docs/validation/hpa-480.md` and the local SDD ledger for exact commits and evidence.
+Task 6 implementation and local integrated acceptance are complete at
+`cae2bb88ecbba92b893d3c7c1cec2e3e53970710`; the typed seed-7 native matrix
+contains all 44 fixtures and the required timing proof, and the final local
+format, lint, test, release, and comparator gates pass. Updated-source and
+aligned PNGs remain unavailable, and the locked host prevents the requested
+native pointer/keyboard seven-mission run, so source comparison and external
+platform acceptance remain open. PR #7 and HPA-480 are not marked ready/done.
+See `docs/validation/hpa-480.md` for exact paths, hashes, and limits.
