@@ -392,7 +392,7 @@ Record final commit, device/DPI, typed fixture table version, source/native capt
 ## Present status
 
 Task 6 implementation and local integrated acceptance are complete at
-`cae2bb88ecbba92b893d3c7c1cec2e3e53970710`; the typed seed-7 native matrix
+`ba813dd8ce4aa587d7953b119680248eac25a9d3`; the typed seed-7 native matrix
 contains all 44 fixtures and the required timing proof, and the final local
 format, lint, test, release, and comparator gates pass. Updated-source and
 aligned PNGs remain unavailable, and the locked host prevents the requested
