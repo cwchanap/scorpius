@@ -237,17 +237,15 @@ fn main() {
     app.add_systems(PostUpdate, finish_capture);
     let exit = app.run();
 
-    match fs::remove_file(&save_path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) if error.kind() == std::io::ErrorKind::IsADirectory => {
-            if let Err(error) = fs::remove_dir(&save_path)
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                eprintln!("warning: could not remove isolated capture save: {error}");
-            }
-        }
-        Err(error) => eprintln!("warning: could not remove isolated capture save: {error}"),
+    let cleanup = if save_path.is_dir() {
+        fs::remove_dir(&save_path)
+    } else {
+        fs::remove_file(&save_path)
+    };
+    if let Err(error) = cleanup
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        eprintln!("warning: could not remove isolated capture save: {error}");
     }
     if exit.is_error() {
         process::exit(1);
