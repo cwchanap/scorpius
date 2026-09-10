@@ -115,7 +115,7 @@
       "dreadnought": ["hexagon", "#dc4450"],
       "regent": ["hexagon", "#b48cff"]
     },
-    "rendering": "White alpha masks derived from source glyph() polygons and source D.* or static Back paths; ImageNode.color applies semantic tint. Original source atlas slots 0..50 are preserved pixel-for-pixel. Task 6 adds the source icon() masks for HP plus, Hangar Mobility cross+top arrow, Ending Mobility cross, Weapon lightning, and purchase currency hex in slots 63..67.",
+    "rendering": "White alpha masks derived from source glyph() polygons and source D.* or static Back paths; ImageNode.color applies semantic tint. Every pre-existing atlas slot 0..62 from BASE is preserved pixel-for-pixel, including source-original slots 0..50 and Task 5 masks 51..62. Task 6 adds the source icon() masks for HP plus, Hangar Mobility cross+top arrow, Ending Mobility cross, Weapon lightning, and purchase currency hex in slots 63..67.",
     "source_provenance": "Updated source template glyph() at template 1172, D/icon paths at template 1195-1206, static Back path at template 558, and Task 6 dynamic track paths at template 1395-1417 and 1492-1503",
     "source_atlas_sha256": "ffba26d5e0450ef72e50d3d72a622cb55b215665ef14fc3cf731cb1d7459cb7f",
     "sha256": "6d583b0a85e6a7a12fcd238307a239a7ede27cbd8905ebcc82fa1cb9dbe43c2f"
