@@ -2550,7 +2550,9 @@ pub fn update_hud(
             }
             _ => false,
         };
-        background.0 = if armed {
+        background.0 = if button.0 == CommandAction::ResolveAttacks {
+            Color::srgb_u8(63, 42, 6)
+        } else if armed {
             Color::srgb(0.82, 0.38, 0.08)
         } else if enabled {
             Color::srgb(0.08, 0.25, 0.34)
