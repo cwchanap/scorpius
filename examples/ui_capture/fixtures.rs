@@ -28,7 +28,6 @@ use scorpius::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CaptureProfile {
     pub initial_screen: GameScreen,
-    pub screen: GameScreen,
     pub mission: MissionId,
     pub next_mission: MissionId,
     pub credits: u32,
@@ -190,7 +189,6 @@ const UPGRADES: UpgradePreset = UpgradePreset::EMPTY;
 const fn profile(screen: GameScreen, mission: MissionId) -> CaptureProfile {
     CaptureProfile {
         initial_screen: screen,
-        screen,
         mission,
         next_mission: mission,
         credits: 0,
@@ -210,7 +208,6 @@ const fn campaign_profile(
 ) -> CaptureProfile {
     CaptureProfile {
         initial_screen: screen,
-        screen,
         mission,
         next_mission: mission,
         credits,
@@ -224,7 +221,6 @@ const fn campaign_profile(
 const fn battle_profile(mission: MissionId) -> CaptureProfile {
     CaptureProfile {
         initial_screen: GameScreen::Battle,
-        screen: GameScreen::Battle,
         mission,
         next_mission: mission,
         credits: 0,
@@ -243,7 +239,6 @@ const fn aftermission_profile(
 ) -> CaptureProfile {
     CaptureProfile {
         initial_screen: GameScreen::Aftermath,
-        screen: GameScreen::Aftermath,
         mission,
         next_mission,
         credits: receipt.credits_after,
