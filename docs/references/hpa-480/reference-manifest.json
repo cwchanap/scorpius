@@ -75,12 +75,12 @@
     "unique_path_geometries": 39,
     "normalized_geometry_catalog_sha256": "ba4df112a802049c1dc5b370f35ff780f080073d7aef8a3e1b8c87ac441c4424",
     "native_ui_atlas_destination": "assets/ui/icons.png",
-    "native_ui_atlas_sha256": "10da4f127bcbcafc293cc1d35a6dda27edb0faede8eb487a4dcb52331615827b",
+    "native_ui_atlas_sha256": "6d583b0a85e6a7a12fcd238307a239a7ede27cbd8905ebcc82fa1cb9dbe43c2f",
     "rule": "export exact updated-source geometry/strokes once; no runtime SVG and no generic icon/emoji fallback"
   },
   "unit_glyph_masks": {
     "destination": "assets/ui/icons.png",
-    "atlas_size": [512, 512],
+    "atlas_size": [512, 576],
     "slots": {
       "hexagon": 51,
       "diamond": 52,
@@ -93,7 +93,12 @@
       "evade": 59,
       "skill": 60,
       "wait": 61,
-      "back": 62
+      "back": 62,
+      "track_hp": 63,
+      "track_mobility_hangar": 64,
+      "track_mobility_ending": 65,
+      "track_weapon": 66,
+      "credits_purchase": 67
     },
     "source_glyph_contract": {
       "vanguard": ["hexagon", "#3ec7db"],
@@ -110,10 +115,10 @@
       "dreadnought": ["hexagon", "#dc4450"],
       "regent": ["hexagon", "#b48cff"]
     },
-    "rendering": "White alpha masks derived from source glyph() polygons and source D.* or static Back paths; ImageNode.color applies semantic tint. Original source atlas slots 0..50 are preserved pixel-for-pixel and slot 63 is unused.",
-    "source_provenance": "Updated source template glyph() at template 1172 and D/icon paths at template 1195-1206; static Back path at template 558",
+    "rendering": "White alpha masks derived from source glyph() polygons and source D.* or static Back paths; ImageNode.color applies semantic tint. Original source atlas slots 0..50 are preserved pixel-for-pixel. Task 6 adds the source icon() masks for HP plus, Hangar Mobility cross+top arrow, Ending Mobility cross, Weapon lightning, and purchase currency hex in slots 63..67.",
+    "source_provenance": "Updated source template glyph() at template 1172, D/icon paths at template 1195-1206, static Back path at template 558, and Task 6 dynamic track paths at template 1395-1417 and 1492-1503",
     "source_atlas_sha256": "ffba26d5e0450ef72e50d3d72a622cb55b215665ef14fc3cf731cb1d7459cb7f",
-    "sha256": "10da4f127bcbcafc293cc1d35a6dda27edb0faede8eb487a4dcb52331615827b"
+    "sha256": "6d583b0a85e6a7a12fcd238307a239a7ede27cbd8905ebcc82fa1cb9dbe43c2f"
   },
   "board_geometry_atlas": {
     "destination": "assets/ui/board.png",
@@ -213,6 +218,6 @@
     "native": "actual Bevy output at named implementation commit",
     "comparison": "equal-size side-by-side, overlay, absolute difference; no broad masks"
   },
-  "native_validation": "Task 5 native image-target capture completed on the implementation branch: all 44 typed fixtures passed at physical 1920x1080, with the letterbox fixture at 1600x1000; source/aligned reference PNGs remain pending.",
+    "native_validation": "Task 6 native image-target capture completed at implementation cae2bb88ecbba92b893d3c7c1cec2e3e53970710: all 44 typed fixtures passed with seed 7 at physical 1920x1080, with the letterbox fixture at 1600x1000; source/aligned reference PNGs and native pointer/keyboard campaign acceptance remain pending.",
   "primary_canvas_px": [1920,1080]
 }

@@ -27,7 +27,7 @@ cargo test --test presentation_app                          # only the integrati
 Coverage matches CI (`cargo llvm-cov --all-targets --lcov --output-path lcov.info`).
 
 Every test runs headless — no window, renderer, or Winit — so the full suite works over SSH/CI.
-Only `cargo run` needs a display.
+Only `cargo run` and the opt-in `ui_capture` example need a display/GPU.
 
 ## Architecture
 
@@ -87,7 +87,7 @@ logic lives in the domain (`completed_enemy_round`).
 
 Bevy entities are views keyed by domain IDs (`UnitVisual(UnitId)`, `CellVisual(GridPos)`,
 `TelegraphVisual`, `IntentLineVisual`, `ReactionVisual`, `PropVisual`); `grid_to_world` maps the
-grid to world space.
+grid to the authored 2.5D stage.
 
 - `interaction.rs` — pure-ish routing (`route_cell_click`, `execute_command`, `update_hover_preview`)
   that takes `&mut BattleState` and returns events. Directly unit-testable, and where most
@@ -97,8 +97,36 @@ grid to world space.
   giving it a duration and a visual in `event_duration` / `play_battle_events`.
 - `sync.rs` — reconciles marker entities against current state each frame (spawn/despawn diffing).
 - `ui.rs` — native Bevy UI. `HudSnapshot::from_battle` derives all HUD text from state, so HUD logic
-  is testable without a renderer.
-- `battlefield.rs`, `assets.rs` — scene setup and the single checked-in glTF.
+  is testable without a renderer; the sidebar, Inspector, Preview, Threat, Log, and Result regions
+  are projections of typed snapshots.
+- `battle_menu.rs` — the icon-led Root → Weapons/Stances menus, guarded command routing, and
+  accessible icon-only weapon rows.
+- `layout.rs` — the fitted fixed-pixel canvas and authored 1008×764 2.5D battle stage. `battlefield.rs`
+  and `sync.rs` render the stage with native Bevy UI nodes and `Camera2d`.
+- `assets.rs`, `theme.rs` — checked-in UI atlas/font assets and source-shaped icon rectangles;
+  do not add a parallel icon registry or art pipeline.
+
+### Current presentation controls
+
+The battle sidebar opens with **MOVE**, **ATTACK**, **STANCE**, **SKILL**, and **WAIT**. **ATTACK**
+opens the three typed weapon rows; **STANCE** opens Counter, Guard, and Evade. **WAIT** finishes
+the active unit, and **RESOLVE** becomes available after surviving units finish. `Escape` invokes
+the existing Cancel action for menus and targeting. `R` invokes the guarded Restart action only
+for a defeat result; victory exposes Continue. The campaign **SKIP** button is created only for
+`GameScreen::PreMissionStory`. Keep these bindings in the existing command/action types.
+
+The opt-in native renderer fixture is built with:
+
+```bash
+cargo build --features ui-capture --example ui_capture
+target/debug/examples/ui_capture --scenario battle-active-vanguard \
+  --size 1920x1080 --seed 7 --time-ms 0 \
+  --output target/ui-capture/battle-active-vanguard.png
+```
+
+`--time-ms` advances presentation playback after fixture setup; use
+`--size 1600x1000 --scenario letterbox-1600x1000` for the letterbox case. The
+fixture uses the production UI tree and an isolated temporary save.
 
 ### Event flow
 
@@ -126,7 +154,8 @@ breaks seeded tests; that's intended signal, not flakiness.
 
 - One application crate — not a workspace, engine crate, or plugin suite.
 - `bevy = "0.19"` pinned, `Cargo.lock` committed. No physics engine, no second UI framework.
-- Orthographic `Camera3d`, Bevy mesh picking, native Bevy UI, checked-in glTF only.
+- Authored 2.5D rendering uses `Camera2d`, native Bevy UI nodes, `UiPickingCamera`, and the
+  checked-in UI/board atlas assets.
 - No data-file authoring format, scripting, behavior trees, generic status/ability framework,
   backend, or persistence.
 
