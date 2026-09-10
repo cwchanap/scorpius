@@ -28,8 +28,11 @@ use scorpius::{
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, BattleRuntime, CampaignCamera, CampaignRuntime, CanvasRoot, EventPlayback,
+        RecentBattleLog,
         assets::UiAssets,
-        battle_menu::{MenuRegion, MenuState, TargetingPanel, WeaponRow},
+        battle_menu::{
+            MenuRegion, MenuState, ResolveButton, TargetingPanel, WeaponRow, update_battle_menu,
+        },
         campaign_ui::{
             CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, ScreenRoot, UpgradePip,
             UpgradeRow,
@@ -41,8 +44,8 @@ use scorpius::{
         },
         ui::{
             BattleHeader, BattleRightbar, BattleSidebar, InspectorEmpty, InspectorPanel,
-            InspectorStats, InspectorTop, PreviewText, ResultIcon, ResultOverlay, ThreatCard,
-            setup_mission_ui, update_hud,
+            InspectorStats, InspectorTop, PlaybackText, PreviewText, ResultIcon, ResultOverlay,
+            ThreatCard, setup_mission_ui, update_hud,
         },
     },
 };
@@ -119,7 +122,9 @@ fn battle_fixture_app(
         .insert_resource(interaction)
         .insert_resource(StatusMessage::default())
         .insert_resource(EventPlayback::default())
-        .add_systems(Update, (setup_mission_ui, update_hud).chain());
+        .init_resource::<scorpius::presentation::RecentBattleLog>()
+        .add_systems(Startup, setup_mission_ui)
+        .add_systems(Update, (update_hud, update_battle_menu).chain());
     app
 }
 
@@ -359,6 +364,123 @@ fn battle_snapshot_spawns_source_fixed_header_sidebar_and_menu_regions() {
 }
 
 #[test]
+fn battle_snapshot_shows_resolve_after_every_pilot_finishes() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    for id in [ids::VANGUARD, ids::GUNNER, ids::INTERCEPTOR] {
+        battle.begin_activation(id).unwrap();
+        battle.choose_reaction(id, Reaction::Guard).unwrap();
+        battle.finish_activation(id).unwrap();
+    }
+    assert!(battle.ready_to_resolve());
+
+    let mut app = battle_fixture_app(battle, None);
+    app.update();
+
+    let (visibility, node, pickable) = app
+        .world_mut()
+        .query_filtered::<(&Visibility, &Node, &Pickable), With<ResolveButton>>()
+        .single(app.world())
+        .expect("resolve button must be spawned");
+    assert_eq!(*visibility, Visibility::Visible);
+    assert_eq!(node.display, Display::Flex);
+    assert!(pickable.is_hoverable);
+}
+
+#[test]
+fn battle_snapshot_renders_recent_playback_log_entries() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut app = battle_fixture_app(battle, Some(ids::VANGUARD));
+    app.world_mut()
+        .resource_mut::<RecentBattleLog>()
+        .push("VANGUARD -> STRIKER\nHIT".to_owned());
+
+    app.update();
+
+    let playback = app
+        .world_mut()
+        .query_filtered::<&Text, With<PlaybackText>>()
+        .single(app.world())
+        .expect("playback log text must be spawned");
+    assert_eq!(playback.0, "VANGUARD -> STRIKER\nHIT");
+}
+
+#[test]
+fn battle_log_text_stays_visible_inside_the_sidebar_layout() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut app = battle_fixture_app(battle, Some(ids::VANGUARD));
+    app.world_mut()
+        .resource_mut::<RecentBattleLog>()
+        .push("VANGUARD -> STRIKER\nHIT".to_owned());
+    app.add_plugins((
+        TaskPoolPlugin::default(),
+        AssetPlugin::default(),
+        ImagePlugin::default(),
+        TextureAtlasPlugin,
+        InputPlugin,
+        PickingPlugin,
+        InteractionPlugin,
+        TimePlugin,
+        TextPlugin,
+        TransformPlugin,
+        UiPlugin,
+    ));
+    let font = app
+        .world_mut()
+        .resource_mut::<Assets<Font>>()
+        .add(Font::from_bytes(
+            std::fs::read(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/fonts/ibm-plex-mono-400.ttf"
+            ))
+            .expect("test layout font must be present"),
+        ));
+    let mut assets = test_assets();
+    assets.fonts = std::array::from_fn(|_| font.clone());
+    app.insert_resource(assets);
+
+    app.update();
+    app.update();
+
+    let log = app
+        .world_mut()
+        .query_filtered::<Entity, With<PlaybackText>>()
+        .single(app.world())
+        .expect("playback log node must be spawned");
+    let playback_rect = computed_rect(&app, log);
+    let playback_width = app
+        .world()
+        .get::<ComputedNode>(log)
+        .expect("playback log layout must be computed")
+        .size
+        .x;
+    let local_visible = app
+        .world()
+        .get::<Visibility>(log)
+        .is_some_and(|visibility| *visibility == Visibility::Visible);
+    let sidebar = app
+        .world_mut()
+        .query_filtered::<Entity, With<BattleSidebar>>()
+        .single(app.world())
+        .expect("sidebar must be present");
+    let sidebar_rect = computed_rect(&app, sidebar);
+
+    assert!(playback_width > 0.0);
+    // The headless fixture does not rasterize glyph height, but it still
+    // computes the live width, inherited visibility, and hierarchy bounds.
+    assert!(playback_width > 0.0);
+    assert!(local_visible);
+    assert!(playback_rect.min.x >= sidebar_rect.min.x - 0.5);
+    assert!(playback_rect.max.x <= sidebar_rect.max.x + 0.5);
+    assert!(playback_rect.min.y >= sidebar_rect.min.y - 0.5);
+    assert!(playback_rect.max.y <= sidebar_rect.max.y + 0.5);
+}
+
+#[test]
 fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
     let mut battle = mission_one(7);
     battle.begin_round().unwrap();
@@ -561,11 +683,22 @@ fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
 }
 
 fn result_button_state(app: &mut App, action: CommandAction) -> (Visibility, bool) {
-    app.world_mut()
-        .query::<(&CommandButton, &Visibility, &Pickable)>()
+    let overlay = app
+        .world_mut()
+        .query_filtered::<Entity, With<ResultOverlay>>()
+        .single(app.world())
+        .expect("one result overlay");
+    let result_card = app
+        .world_mut()
+        .query::<(Entity, &ChildOf)>()
         .iter(app.world())
-        .find(|(button, _, _)| button.0 == action)
-        .map(|(_, visibility, pickable)| (*visibility, pickable.is_hoverable))
+        .find_map(|(entity, parent)| (parent.parent() == overlay).then_some(entity))
+        .expect("result card must be a child of the result overlay");
+    app.world_mut()
+        .query::<(&CommandButton, &Visibility, &Pickable, &ChildOf)>()
+        .iter(app.world())
+        .find(|(button, _, _, parent)| button.0 == action && parent.parent() == result_card)
+        .map(|(_, visibility, pickable, _)| (*visibility, pickable.is_hoverable))
         .expect("result action must have a pickable button")
 }
 

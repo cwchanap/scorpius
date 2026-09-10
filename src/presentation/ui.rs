@@ -200,10 +200,11 @@ impl HudSnapshot {
             .units()
             .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
             .count();
-        let enemy_count = battle
+        let enemy_total = battle
             .units()
             .filter(|unit| unit.faction == Faction::Enemy)
             .count();
+        let enemy_count = remaining;
         let ally_count = battle
             .units()
             .filter(|unit| unit.faction == Faction::Player && !unit.is_knocked_out())
@@ -298,7 +299,7 @@ impl HudSnapshot {
             }
             PrimaryObjective::EliminateAllEnemies => Some(ObjectiveTrackSnapshot::EliminateAll {
                 remaining,
-                total: enemy_count,
+                total: enemy_total,
             }),
         };
         let round_cap = match battle.rules().primary {
@@ -2591,9 +2592,6 @@ pub fn update_asset_status_text(
     status: Res<AssetLoadStatus>,
     panel: Single<(&mut Text, &mut Visibility, &mut TextColor), With<AssetStatusText>>,
 ) {
-    if !status.is_changed() {
-        return;
-    }
     let (mut text, mut visibility, mut color) = panel.into_inner();
     match &*status {
         AssetLoadStatus::Loading => {
@@ -2991,6 +2989,26 @@ mod tests {
     }
 
     #[test]
+    fn header_enemy_count_tracks_living_enemies_but_objective_total_stays_authored() {
+        let mut battle = mission_one(7);
+        for id in [ids::RIFLEMAN_LEFT, ids::RIFLEMAN_RIGHT, ids::STRIKER] {
+            battle.apply_direct_damage(id, 99, DamageSource::PlayerWeapon(ids::PILE_LANCE));
+        }
+
+        let hud =
+            HudSnapshot::from_battle(&battle, None, mission_definition(MissionId::One).unwrap());
+
+        assert_eq!(hud.enemy_count, 1);
+        assert_eq!(
+            hud.objective_track,
+            Some(ObjectiveTrackSnapshot::EliminateAll {
+                remaining: 1,
+                total: 4,
+            })
+        );
+    }
+
+    #[test]
     fn mission_two_and_three_primaries_lose_the_remaining_enemy_count() {
         let m2 = mission_two(7);
         let m2_hud =
@@ -3009,6 +3027,28 @@ mod tests {
             "m3: {}",
             m3_hud.primary
         );
+    }
+
+    #[test]
+    fn ready_asset_status_hides_a_newly_spawned_battle_panel() {
+        let mut app = App::new();
+        app.insert_resource(AssetLoadStatus::Ready)
+            .add_systems(Update, update_asset_status_text);
+        app.world_mut().spawn((
+            Text::new("Loading battle UI assets..."),
+            Visibility::Visible,
+            TextColor(theme::GOLD),
+            AssetStatusText,
+        ));
+
+        app.update();
+
+        let visibility = app
+            .world_mut()
+            .query_filtered::<&Visibility, With<AssetStatusText>>()
+            .single(app.world())
+            .expect("asset status panel exists");
+        assert_eq!(*visibility, Visibility::Hidden);
     }
 
     #[test]
