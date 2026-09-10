@@ -49,12 +49,12 @@ use scorpius::{
         },
         theme,
         ui::{
-            BattleHeader, BattleRightbar, BattleSidebar, InspectorEmpty, InspectorPanel,
-            InspectorStats, InspectorText, InspectorTextKind, InspectorTop, LogEntryText,
-            PreviewMeter, PreviewPanel, PreviewText, PreviewValue, PreviewValueKind,
-            ResultHeadline, ResultIcon, ResultMetricIcon, ResultOverlay, ResultRing, ResultStatus,
-            ThreatCard, ThreatMeter, ThreatMeterKind, ThreatText, ThreatTextKind, setup_mission_ui,
-            update_hud,
+            BattleHeader, BattleRightbar, BattleSidebar, InspectorEmpty, InspectorMeter,
+            InspectorMeterKind, InspectorPanel, InspectorStats, InspectorText, InspectorTextKind,
+            InspectorTop, LogEntryText, PreviewMeter, PreviewPanel, PreviewText, PreviewValue,
+            PreviewValueKind, ResultHeadline, ResultIcon, ResultMetricIcon, ResultOverlay,
+            ResultRing, ResultStatus, ThreatCard, ThreatMeter, ThreatMeterKind, ThreatText,
+            ThreatTextKind, setup_mission_ui, update_hud,
         },
     },
 };
@@ -421,6 +421,7 @@ fn battle_snapshot_spawns_source_fixed_header_sidebar_and_menu_regions() {
             .iter()
             .any(|text| text.contains("SCORPIUS // COMBAT LINK"))
     );
+    assert!(!texts.iter().any(|text| text.contains("[M] MOVE")));
 }
 
 #[test]
@@ -693,6 +694,71 @@ fn battle_sidebar_binds_typed_preview_threat_and_icon_only_weapon_rows() {
             && value == "7/7"
             && matches!(size, FontSize::Px(value) if (value - 16.0).abs() < f32::EPSILON)
     }));
+    let en_color = app
+        .world_mut()
+        .query::<(&InspectorText, &TextColor)>()
+        .iter(app.world())
+        .find(|(kind, _)| kind.0 == InspectorTextKind::En)
+        .map(|(_, color)| color.0)
+        .expect("inspector EN value must keep its source color");
+    assert_eq!(en_color, theme::INSPECTOR_EN_TEXT);
+    let en_pips: Vec<_> = app
+        .world_mut()
+        .query::<(&InspectorMeter, &BackgroundColor)>()
+        .iter(app.world())
+        .filter_map(|(meter, background)| match meter.0 {
+            InspectorMeterKind::Energy(index) => Some((index, background.0)),
+            InspectorMeterKind::Hp => None,
+        })
+        .collect();
+    assert_eq!(en_pips.len(), 9);
+    assert!(en_pips.iter().all(|(index, color)| {
+        *color
+            == if *index < 7 {
+                theme::INSPECTOR_EN_PIP_ACTIVE
+            } else {
+                theme::INSPECTOR_EN_PIP_INACTIVE
+            }
+    }));
+    let inspector_style = app
+        .world_mut()
+        .query_filtered::<(&BackgroundColor, &Outline), With<InspectorPanel>>()
+        .single(app.world())
+        .expect("selected inspector must keep its source card style");
+    assert_eq!(inspector_style.0.0, theme::INSPECTOR_PLAYER_BACKGROUND);
+    assert_eq!(inspector_style.1.color, theme::ACCENT);
+    let inspector_field_colors: Vec<_> = app
+        .world_mut()
+        .query::<(&InspectorText, &TextColor)>()
+        .iter(app.world())
+        .map(|(kind, color)| (kind.0, color.0))
+        .collect();
+    assert!(inspector_field_colors.contains(&(InspectorTextKind::Hp, theme::INSPECTOR_HP_TEXT)));
+    assert!(inspector_field_colors.contains(&(InspectorTextKind::En, theme::INSPECTOR_EN_TEXT)));
+    assert!(
+        inspector_field_colors.contains(&(InspectorTextKind::Armor, theme::INSPECTOR_STAT_TEXT))
+    );
+    assert!(
+        inspector_field_colors.contains(&(InspectorTextKind::Movement, theme::INSPECTOR_STAT_TEXT))
+    );
+    assert!(
+        inspector_field_colors.contains(&(InspectorTextKind::Evasion, theme::INSPECTOR_STAT_TEXT))
+    );
+    app.world_mut()
+        .resource_mut::<InteractionState>()
+        .inspected_unit = Some(ids::STRIKER);
+    app.update();
+    let enemy_inspector_style = app
+        .world_mut()
+        .query_filtered::<(&BackgroundColor, &Outline), With<InspectorPanel>>()
+        .single(app.world())
+        .expect("enemy inspector must keep its source card style");
+    assert_eq!(enemy_inspector_style.0.0, theme::INSPECTOR_ENEMY_BACKGROUND);
+    assert_eq!(enemy_inspector_style.1.color, theme::INSPECTOR_ENEMY_BORDER);
+    app.world_mut()
+        .resource_mut::<InteractionState>()
+        .inspected_unit = Some(ids::VANGUARD);
+    app.update();
 
     let threat_texts: Vec<_> = app
         .world_mut()
@@ -802,6 +868,15 @@ fn battle_sidebar_binds_typed_preview_threat_and_icon_only_weapon_rows() {
         .collect();
     assert!(targeting_icons.contains(&(true, Visibility::Hidden)));
     assert!(targeting_icons.contains(&(false, Visibility::Visible)));
+    let cancel = app
+        .world_mut()
+        .query::<(&CommandButton, &BackgroundColor, &BorderColor)>()
+        .iter(app.world())
+        .find(|(button, _, _)| button.0 == CommandAction::Cancel)
+        .map(|(_, background, border)| (background.0, *border))
+        .expect("targeting cancel button must be present");
+    assert_eq!(cancel.0, theme::TARGETING_CANCEL_BACKGROUND);
+    assert_eq!(cancel.1, BorderColor::all(theme::TARGETING_CANCEL_BORDER));
 
     let mut empty_app = battle_fixture_app(mission_one(7), None);
     empty_app.update();

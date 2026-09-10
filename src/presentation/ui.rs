@@ -959,6 +959,7 @@ pub fn setup_mission_ui(
                 ..default()
             },
             BackgroundColor(theme::PANEL),
+            Outline::new(px(2), px(-2), Color::NONE),
             Visibility::Visible,
             Pickable::IGNORE,
             ChildOf(sidebar),
@@ -1109,7 +1110,7 @@ pub fn setup_mission_ui(
     commands.spawn((
         Text::new("—"),
         theme::ibm_plex_mono(&ui_assets.fonts, 16.0, FontWeight(400)),
-        TextColor(theme::TEXT),
+        TextColor(theme::INSPECTOR_HP_TEXT),
         TextLayout::justify(Justify::Right),
         Node {
             min_width: px(58),
@@ -1177,7 +1178,7 @@ pub fn setup_mission_ui(
     commands.spawn((
         Text::new("—"),
         theme::ibm_plex_mono(&ui_assets.fonts, 16.0, FontWeight(400)),
-        TextColor(theme::GOLD),
+        TextColor(theme::INSPECTOR_EN_TEXT),
         TextLayout::justify(Justify::Right),
         Node {
             min_width: px(58),
@@ -1994,7 +1995,7 @@ fn spawn_inspector_stat(
     commands.spawn((
         Text::new(initial),
         theme::ibm_plex_mono(&assets.fonts, 16.0, FontWeight(400)),
-        TextColor(theme::TEXT),
+        TextColor(theme::INSPECTOR_STAT_TEXT),
         InspectorText(kind),
         Pickable::IGNORE,
         ChildOf(stat),
@@ -2334,6 +2335,7 @@ pub struct HudQueries<'w, 's> {
                     &'static CommandButton,
                     Option<&'static HeaderRestart>,
                     &'static mut BackgroundColor,
+                    &'static mut BorderColor,
                     &'static mut Pickable,
                     &'static mut Visibility,
                     &'static mut Node,
@@ -2353,7 +2355,7 @@ pub struct HudQueries<'w, 's> {
                     Without<InspectorMeter>,
                     Without<WeaponMeter>,
                     Without<ThreatMeter>,
-                    Without<InspectorPanel>,
+                    Without<ResultRing>,
                 ),
             >,
             Query<
@@ -2366,6 +2368,8 @@ pub struct HudQueries<'w, 's> {
                     Option<&'static InspectorStats>,
                     Option<&'static InspectorEmpty>,
                     Option<&'static InspectorPanel>,
+                    Option<&'static mut BackgroundColor>,
+                    Option<&'static mut Outline>,
                 ),
                 (
                     Or<(
@@ -2452,6 +2456,10 @@ pub struct HudQueries<'w, 's> {
             Without<PreviewMeter>,
             Without<LogEntryDot>,
             Without<LogEntryRow>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorPanel>,
         ),
     >,
     bonus_dots: Query<
@@ -2465,6 +2473,10 @@ pub struct HudQueries<'w, 's> {
             Without<PreviewMeter>,
             Without<LogEntryDot>,
             Without<LogEntryRow>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorPanel>,
         ),
     >,
     inspector_energy_rows: Query<
@@ -2510,6 +2522,10 @@ pub struct HudQueries<'w, 's> {
             Without<ThreatMeter>,
             Without<CommandButton>,
             Without<LogEntryDot>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorPanel>,
         ),
     >,
     log_entries: Query<
@@ -2552,6 +2568,10 @@ pub struct HudQueries<'w, 's> {
             Without<HeaderBonusDot>,
             Without<CommandButton>,
             Without<PreviewMeter>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorPanel>,
         ),
     >,
     inspector_icons: Query<
@@ -2724,6 +2744,10 @@ pub struct HudQueries<'w, 's> {
             Without<WeaponMeter>,
             Without<PreviewMeter>,
             Without<LogEntryDot>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorPanel>,
         ),
     >,
     result_rings: Query<'w, 's, &'static mut BorderColor, (With<ResultRing>, Without<ResultCard>)>,
@@ -2799,8 +2823,6 @@ pub fn update_hud(
         .collect();
     let status_text = if playback.input_locked {
         "Resolving committed events...".to_owned()
-    } else if status.0.is_empty() {
-        "[M] MOVE  [1-3] WEAPONS  [P] PILOT  [C/G/E] STANCE  [F] FINISH  [SPACE] RESOLVE  [ESC] CANCEL".to_owned()
     } else {
         status.0.clone()
     };
@@ -2987,7 +3009,7 @@ pub fn update_hud(
     }
 
     let inspector_selected = !hud.inspector.is_empty();
-    for (mut visibility, mut node, top, stats, empty, panel) in
+    for (mut visibility, mut node, top, stats, empty, panel, mut background, mut outline) in
         &mut queries.button_and_inspector.p1()
     {
         let shown = if panel.is_some() {
@@ -2997,6 +3019,20 @@ pub fn update_hud(
             } else {
                 UiRect::ZERO
             };
+            if let Some(background) = background.as_deref_mut() {
+                background.0 = match hud.inspector.faction {
+                    Some(Faction::Player) => theme::INSPECTOR_PLAYER_BACKGROUND,
+                    Some(Faction::Enemy) => theme::INSPECTOR_ENEMY_BACKGROUND,
+                    None => theme::PANEL,
+                };
+            }
+            if let Some(outline) = outline.as_deref_mut() {
+                outline.color = match hud.inspector.faction {
+                    Some(Faction::Player) => theme::ACCENT,
+                    Some(Faction::Enemy) => theme::INSPECTOR_ENEMY_BORDER,
+                    None => Color::NONE,
+                };
+            }
             true
         } else if top.is_some() || stats.is_some() {
             inspector_selected
@@ -3072,9 +3108,9 @@ pub fn update_hud(
             InspectorMeterKind::Energy(index) => {
                 let en = hud.inspector.en.unwrap_or_default().max(0) as usize;
                 background.0 = if index < en {
-                    theme::GOLD
+                    theme::INSPECTOR_EN_PIP_ACTIVE
                 } else {
-                    theme::BORDER
+                    theme::INSPECTOR_EN_PIP_INACTIVE
                 };
             }
         }
@@ -3316,8 +3352,15 @@ pub fn update_hud(
         ),
         _ => hud.is_terminal && !hud.is_victory && !playback.input_locked,
     };
-    for (button, header_restart, mut background, mut pickable, mut visibility, mut node) in
-        &mut queries.button_and_inspector.p0()
+    for (
+        button,
+        header_restart,
+        mut background,
+        mut border,
+        mut pickable,
+        mut visibility,
+        mut node,
+    ) in &mut queries.button_and_inspector.p0()
     {
         let enabled = !playback.input_locked
             && match button.0 {
@@ -3339,7 +3382,9 @@ pub fn update_hud(
             }
             _ => false,
         };
-        background.0 = if button.0 == CommandAction::ResolveAttacks {
+        background.0 = if button.0 == CommandAction::Cancel {
+            theme::TARGETING_CANCEL_BACKGROUND
+        } else if button.0 == CommandAction::ResolveAttacks {
             Color::srgb_u8(63, 42, 6)
         } else if armed {
             Color::srgb(0.82, 0.38, 0.08)
@@ -3348,6 +3393,9 @@ pub fn update_hud(
         } else {
             Color::srgb(0.055, 0.07, 0.09)
         };
+        if button.0 == CommandAction::Cancel {
+            *border = BorderColor::all(theme::TARGETING_CANCEL_BORDER);
+        }
         *pickable = if enabled {
             Pickable::default()
         } else {
