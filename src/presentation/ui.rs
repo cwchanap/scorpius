@@ -2690,7 +2690,8 @@ pub fn result_overlay_copy(
     }
 }
 
-pub(crate) fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
+/// Format a playback event for the recent battle log.
+pub fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
     match event {
         BattleEvent::UnitMoved { unit, .. } => battle.unit(*unit).map_or_else(
             || "UNIT MOVING".to_owned(),

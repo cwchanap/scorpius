@@ -248,6 +248,24 @@ fn shared_canvas_is_fixed_and_centered_by_the_viewport_root() {
     assert_eq!(canvas_node.height, Val::Px(1080.0));
 }
 
+fn spawn_initial_screen_canvas(mut commands: bevy::prelude::Commands) {
+    scorpius::presentation::layout::spawn_canvas_root(&mut commands);
+}
+
+#[test]
+fn startup_canvas_setup_reuses_a_canvas_created_by_initial_state_entry() {
+    let mut app = App::new();
+    app.add_systems(Startup, (spawn_initial_screen_canvas, setup_canvas).chain());
+    app.update();
+
+    let canvas_count = app
+        .world_mut()
+        .query_filtered::<Entity, With<CanvasRoot>>()
+        .iter(app.world())
+        .count();
+    assert_eq!(canvas_count, 1);
+}
+
 #[test]
 fn resize_recomputes_scale_before_picking_and_preserves_stage_cell_hits() {
     let mut app = App::new();
