@@ -951,14 +951,15 @@ pub fn setup_mission_ui(
             UnitSummary,
             Node {
                 width: percent(100),
-                height: px(190),
+                height: Val::Auto,
                 flex_shrink: 0.0,
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
-                padding: UiRect::all(px(16)),
+                padding: UiRect::ZERO,
                 ..default()
             },
             BackgroundColor(theme::PANEL),
+            Visibility::Visible,
             Pickable::IGNORE,
             ChildOf(sidebar),
         ))
@@ -1265,13 +1266,16 @@ pub fn setup_mission_ui(
             Node {
                 width: percent(100),
                 height: px(150),
+                flex_shrink: 0.0,
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                row_gap: px(12),
+                row_gap: px(14),
                 ..default()
             },
+            BackgroundColor(Color::srgb_u8(8, 14, 24)),
+            BorderColor::all(Color::srgb_u8(16, 29, 41)),
             Visibility::Visible,
             Pickable::IGNORE,
             ChildOf(inspector),
@@ -1314,13 +1318,6 @@ pub fn setup_mission_ui(
             ChildOf(empty_pips),
         ));
     }
-    commands.spawn((
-        Text::new("SELECT A MECH"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 12.0, FontWeight(500)),
-        TextColor(theme::MUTED),
-        Pickable::IGNORE,
-        ChildOf(empty),
-    ));
     spawn_battle_menu(&mut commands, sidebar, &ui_assets);
 
     let log_panel = commands
@@ -2326,33 +2323,73 @@ pub struct HudQueries<'w, 's> {
         ),
     >,
     weapon_rows: Query<'w, 's, (&'static WeaponRow, &'static mut AccessibilityNode)>,
-    buttons: Query<
+    button_and_inspector: ParamSet<
         'w,
         's,
         (
-            &'static CommandButton,
-            Option<&'static HeaderRestart>,
-            &'static mut BackgroundColor,
-            &'static mut Pickable,
-            &'static mut Visibility,
-            &'static mut Node,
-        ),
-        (
-            Without<HudTextRole>,
-            Without<ResultOverlay>,
-            Without<HeaderPrimaryPip>,
-            Without<HeaderBonusDot>,
-            Without<InspectorPortrait>,
-            Without<InspectorTop>,
-            Without<InspectorStats>,
-            Without<InspectorEmpty>,
-            Without<ThreatCard>,
-            Without<WeaponTagIcon>,
-            Without<ResultDetail>,
-            Without<ResultStatus>,
-            Without<InspectorMeter>,
-            Without<WeaponMeter>,
-            Without<ThreatMeter>,
+            Query<
+                'w,
+                's,
+                (
+                    &'static CommandButton,
+                    Option<&'static HeaderRestart>,
+                    &'static mut BackgroundColor,
+                    &'static mut Pickable,
+                    &'static mut Visibility,
+                    &'static mut Node,
+                ),
+                (
+                    Without<HudTextRole>,
+                    Without<ResultOverlay>,
+                    Without<HeaderPrimaryPip>,
+                    Without<HeaderBonusDot>,
+                    Without<InspectorPortrait>,
+                    Without<InspectorTop>,
+                    Without<InspectorStats>,
+                    Without<InspectorEmpty>,
+                    Without<WeaponTagIcon>,
+                    Without<ResultDetail>,
+                    Without<ResultStatus>,
+                    Without<InspectorMeter>,
+                    Without<WeaponMeter>,
+                    Without<ThreatMeter>,
+                    Without<InspectorPanel>,
+                ),
+            >,
+            Query<
+                'w,
+                's,
+                (
+                    &'static mut Visibility,
+                    &'static mut Node,
+                    Option<&'static InspectorTop>,
+                    Option<&'static InspectorStats>,
+                    Option<&'static InspectorEmpty>,
+                    Option<&'static InspectorPanel>,
+                ),
+                (
+                    Or<(
+                        With<InspectorTop>,
+                        With<InspectorStats>,
+                        With<InspectorEmpty>,
+                        With<InspectorPanel>,
+                    )>,
+                    Without<ResultOverlay>,
+                    Without<InspectorMeter>,
+                    Without<WeaponMeter>,
+                    Without<ThreatMeter>,
+                    Without<ThreatCard>,
+                    Without<InspectorPortrait>,
+                    Without<WeaponTagIcon>,
+                    Without<HudTextRole>,
+                    Without<InspectorEnergyRow>,
+                    Without<PreviewPanel>,
+                    Without<LogEntryText>,
+                    Without<LogEntryRow>,
+                    Without<ResultDetail>,
+                    Without<ResultStatus>,
+                ),
+            >,
         ),
     >,
     result_overlays: Query<
@@ -2430,37 +2467,6 @@ pub struct HudQueries<'w, 's> {
             Without<LogEntryRow>,
         ),
     >,
-    inspector_visibility: Query<
-        'w,
-        's,
-        (
-            &'static mut Visibility,
-            &'static mut Node,
-            Option<&'static InspectorTop>,
-            Option<&'static InspectorStats>,
-            Option<&'static InspectorEmpty>,
-        ),
-        (
-            Or<(
-                With<InspectorTop>,
-                With<InspectorStats>,
-                With<InspectorEmpty>,
-            )>,
-            Without<CommandButton>,
-            Without<ResultOverlay>,
-            Without<InspectorMeter>,
-            Without<WeaponMeter>,
-            Without<ThreatMeter>,
-            Without<ThreatCard>,
-            Without<InspectorPortrait>,
-            Without<WeaponTagIcon>,
-            Without<HudTextRole>,
-            Without<InspectorEnergyRow>,
-            Without<PreviewPanel>,
-            Without<LogEntryText>,
-            Without<LogEntryRow>,
-        ),
-    >,
     inspector_energy_rows: Query<
         'w,
         's,
@@ -2476,6 +2482,7 @@ pub struct HudQueries<'w, 's> {
             Without<PreviewPanel>,
             Without<LogEntryText>,
             Without<LogEntryRow>,
+            Without<InspectorPanel>,
         ),
     >,
     preview_panels: Query<
@@ -2980,8 +2987,18 @@ pub fn update_hud(
     }
 
     let inspector_selected = !hud.inspector.is_empty();
-    for (mut visibility, mut node, top, stats, empty) in &mut queries.inspector_visibility {
-        let shown = if top.is_some() || stats.is_some() {
+    for (mut visibility, mut node, top, stats, empty, panel) in
+        &mut queries.button_and_inspector.p1()
+    {
+        let shown = if panel.is_some() {
+            node.height = Val::Auto;
+            node.padding = if inspector_selected {
+                UiRect::all(px(16))
+            } else {
+                UiRect::ZERO
+            };
+            true
+        } else if top.is_some() || stats.is_some() {
             inspector_selected
         } else {
             !inspector_selected
@@ -3300,7 +3317,7 @@ pub fn update_hud(
         _ => hud.is_terminal && !hud.is_victory && !playback.input_locked,
     };
     for (button, header_restart, mut background, mut pickable, mut visibility, mut node) in
-        &mut queries.buttons
+        &mut queries.button_and_inspector.p0()
     {
         let enabled = !playback.input_locked
             && match button.0 {
