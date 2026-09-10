@@ -802,6 +802,49 @@ fn battle_sidebar_binds_typed_preview_threat_and_icon_only_weapon_rows() {
         .collect();
     assert!(targeting_icons.contains(&(true, Visibility::Hidden)));
     assert!(targeting_icons.contains(&(false, Visibility::Visible)));
+
+    let mut empty_app = battle_fixture_app(mission_one(7), None);
+    empty_app.update();
+    let empty_panel = empty_app
+        .world_mut()
+        .query_filtered::<&Node, With<InspectorPanel>>()
+        .single(empty_app.world())
+        .unwrap();
+    assert_eq!(empty_panel.padding, UiRect::ZERO);
+    let empty_state = empty_app
+        .world_mut()
+        .query_filtered::<(&Node, &Visibility), With<InspectorEmpty>>()
+        .single(empty_app.world())
+        .unwrap();
+    assert_eq!(empty_state.0.height, px(150));
+    assert_eq!(empty_state.0.display, Display::Flex);
+    assert_eq!(*empty_state.1, Visibility::Visible);
+    assert!(
+        empty_app
+            .world_mut()
+            .query::<&Text>()
+            .iter(empty_app.world())
+            .all(|text| text.0 != "SELECT A MECH")
+    );
+
+    empty_app
+        .world_mut()
+        .resource_mut::<InteractionState>()
+        .inspected_unit = Some(ids::VANGUARD);
+    empty_app.update();
+    let active_panel = empty_app
+        .world_mut()
+        .query_filtered::<&Node, With<InspectorPanel>>()
+        .single(empty_app.world())
+        .unwrap();
+    assert_eq!(active_panel.padding, UiRect::all(px(16)));
+    let active_empty = empty_app
+        .world_mut()
+        .query_filtered::<(&Node, &Visibility), With<InspectorEmpty>>()
+        .single(empty_app.world())
+        .unwrap();
+    assert_eq!(active_empty.0.display, Display::None);
+    assert_eq!(*active_empty.1, Visibility::Hidden);
 }
 
 #[test]

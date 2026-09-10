@@ -117,6 +117,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         CommandAction::Move,
         theme::ICON_MOVE,
         "MOVE",
+        19.0,
     );
     spawn_nav_row(
         commands,
@@ -141,6 +142,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         CommandAction::PilotSkill,
         theme::ICON_SKILL,
         "SKILL",
+        19.0,
     );
     spawn_command_row(
         commands,
@@ -149,6 +151,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         CommandAction::FinishUnit,
         theme::ICON_WAIT,
         "WAIT",
+        19.0,
     );
 
     let weapons = commands
@@ -198,7 +201,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
             "EVADE",
         ),
     ] {
-        spawn_command_row(commands, stances, assets, action, icon, label);
+        spawn_command_row(commands, stances, assets, action, icon, label, 18.0);
     }
 
     let targeting = commands
@@ -300,6 +303,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
     commands.spawn((
         Text::new("RESOLVE"),
         theme::chakra_petch(&assets.fonts, 24.0, FontWeight(600)),
+        LetterSpacing::Px(4.8),
         TextColor(Color::srgb_u8(255, 228, 173)),
         Pickable::IGNORE,
         ChildOf(resolve),
@@ -482,6 +486,7 @@ fn spawn_nav_row(
     commands.spawn((
         Text::new(label),
         theme::chakra_petch(&assets.fonts, 19.0, FontWeight(600)),
+        LetterSpacing::Px(1.9),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(row),
@@ -506,6 +511,7 @@ fn spawn_command_row(
     action: CommandAction,
     icon: Rect,
     label: &'static str,
+    label_size: f32,
 ) {
     let row = commands
         .spawn((
@@ -526,7 +532,8 @@ fn spawn_command_row(
     ));
     commands.spawn((
         Text::new(label),
-        theme::chakra_petch(&assets.fonts, 19.0, FontWeight(600)),
+        theme::chakra_petch(&assets.fonts, label_size, FontWeight(600)),
+        LetterSpacing::Px(label_size * 0.1),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(row),
