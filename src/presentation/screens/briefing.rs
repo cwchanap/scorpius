@@ -248,7 +248,7 @@ fn spawn_briefing_art(
         assets,
         theme::BRIEFING_HAZARD_RECT,
         theme::GOLD,
-        "1",
+        &snapshot.hazard_count.to_string(),
     );
 }
 

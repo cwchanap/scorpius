@@ -727,3 +727,50 @@ fn production_pointer_out_clears_hover_and_preview_while_playback_locked() {
     assert!(app.world().resource::<InteractionState>().preview.is_none());
     assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
 }
+
+#[test]
+fn production_stage_move_to_blank_inside_rectangle_clears_preview_without_changing_targeting() {
+    let (mut app, window) = production_picker_app();
+    let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
+    app.world_mut()
+        .resource_mut::<BattleRuntime>()
+        .0
+        .begin_activation(ids::GUNNER)
+        .unwrap();
+    app.world_mut().resource_mut::<InteractionState>().mode =
+        InteractionMode::Attack(scorpius::mission::squad::ids::RAIL_RIFLE);
+
+    let target = GridPos::new(6, 6);
+    let target_point = fit.offset + iso_center(target) * fit.scale;
+    send_headless_pointer_move(&mut app, window, target_point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(target)
+    );
+    assert!(app.world().resource::<InteractionState>().preview.is_some());
+    assert!(!app.world().resource::<AttackPreviewCells>().0.is_empty());
+    assert_eq!(
+        app.world().resource::<BattleRuntime>().0.active_unit(),
+        Some(ids::GUNNER)
+    );
+
+    let blank = fit.offset + (battle_stage_rect().min + Vec2::new(8.0, 8.0)) * fit.scale;
+    assert_eq!(grid_from_stage_point(Vec2::new(8.0, 8.0)), None);
+    send_headless_pointer_move(&mut app, window, blank);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
+    );
+    assert!(app.world().resource::<InteractionState>().preview.is_none());
+    assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
+    assert_eq!(
+        app.world().resource::<InteractionState>().mode,
+        InteractionMode::Attack(scorpius::mission::squad::ids::RAIL_RIFLE)
+    );
+    assert_eq!(
+        app.world().resource::<BattleRuntime>().0.active_unit(),
+        Some(ids::GUNNER)
+    );
+}

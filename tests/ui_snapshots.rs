@@ -182,6 +182,20 @@ fn title_and_dialogue_use_marked_campaign_controls() {
     let story_actions = actions(&mut app);
     assert!(story_actions.contains(&CampaignUiAction::AdvanceDialogue));
     assert!(story_actions.contains(&CampaignUiAction::SkipDialogue));
+    let story_labels: Vec<_> = app
+        .world_mut()
+        .query::<(&CampaignUiAction, &AccessibilityNode)>()
+        .iter(app.world())
+        .map(|(action, node)| (*action, node.label().map(str::to_owned)))
+        .collect();
+    assert!(story_labels.contains(&(
+        CampaignUiAction::AdvanceDialogue,
+        Some("Next dialogue".to_owned()),
+    )));
+    assert!(story_labels.contains(&(
+        CampaignUiAction::SkipDialogue,
+        Some("Skip dialogue".to_owned()),
+    )));
     assert_eq!(
         app.world_mut()
             .query::<&DialoguePip>()

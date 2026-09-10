@@ -51,7 +51,7 @@ pub struct DialogueSnapshot {
     pub portrait: &'static str,
 }
 
-/// Mission facts rendered by the briefing screen. The enemy count is derived
+/// Mission facts rendered by the briefing screen. Board counts are derived
 /// from one deterministic authored build at screen entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BriefingSnapshot {
@@ -59,6 +59,7 @@ pub struct BriefingSnapshot {
     pub title: &'static str,
     pub bonus_title: &'static str,
     pub enemy_count: usize,
+    pub hazard_count: usize,
     pub primary: &'static str,
     pub optional: &'static str,
     pub base_reward: u32,
@@ -157,6 +158,7 @@ pub fn briefing_snapshot(
         .units()
         .filter(|unit| unit.faction == Faction::Enemy)
         .count();
+    let hazard_count = battle.board().hazard_cells().count();
     BriefingSnapshot {
         mission: definition.id,
         title: definition.title,
@@ -165,6 +167,7 @@ pub fn briefing_snapshot(
             .split_once(':')
             .map_or(definition.optional_objective, |(title, _)| title),
         enemy_count,
+        hazard_count,
         primary: definition.primary_objective,
         optional: definition.optional_objective,
         base_reward: definition.base_reward,
