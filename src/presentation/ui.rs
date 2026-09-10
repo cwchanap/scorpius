@@ -1245,11 +1245,9 @@ pub fn setup_mission_ui(
         Text::new(""),
         theme::ibm_plex_mono(&ui_assets.fonts, 14.0, FontWeight(400)),
         TextColor(theme::MUTED),
-        Node {
-            min_height: px(0),
-            overflow: Overflow::clip(),
-            ..default()
-        },
+        // The parent owns clipping. Leaving this child unconstrained lets the
+        // text contribute its natural height to the log panel's flex column.
+        Node { ..default() },
         PlaybackText,
         HudTextRole::Playback,
         Pickable::IGNORE,
