@@ -218,6 +218,6 @@
     "native": "actual Bevy output at named implementation commit",
     "comparison": "equal-size side-by-side, overlay, absolute difference; no broad masks"
   },
-    "native_validation": "Task 6 native image-target capture completed at implementation cae2bb88ecbba92b893d3c7c1cec2e3e53970710: all 44 typed fixtures passed with seed 7 at physical 1920x1080, with the letterbox fixture at 1600x1000; source/aligned reference PNGs and native pointer/keyboard campaign acceptance remain pending.",
+  "native_validation": "Final review fix implementation 2963bf75d7483730212597ccb4dd73fda8a5cd41 passed the focused UI regressions, formatting, strict all-target/all-feature Clippy, both all-target test configurations (292 passed), release build, and comparator self-check. The existing typed capture example was rebuilt and current-head native proof was captured at target/ui-capture/final-fixes/ for briefing-m1, briefing-m7, and battle-attack-targeting-occupied with seed 7, time 0, and physical 1920x1080; prior matrix-final6-final scenes remain by explicit source equivalence. Source/aligned reference PNGs and native pointer/keyboard campaign acceptance remain pending.",
   "primary_canvas_px": [1920,1080]
 }
