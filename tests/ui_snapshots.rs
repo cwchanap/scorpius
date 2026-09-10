@@ -377,13 +377,14 @@ fn battle_snapshot_shows_resolve_after_every_pilot_finishes() {
     let mut app = battle_fixture_app(battle, None);
     app.update();
 
-    let (visibility, node, pickable) = app
+    let (visibility, node, background, pickable) = app
         .world_mut()
-        .query_filtered::<(&Visibility, &Node, &Pickable), With<ResolveButton>>()
+        .query_filtered::<(&Visibility, &Node, &BackgroundColor, &Pickable), With<ResolveButton>>()
         .single(app.world())
         .expect("resolve button must be spawned");
     assert_eq!(*visibility, Visibility::Visible);
     assert_eq!(node.display, Display::Flex);
+    assert_eq!(background.0, Color::srgb_u8(63, 42, 6));
     assert!(pickable.is_hoverable);
 }
 
