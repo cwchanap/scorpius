@@ -870,13 +870,14 @@ fn battle_sidebar_binds_typed_preview_threat_and_icon_only_weapon_rows() {
     assert!(targeting_icons.contains(&(false, Visibility::Visible)));
     let cancel = app
         .world_mut()
-        .query::<(&CommandButton, &BackgroundColor, &BorderColor)>()
+        .query::<(&CommandButton, &BackgroundColor, &BorderColor, &Node)>()
         .iter(app.world())
-        .find(|(button, _, _)| button.0 == CommandAction::Cancel)
-        .map(|(_, background, border)| (background.0, *border))
+        .find(|(button, _, _, _)| button.0 == CommandAction::Cancel)
+        .map(|(_, background, border, node)| (background.0, *border, node.border))
         .expect("targeting cancel button must be present");
     assert_eq!(cancel.0, theme::TARGETING_CANCEL_BACKGROUND);
     assert_eq!(cancel.1, BorderColor::all(theme::TARGETING_CANCEL_BORDER));
+    assert_eq!(cancel.2, UiRect::all(px(2.0)));
 
     let mut empty_app = battle_fixture_app(mission_one(7), None);
     empty_app.update();
