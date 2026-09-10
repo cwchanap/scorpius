@@ -452,6 +452,22 @@ fn battle_log_text_stays_visible_inside_the_sidebar_layout() {
         .query_filtered::<Entity, With<PlaybackText>>()
         .single(app.world())
         .expect("playback log node must be spawned");
+    let playback_node = app
+        .world()
+        .get::<Node>(log)
+        .expect("playback log node style must be present");
+    let log_panel = app
+        .world()
+        .get::<ChildOf>(log)
+        .expect("playback log must stay under its clipping panel")
+        .parent();
+    let panel_node = app
+        .world()
+        .get::<Node>(log_panel)
+        .expect("log panel style must be present");
+    assert_eq!(playback_node.min_height, Val::Auto);
+    assert_eq!(playback_node.overflow, Overflow::visible());
+    assert_eq!(panel_node.overflow, Overflow::clip());
     let playback_rect = computed_rect(&app, log);
     let playback_width = app
         .world()
