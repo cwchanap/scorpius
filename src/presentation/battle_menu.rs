@@ -218,8 +218,8 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
             Button,
             CommandButton(CommandAction::Cancel),
             targeting_row_node(64.0),
-            BackgroundColor(Color::srgb_u8(42, 21, 18)),
-            BorderColor::all(Color::srgb_u8(110, 51, 43)),
+            BackgroundColor(theme::TARGETING_CANCEL_BACKGROUND),
+            BorderColor::all(theme::TARGETING_CANCEL_BORDER),
             Pickable::default(),
             ChildOf(targeting),
         ))
