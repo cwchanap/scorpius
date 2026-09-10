@@ -77,7 +77,7 @@ For each Vanguard, Gunner, and Interceptor activation:
 5. Choose **WAIT** to finish the active unit.
 6. After every surviving mech has finished, choose **RESOLVE**.
 
-Enemy footprints, expected damage, and hit chance remain locked throughout the player phase. Moving never retargets a committed attack. On defeat, use the visible **RETRY** action or press `R`; restart is guarded to defeat results. On victory, **CONTINUE** advances the campaign.
+Enemy footprints, expected damage, and hit chance remain locked throughout the player phase. Moving never retargets a committed attack. On defeat, use the visible **RETRY** action or press `R`; Restart is also available during an idle Player phase and stays guarded during activation, loading, playback, planning/resolution, victory, and pending transitions. On victory, **CONTINUE** advances the campaign.
 
 ### Pilot skills
 
@@ -105,7 +105,7 @@ aftermath, or upgrade screens. These keys mirror the battle command buttons:
 | `F` | Wait / finish active unit |
 | `Space` | Resolve committed attacks |
 | `Escape` | Cancel the current menu or targeting mode |
-| `R` | Restart Mission from a defeat result (guarded elsewhere) |
+| `R` | Restart Mission during an idle Player phase or after defeat (guarded during activation/loading/playback/planning/resolution/victory/pending transitions) |
 
 ### Native UI capture
 

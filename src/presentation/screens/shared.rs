@@ -1,4 +1,5 @@
 use bevy::{
+    a11y::AccessibilityNode,
     prelude::*,
     text::LetterSpacing,
     ui::{BackgroundGradient, ColorStop, LinearGradient},
@@ -337,6 +338,7 @@ pub(crate) fn spawn_dialogue_screen(
         theme::ICON_FORWARD,
         Color::WHITE,
         52.0,
+        "Next dialogue",
         Node {
             width: px(160),
             height: percent(100),
@@ -353,6 +355,7 @@ pub(crate) fn spawn_dialogue_screen(
             theme::ICON_SKIP,
             Color::WHITE,
             24.0,
+            "Skip dialogue",
             Node {
                 position_type: PositionType::Absolute,
                 right: px(56),
@@ -404,9 +407,13 @@ pub(crate) fn spawn_icon_button(
     rect: Rect,
     color: Color,
     size: f32,
+    accessibility_label: &'static str,
     node: Node,
 ) -> Entity {
     let button = spawn_button(commands, parent, action, enabled, node);
+    let mut accessibility = AccessibilityNode::default();
+    accessibility.set_label(accessibility_label.to_owned().into_boxed_str());
+    commands.entity(button).insert(accessibility);
     let content = commands
         .spawn((
             Node {

@@ -111,8 +111,9 @@ grid to the authored 2.5D stage.
 The battle sidebar opens with **MOVE**, **ATTACK**, **STANCE**, **SKILL**, and **WAIT**. **ATTACK**
 opens the three typed weapon rows; **STANCE** opens Counter, Guard, and Evade. **WAIT** finishes
 the active unit, and **RESOLVE** becomes available after surviving units finish. `Escape` invokes
-the existing Cancel action for menus and targeting. `R` invokes the guarded Restart action only
-for a defeat result; victory exposes Continue. The campaign **SKIP** button is created only for
+the existing Cancel action for menus and targeting. `R` invokes the guarded Restart action during
+an idle Player phase or after defeat; it remains guarded during activation/loading/playback/planning/
+resolution/victory/pending transitions. Victory exposes Continue. The campaign **SKIP** button is created only for
 `GameScreen::PreMissionStory`. Keep these bindings in the existing command/action types.
 
 The opt-in native renderer fixture is built with:

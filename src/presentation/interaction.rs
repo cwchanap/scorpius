@@ -180,6 +180,12 @@ fn copy_preview_cells(interaction: &InteractionState, cells: &mut AttackPreviewC
     }
 }
 
+fn clear_hover_preview(interaction: &mut InteractionState, preview_cells: &mut AttackPreviewCells) {
+    interaction.hovered_cell = None;
+    interaction.preview = None;
+    preview_cells.0.clear();
+}
+
 fn stage_event_ready(status: &AssetLoadStatus, playback: &EventPlayback) -> bool {
     mission_assets_ready(status) && !playback.input_locked
 }
@@ -246,6 +252,7 @@ pub fn on_battlefield_stage_move(
         return;
     }
     let Some(cell) = grid_from_hit(&event.event.hit) else {
+        clear_hover_preview(&mut interaction, &mut preview_cells);
         return;
     };
     update_hover_preview(&battle.0, &mut interaction, cell);
@@ -257,9 +264,7 @@ pub fn on_battlefield_stage_out(
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
 ) {
-    interaction.hovered_cell = None;
-    interaction.preview = None;
-    preview_cells.0.clear();
+    clear_hover_preview(&mut interaction, &mut preview_cells);
 }
 
 /// Token events stop at the token card. In targeting modes the current domain

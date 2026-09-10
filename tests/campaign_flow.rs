@@ -809,6 +809,7 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
             title: definition.title,
             bonus_title: "Turnabout",
             enemy_count: 4,
+            hazard_count: 1,
             primary: definition.primary_objective,
             optional: definition.optional_objective,
             base_reward: 300,
@@ -820,6 +821,30 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
     assert_eq!(
         briefing_snapshot(mission_four, &CampaignState::new_game()).bonus_title,
         "Chain Reaction"
+    );
+    assert_eq!(
+        briefing_snapshot(
+            mission_definition(MissionId::Two).unwrap(),
+            &CampaignState::new_game(),
+        )
+        .hazard_count,
+        2
+    );
+    assert_eq!(
+        briefing_snapshot(
+            mission_definition(MissionId::Five).unwrap(),
+            &CampaignState::new_game(),
+        )
+        .hazard_count,
+        0
+    );
+    assert_eq!(
+        briefing_snapshot(
+            mission_definition(MissionId::Seven).unwrap(),
+            &CampaignState::new_game(),
+        )
+        .hazard_count,
+        2
     );
 }
 
