@@ -1,12 +1,20 @@
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    text::LetterSpacing,
+    ui::{
+        BackgroundGradient, ColorStop, LinearGradient, RadialGradient, RadialGradientShape,
+        UiPosition,
+    },
+};
 
 use crate::campaign::model::{PlayerMech, UpgradeTrack};
+use crate::domain::model::UnitArchetype;
 use crate::presentation::{CampaignRuntime, CanvasRoot, assets::UiAssets};
 
 use super::super::{
     campaign_ui::{
-        CampaignStatus, CampaignStatusText, CampaignUiAction, MECHS, TRACKS, UpgradeCreditsText,
-        UpgradePip, UpgradeRow,
+        CampaignStatus, CampaignStatusText, CampaignUiAction, MECHS, TRACKS, UpgradeCostText,
+        UpgradeCreditsText, UpgradePip, UpgradePurchaseIcon, UpgradeRow, UpgradeTrackIcon,
     },
     theme,
 };
@@ -28,6 +36,17 @@ pub fn setup_upgrade_screen(
         "Hangar Screen",
         Color::srgb_u8(5, 8, 15),
     );
+    commands.entity(root).insert(BackgroundGradient(vec![
+        RadialGradient::new(
+            UiPosition::top_left(Val::Percent(50.0), Val::Percent(0.0)),
+            RadialGradientShape::Ellipse(Val::Percent(120.0), Val::Percent(80.0)),
+            vec![
+                ColorStop::percent(Color::srgb_u8(10, 18, 32), 0.0),
+                ColorStop::percent(Color::srgb_u8(5, 8, 15), 70.0),
+            ],
+        )
+        .into(),
+    ]));
 
     let header = commands
         .spawn((
@@ -50,13 +69,14 @@ pub fn setup_upgrade_screen(
         &mut commands,
         header,
         &ui_assets.icons,
-        theme::ICON_GUARD,
-        theme::ACCENT,
+        theme::HANGAR_RECT,
+        Color::WHITE,
         42.0,
     );
     commands.spawn((
         Text::new("HANGAR"),
         theme::chakra_petch(&ui_assets.fonts, 36.0, FontWeight(600)),
+        LetterSpacing::Px(4.32),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(header),
@@ -82,8 +102,8 @@ pub fn setup_upgrade_screen(
         &mut commands,
         credits,
         &ui_assets.icons,
-        theme::ICON_SKILL,
-        theme::GOLD,
+        theme::CREDITS_LARGE_RECT,
+        Color::WHITE,
         30.0,
     );
     commands.spawn((
@@ -144,12 +164,13 @@ pub fn setup_upgrade_screen(
         next,
         &ui_assets.icons,
         theme::ICON_FORWARD_COMPACT,
-        theme::ACCENT,
+        Color::WHITE,
         36.0,
     );
     commands.spawn((
         Text::new("NEXT DROP"),
         theme::chakra_petch(&ui_assets.fonts, 28.0, FontWeight(600)),
+        LetterSpacing::Px(5.6),
         TextColor(theme::TEXT),
         Node {
             margin: UiRect::left(px(20)),
@@ -197,14 +218,12 @@ fn spawn_mech_column(
             ChildOf(parent),
         ))
         .id();
-    let (art, glyph) = match mech {
-        PlayerMech::Vanguard => (assets.vanguard_art.clone(), theme::UNIT_GLYPH_HEX_RECT),
-        PlayerMech::Gunner => (assets.gunner_art.clone(), theme::UNIT_GLYPH_DIAMOND_RECT),
-        PlayerMech::Interceptor => (
-            assets.interceptor_art.clone(),
-            theme::UNIT_GLYPH_TRIANGLE_RECT,
-        ),
+    let (art, archetype) = match mech {
+        PlayerMech::Vanguard => (assets.vanguard_art.clone(), UnitArchetype::Vanguard),
+        PlayerMech::Gunner => (assets.gunner_art.clone(), UnitArchetype::Gunner),
+        PlayerMech::Interceptor => (assets.interceptor_art.clone(), UnitArchetype::Interceptor),
     };
+    let glyph = theme::unit_archetype_style(archetype);
     let art_panel = commands
         .spawn((
             Node {
@@ -231,6 +250,22 @@ fn spawn_mech_column(
         Pickable::IGNORE,
         ChildOf(art_panel),
     ));
+    let skill_icon = spawn_icon(
+        commands,
+        art_panel,
+        &assets.icons,
+        theme::ICON_SKILL,
+        theme::GOLD,
+        26.0,
+    );
+    commands.entity(skill_icon).insert(Node {
+        position_type: PositionType::Absolute,
+        right: px(18),
+        bottom: px(18),
+        width: px(26),
+        height: px(26),
+        ..default()
+    });
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -240,7 +275,16 @@ fn spawn_mech_column(
             height: px(130),
             ..default()
         },
-        BackgroundColor(Color::srgba(10.0 / 255.0, 20.0 / 255.0, 32.0 / 255.0, 0.9)),
+        BackgroundGradient(vec![
+            LinearGradient::to_top(vec![
+                ColorStop::percent(
+                    Color::srgba(10.0 / 255.0, 20.0 / 255.0, 32.0 / 255.0, 0.95),
+                    0.0,
+                ),
+                ColorStop::percent(Color::NONE, 60.0),
+            ])
+            .into(),
+        ]),
         Pickable::IGNORE,
         ChildOf(art_panel),
     ));
@@ -264,13 +308,14 @@ fn spawn_mech_column(
         commands,
         name_row,
         &assets.icons,
-        glyph,
-        theme::ACCENT,
-        32.0,
+        glyph.glyph_rect,
+        glyph.color,
+        22.0,
     );
     commands.spawn((
         Text::new(label),
         theme::chakra_petch(&assets.fonts, 26.0, FontWeight(600)),
+        LetterSpacing::Px(2.6),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(name_row),
@@ -320,14 +365,17 @@ fn spawn_upgrade_row(
             ChildOf(parent),
         ))
         .id();
-    spawn_icon(
+    let track_icon = spawn_icon(
         commands,
         row,
         &assets.icons,
-        super::shared::track_icon(track),
-        theme::ACCENT,
-        28.0,
+        super::shared::hangar_track_icon(track),
+        theme::MUTED,
+        22.0,
     );
+    commands
+        .entity(track_icon)
+        .insert(UpgradeTrackIcon(mech, track));
     let data = commands
         .spawn((
             Node {
@@ -356,8 +404,8 @@ fn spawn_upgrade_row(
     for index in 0..3 {
         commands.spawn((
             Node {
-                width: px(10),
-                height: px(10),
+                width: px(26),
+                height: px(8),
                 flex_shrink: 0.0,
                 ..default()
             },
@@ -396,18 +444,32 @@ fn spawn_upgrade_row(
             ..default()
         },
     );
-    spawn_icon(
+    let purchase_icon = spawn_icon(
         commands,
         button,
         &assets.icons,
-        theme::ICON_SKILL,
-        theme::GOLD,
-        20.0,
+        theme::CREDITS_PURCHASE_RECT,
+        Color::WHITE,
+        18.0,
     );
+    commands
+        .entity(purchase_icon)
+        .insert(UpgradePurchaseIcon(mech, track));
+    commands.entity(button).insert(Node {
+        min_width: px(100),
+        height: px(42),
+        padding: UiRect::horizontal(px(12)),
+        display: Display::Flex,
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::Center,
+        column_gap: px(8),
+        ..default()
+    });
     commands.spawn((
-        Text::new("BUY"),
+        Text::new("—"),
         theme::ibm_plex_mono(&assets.fonts, 15.0, FontWeight(600)),
         TextColor(theme::TEXT),
+        UpgradeCostText(mech, track),
         Pickable::IGNORE,
         ChildOf(button),
     ));

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use bevy::{
+    a11y::AccessibilityNode,
     app::TaskPoolPlugin,
     asset::AssetPlugin,
     image::{ImagePlugin, TextureAtlasPlugin},
@@ -9,7 +10,7 @@ use bevy::{
     picking::{InteractionPlugin, PickingPlugin},
     prelude::*,
     state::app::StatesPlugin,
-    text::TextPlugin,
+    text::{FontSize, TextPlugin},
     time::TimePlugin,
     ui::{UiGlobalTransform, UiPlugin, prelude::UiPickingCamera},
 };
@@ -22,6 +23,7 @@ use scorpius::{
     },
     domain::{
         battle::BattleState,
+        board::GridPos,
         model::{Reaction, UnitId},
     },
     mission::mission_one::{ids, mission_one},
@@ -31,21 +33,28 @@ use scorpius::{
         RecentBattleLog,
         assets::UiAssets,
         battle_menu::{
-            MenuRegion, MenuState, ResolveButton, TargetingPanel, WeaponRow, update_battle_menu,
+            MenuRegion, MenuState, ResolveButton, TargetingIcon, TargetingPanel, WeaponRow,
+            WeaponText, WeaponTextKind, update_battle_menu,
         },
         campaign_ui::{
-            CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, ScreenRoot, UpgradePip,
-            UpgradeRow,
+            CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, ScreenRoot,
+            UpgradeCostText, UpgradePip, UpgradePurchaseIcon, UpgradeRow, UpgradeTrackIcon,
         },
-        interaction::{CommandAction, CommandButton, InteractionState, StatusMessage},
+        interaction::{
+            CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
+        },
         screens::{
             setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
             setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
         },
+        theme,
         ui::{
             BattleHeader, BattleRightbar, BattleSidebar, InspectorEmpty, InspectorPanel,
-            InspectorStats, InspectorTop, PlaybackText, PreviewText, ResultIcon, ResultOverlay,
-            ThreatCard, setup_mission_ui, update_hud,
+            InspectorStats, InspectorText, InspectorTextKind, InspectorTop, LogEntryText,
+            PreviewMeter, PreviewPanel, PreviewText, PreviewValue, PreviewValueKind,
+            ResultHeadline, ResultIcon, ResultMetricIcon, ResultOverlay, ResultRing, ResultStatus,
+            ThreatCard, ThreatMeter, ThreatMeterKind, ThreatText, ThreatTextKind, setup_mission_ui,
+            update_hud,
         },
     },
 };
@@ -265,6 +274,51 @@ fn hangar_and_ending_render_typed_upgrade_controls() {
             .count(),
         36
     );
+    let row_texts: Vec<_> = app
+        .world_mut()
+        .query::<(&UpgradeRow, &Text)>()
+        .iter(app.world())
+        .map(|(_, text)| text.0.clone())
+        .collect();
+    assert_eq!(row_texts.len(), 12);
+    assert!(row_texts.iter().all(|text| !text.contains("→")));
+    assert!(row_texts.iter().all(|text| text == "+3 MAX HP"
+        || text == "+1 ARMOR"
+        || text == "+5 EVASION"
+        || text == "+1 WEAPON DMG"));
+    let costs: Vec<_> = app
+        .world_mut()
+        .query::<(&UpgradeCostText, &Text)>()
+        .iter(app.world())
+        .map(|(_, text)| text.0.clone())
+        .collect();
+    assert_eq!(costs.len(), 12);
+    assert!(costs.iter().all(|cost| cost == "200"));
+    assert_eq!(
+        app.world_mut()
+            .query::<&UpgradePurchaseIcon>()
+            .iter(app.world())
+            .count(),
+        12
+    );
+    assert_eq!(
+        app.world_mut()
+            .query::<&UpgradeTrackIcon>()
+            .iter(app.world())
+            .count(),
+        12
+    );
+    let pip_sizes: Vec<_> = app
+        .world_mut()
+        .query::<(&UpgradePip, &Node)>()
+        .iter(app.world())
+        .map(|(_, node)| (node.width, node.height))
+        .collect();
+    assert!(
+        pip_sizes
+            .iter()
+            .all(|(width, height)| { *width == Val::Px(26.0) && *height == Val::Px(8.0) })
+    );
 
     let mut app = fixture_app(CampaignState {
         next_mission: MissionId::Seven,
@@ -355,11 +409,17 @@ fn battle_snapshot_spawns_source_fixed_header_sidebar_and_menu_regions() {
             .count(),
         1
     );
+    let texts: Vec<_> = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|text| text.0.clone())
+        .collect();
+    assert!(!texts.iter().any(|text| text == "PLAYER PHASE"));
     assert!(
-        app.world_mut()
-            .query::<&Text>()
-            .iter(app.world())
-            .any(|text| text.0 == "Player Phase")
+        !texts
+            .iter()
+            .any(|text| text.contains("SCORPIUS // COMBAT LINK"))
     );
 }
 
@@ -402,10 +462,12 @@ fn battle_snapshot_renders_recent_playback_log_entries() {
 
     let playback = app
         .world_mut()
-        .query_filtered::<&Text, With<PlaybackText>>()
-        .single(app.world())
+        .query::<(&LogEntryText, &Text)>()
+        .iter(app.world())
+        .find(|(entry, _)| entry.0 == 0)
+        .map(|(_, text)| text)
         .expect("playback log text must be spawned");
-    assert_eq!(playback.0, "VANGUARD -> STRIKER\nHIT");
+    assert_eq!(playback.0, "VANGUARD -> STRIKER · HIT");
 }
 
 #[test]
@@ -449,17 +511,23 @@ fn battle_log_text_stays_visible_inside_the_sidebar_layout() {
 
     let log = app
         .world_mut()
-        .query_filtered::<Entity, With<PlaybackText>>()
-        .single(app.world())
+        .query_filtered::<(Entity, &LogEntryText), With<LogEntryText>>()
+        .iter(app.world())
+        .find_map(|(entity, entry)| (entry.0 == 0).then_some(entity))
         .expect("playback log node must be spawned");
     let playback_node = app
         .world()
         .get::<Node>(log)
         .expect("playback log node style must be present");
-    let log_panel = app
+    let log_entry = app
         .world()
         .get::<ChildOf>(log)
-        .expect("playback log must stay under its clipping panel")
+        .expect("playback log must stay under its entry row")
+        .parent();
+    let log_panel = app
+        .world()
+        .get::<ChildOf>(log_entry)
+        .expect("playback log entry must stay under its clipping panel")
         .parent();
     let panel_node = app
         .world()
@@ -515,7 +583,7 @@ fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
         texts.iter().any(|text| text.contains("Vanguard")),
         "{texts:?}"
     );
-    assert!(texts.iter().any(|text| text.contains("HP")), "{texts:?}");
+    assert!(texts.iter().any(|text| text == "20/20"), "{texts:?}");
 
     let threat_cards: Vec<_> = app
         .world_mut()
@@ -541,7 +609,7 @@ fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
         texts.iter().any(|text| text.contains("Artillery")),
         "{texts:?}"
     );
-    assert!(texts.iter().any(|text| text.contains("DMG")), "{texts:?}");
+    assert!(!texts.iter().any(|text| text.contains("DMG")), "{texts:?}");
     assert_eq!(
         app.world_mut()
             .query::<&WeaponRow>()
@@ -555,7 +623,185 @@ fn battle_snapshot_renders_inspector_art_source_preview_and_selected_threats() {
         .query_filtered::<&Text, With<PreviewText>>()
         .single(app.world())
         .expect("preview panel must be present");
-    assert!(preview.0.contains("TARGET PREVIEW"));
+    assert_eq!(preview.0, "PREVIEW");
+    let preview_panel = app
+        .world_mut()
+        .query_filtered::<(&Visibility, &Node), With<PreviewPanel>>()
+        .single(app.world())
+        .expect("preview panel must be present");
+    assert_eq!(*preview_panel.0, Visibility::Hidden);
+    assert_eq!(preview_panel.1.display, Display::None);
+}
+
+#[test]
+fn battle_sidebar_binds_typed_preview_threat_and_icon_only_weapon_rows() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::VANGUARD).unwrap();
+    let mut app = battle_fixture_app(battle, Some(ids::VANGUARD));
+    app.update();
+
+    let weapon_names: Vec<_> = app
+        .world_mut()
+        .query::<(&WeaponText, &Text, &Node)>()
+        .iter(app.world())
+        .filter(|(weapon, _, _)| weapon.kind == WeaponTextKind::Name)
+        .map(|(_, text, node)| (text.0.clone(), node.display))
+        .collect();
+    assert_eq!(
+        weapon_names,
+        vec![
+            ("Pile Lance".to_owned(), Display::None),
+            ("Repulsor Ram".to_owned(), Display::None),
+            ("Anchor Cannon".to_owned(), Display::None),
+        ]
+    );
+    let accessible_weapon_names: Vec<_> = app
+        .world_mut()
+        .query::<(&WeaponRow, &AccessibilityNode)>()
+        .iter(app.world())
+        .map(|(_, node)| node.label().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        accessible_weapon_names,
+        vec![
+            Some("Pile Lance".to_owned()),
+            Some("Repulsor Ram".to_owned()),
+            Some("Anchor Cannon".to_owned()),
+        ],
+        "icon-only weapon rows retain native button names"
+    );
+
+    let inspector_values: Vec<_> = app
+        .world_mut()
+        .query::<(&InspectorText, &Text, &TextFont)>()
+        .iter(app.world())
+        .filter_map(|(kind, text, font)| match kind.0 {
+            InspectorTextKind::Hp | InspectorTextKind::En => {
+                Some((kind.0, text.0.clone(), font.font_size))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(inspector_values.iter().any(|(kind, value, size)| {
+        *kind == InspectorTextKind::Hp
+            && value == "20/20"
+            && matches!(size, FontSize::Px(value) if (value - 16.0).abs() < f32::EPSILON)
+    }));
+    assert!(inspector_values.iter().any(|(kind, value, size)| {
+        *kind == InspectorTextKind::En
+            && value == "7/7"
+            && matches!(size, FontSize::Px(value) if (value - 16.0).abs() < f32::EPSILON)
+    }));
+
+    let threat_texts: Vec<_> = app
+        .world_mut()
+        .query::<(&ThreatText, &Text, &TextFont)>()
+        .iter(app.world())
+        .filter(|(threat, _, _)| threat.card == 0)
+        .map(|(threat, text, font)| (threat.kind, text.0.clone(), font.font_size))
+        .collect();
+    assert_eq!(threat_texts.len(), 3);
+    assert!(threat_texts.iter().any(|(kind, value, size)| {
+        *kind == ThreatTextKind::Attacker
+            && value == "Striker"
+            && matches!(size, FontSize::Px(value) if (value - 19.0).abs() < f32::EPSILON)
+    }));
+    assert!(threat_texts.iter().any(|(kind, value, size)| {
+        *kind == ThreatTextKind::Damage
+            && value == "4"
+            && matches!(size, FontSize::Px(value) if (value - 38.0).abs() < f32::EPSILON)
+    }));
+    assert!(threat_texts.iter().any(|(kind, value, size)| {
+        *kind == ThreatTextKind::Hit
+            && value.ends_with('%')
+            && matches!(size, FontSize::Px(value) if (value - 21.0).abs() < f32::EPSILON)
+    }));
+    assert!(
+        !threat_texts.iter().any(|(kind, _, _)| {
+            matches!(kind, ThreatTextKind::Weapon | ThreatTextKind::Target)
+        })
+    );
+    let threat_shapes: Vec<_> = app
+        .world_mut()
+        .query::<(&ThreatMeter, &Node)>()
+        .iter(app.world())
+        .filter(|(meter, _)| matches!(meter.0, ThreatMeterKind::Shape { card: 0, .. }))
+        .collect();
+    assert_eq!(threat_shapes.len(), 9);
+    assert!(
+        threat_shapes
+            .iter()
+            .all(|(_, node)| { node.width == px(12.0) && node.height == px(12.0) })
+    );
+
+    let preview = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .preview_attack(ids::VANGUARD, ids::REPULSOR_RAM, GridPos::new(4, 6))
+        .unwrap();
+    let expected_preview = (
+        preview.normal_damage.to_string(),
+        format!("/{}", preview.critical_damage),
+        format!("{}%", preview.hit_chance),
+        preview.en_cost.max(0) as usize,
+    );
+    app.world_mut().resource_mut::<InteractionState>().preview = Some(preview);
+    app.update();
+
+    let preview_panel = app
+        .world_mut()
+        .query_filtered::<(&Visibility, &Node), With<PreviewPanel>>()
+        .single(app.world())
+        .unwrap();
+    assert_eq!(*preview_panel.0, Visibility::Visible);
+    assert_eq!(preview_panel.1.display, Display::Flex);
+    let preview_values: Vec<_> = app
+        .world_mut()
+        .query::<(&PreviewValue, &Text)>()
+        .iter(app.world())
+        .map(|(value, text)| (value.0, text.0.clone()))
+        .collect();
+    assert!(preview_values.contains(&(PreviewValueKind::Damage, expected_preview.0)));
+    assert!(preview_values.contains(&(PreviewValueKind::Critical, expected_preview.1)));
+    assert!(preview_values.contains(&(PreviewValueKind::Hit, expected_preview.2)));
+    let preview_meters: Vec<_> = app
+        .world_mut()
+        .query::<(&PreviewMeter, &BackgroundColor)>()
+        .iter(app.world())
+        .collect();
+    assert_eq!(preview_meters.len(), 5);
+    assert!(preview_meters.iter().all(|(meter, background)| {
+        background.0
+            == if meter.0 < expected_preview.3 {
+                theme::GOLD
+            } else {
+                theme::BORDER
+            }
+    }));
+
+    app.world_mut().resource_mut::<InteractionState>().mode = InteractionMode::Move;
+    app.update();
+    let targeting_icons: Vec<_> = app
+        .world_mut()
+        .query::<(&TargetingIcon, &Visibility)>()
+        .iter(app.world())
+        .map(|(icon, visibility)| (icon.move_mode, *visibility))
+        .collect();
+    assert!(targeting_icons.contains(&(true, Visibility::Visible)));
+    assert!(targeting_icons.contains(&(false, Visibility::Hidden)));
+    app.world_mut().resource_mut::<InteractionState>().mode =
+        InteractionMode::Attack(ids::REPULSOR_RAM);
+    app.update();
+    let targeting_icons: Vec<_> = app
+        .world_mut()
+        .query::<(&TargetingIcon, &Visibility)>()
+        .iter(app.world())
+        .map(|(icon, visibility)| (icon.move_mode, *visibility))
+        .collect();
+    assert!(targeting_icons.contains(&(true, Visibility::Hidden)));
+    assert!(targeting_icons.contains(&(false, Visibility::Visible)));
 }
 
 #[test]
@@ -699,7 +945,7 @@ fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
     }
 }
 
-fn result_button_state(app: &mut App, action: CommandAction) -> (Visibility, bool) {
+fn result_button_state(app: &mut App, action: CommandAction) -> (Visibility, bool, Display) {
     let overlay = app
         .world_mut()
         .query_filtered::<Entity, With<ResultOverlay>>()
@@ -712,10 +958,12 @@ fn result_button_state(app: &mut App, action: CommandAction) -> (Visibility, boo
         .find_map(|(entity, parent)| (parent.parent() == overlay).then_some(entity))
         .expect("result card must be a child of the result overlay");
     app.world_mut()
-        .query::<(&CommandButton, &Visibility, &Pickable, &ChildOf)>()
+        .query::<(&CommandButton, &Visibility, &Pickable, &Node, &ChildOf)>()
         .iter(app.world())
-        .find(|(button, _, _, parent)| button.0 == action && parent.parent() == result_card)
-        .map(|(_, visibility, pickable, _)| (*visibility, pickable.is_hoverable))
+        .find(|(button, _, _, _, parent)| button.0 == action && parent.parent() == result_card)
+        .map(|(_, visibility, pickable, node, _)| {
+            (*visibility, pickable.is_hoverable, node.display)
+        })
         .expect("result action must have a pickable button")
 }
 
@@ -736,23 +984,45 @@ fn battle_result_snapshot_renders_terminal_victory_overlay_and_metrics() {
         .iter(app.world())
         .map(|text| text.0.clone())
         .collect();
-    assert!(texts.iter().any(|text| text.contains("MISSION COMPLETE")));
-    assert!(texts.iter().any(|text| text == "CLEAR"));
-    assert!(texts.iter().any(|text| text == "MISSED"));
+    assert!(texts.iter().any(|text| text == "RELAY SECURED"));
+    assert!(texts.iter().any(|text| text == "0/0"));
     let icon = app
         .world_mut()
         .query_filtered::<&ImageNode, With<ResultIcon>>()
         .single(app.world())
         .expect("victory icon must be rendered");
-    assert_eq!(icon.rect, Some(scorpius::presentation::theme::ICON_WAIT));
-    assert_eq!(icon.color, scorpius::presentation::theme::MINT);
+    assert_eq!(
+        icon.rect,
+        Some(scorpius::presentation::theme::RESULT_VICTORY_RECT)
+    );
+    assert_eq!(icon.color, Color::WHITE);
+    let ring = app
+        .world_mut()
+        .query_filtered::<&Node, With<ResultRing>>()
+        .single(app.world())
+        .expect("result ring must be present");
+    assert_eq!(ring.width, Val::Px(168.0));
+    assert_eq!(ring.height, Val::Px(168.0));
+    let headline = app
+        .world_mut()
+        .query_filtered::<&TextFont, With<ResultHeadline>>()
+        .single(app.world())
+        .expect("result headline must be present");
+    assert_eq!(headline.font_size, FontSize::Px(46.0));
+    assert_eq!(
+        app.world_mut()
+            .query::<&ResultMetricIcon>()
+            .iter(app.world())
+            .count(),
+        2
+    );
     assert_eq!(
         result_button_state(&mut app, CommandAction::ContinueVictory),
-        (Visibility::Visible, true)
+        (Visibility::Visible, true, Display::Flex)
     );
     assert_eq!(
         result_button_state(&mut app, CommandAction::Restart),
-        (Visibility::Hidden, false)
+        (Visibility::Hidden, false, Display::None)
     );
 }
 
@@ -774,21 +1044,51 @@ fn battle_result_snapshot_renders_terminal_defeat_overlay_and_metrics() {
         .map(|text| text.0.clone())
         .collect();
     assert!(texts.iter().any(|text| text.contains("MISSION FAILED")));
-    assert!(texts.iter().any(|text| text == "FAILED"));
-    assert!(texts.iter().any(|text| text == "MISSED"));
+    assert!(texts.iter().any(|text| text == "0/4"));
+    assert_eq!(
+        app.world_mut()
+            .query_filtered::<&Text, With<ResultHeadline>>()
+            .single(app.world())
+            .expect("defeat headline must be present")
+            .0,
+        "MISSION FAILED"
+    );
     let icon = app
         .world_mut()
         .query_filtered::<&ImageNode, With<ResultIcon>>()
         .single(app.world())
         .expect("defeat icon must be rendered");
-    assert_eq!(icon.rect, Some(scorpius::presentation::theme::ICON_COUNTER));
-    assert_eq!(icon.color, scorpius::presentation::theme::ENEMY);
+    assert_eq!(
+        icon.rect,
+        Some(scorpius::presentation::theme::RESULT_DEFEAT_RECT)
+    );
+    assert_eq!(icon.color, Color::WHITE);
     assert_eq!(
         result_button_state(&mut app, CommandAction::Restart),
-        (Visibility::Visible, true)
+        (Visibility::Visible, true, Display::Flex)
     );
     assert_eq!(
         result_button_state(&mut app, CommandAction::ContinueVictory),
-        (Visibility::Hidden, false)
+        (Visibility::Hidden, false, Display::None)
+    );
+}
+
+#[test]
+fn battle_result_snapshot_surfaces_save_errors_beside_continue() {
+    let mut app = battle_fixture_app(terminal_battle(true), None);
+    app.world_mut().resource_mut::<StatusMessage>().0 =
+        "save file error: Is a directory (os error 21)".to_owned();
+    app.update();
+
+    let (error, node) = app
+        .world_mut()
+        .query_filtered::<(&Text, &Node), With<ResultStatus>>()
+        .single(app.world())
+        .expect("result save status must be present");
+    assert_eq!(error.0, "save file error: Is a directory (os error 21)");
+    assert_eq!(node.display, Display::Flex);
+    assert_eq!(
+        result_button_state(&mut app, CommandAction::ContinueVictory),
+        (Visibility::Visible, true, Display::Flex)
     );
 }

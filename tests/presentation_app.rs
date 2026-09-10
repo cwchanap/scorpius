@@ -830,7 +830,7 @@ fn terminal_overlay_copy_matches_the_mission_result() {
             mission_one(7).rules().primary,
             definition,
         ),
-        "MISSION COMPLETE\nMission 1 — Turnabout at Relay Nine\nBONUS Achieved"
+        "RELAY SECURED"
     );
     assert_eq!(
         result_overlay_copy(

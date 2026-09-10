@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    text::LetterSpacing,
+    ui::{BackgroundGradient, ColorStop, LinearGradient},
+};
 
 use crate::presentation::{CampaignCamera, CanvasRoot, UiPickingCamera};
 
@@ -165,9 +169,36 @@ pub(crate) fn spawn_dialogue_screen(
         asset_server.load(scene.background),
         fullscreen_node(),
     );
+    let overlay = if allow_skip {
+        LinearGradient::to_bottom(vec![
+            ColorStop::percent(
+                Color::srgba(3.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.25),
+                0.0,
+            ),
+            ColorStop::percent(
+                Color::srgba(3.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.05),
+                45.0,
+            ),
+            ColorStop::percent(
+                Color::srgba(3.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.95),
+                100.0,
+            ),
+        ])
+    } else {
+        LinearGradient::to_bottom(vec![
+            ColorStop::percent(
+                Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.3),
+                0.0,
+            ),
+            ColorStop::percent(
+                Color::srgba(3.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.94),
+                100.0,
+            ),
+        ])
+    };
     commands.spawn((
         fullscreen_node(),
-        BackgroundColor(Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.36)),
+        BackgroundGradient(vec![overlay.into()]),
         Pickable::IGNORE,
         ChildOf(root),
     ));
@@ -244,6 +275,7 @@ pub(crate) fn spawn_dialogue_screen(
     commands.spawn((
         Text::new(opening.speaker),
         theme::ibm_plex_mono(fonts, 26.0, FontWeight(600)),
+        LetterSpacing::Px(4.16),
         TextColor(theme::GOLD),
         DialogueSpeaker,
         Pickable::IGNORE,
@@ -303,7 +335,7 @@ pub(crate) fn spawn_dialogue_screen(
         true,
         icons,
         theme::ICON_FORWARD,
-        accent,
+        Color::WHITE,
         52.0,
         Node {
             width: px(160),
@@ -319,7 +351,7 @@ pub(crate) fn spawn_dialogue_screen(
             true,
             icons,
             theme::ICON_SKIP,
-            theme::MUTED,
+            Color::WHITE,
             24.0,
             Node {
                 position_type: PositionType::Absolute,
@@ -427,6 +459,7 @@ pub(crate) fn spawn_image_button_row(
     commands.spawn((
         Text::new(label),
         theme::chakra_petch(fonts, label_size, FontWeight(600)),
+        LetterSpacing::Px(label_size * 0.18),
         TextColor(if enabled { theme::TEXT } else { theme::MUTED }),
         Pickable::IGNORE,
         ChildOf(content),
@@ -451,11 +484,20 @@ pub(crate) fn spawn_image_button_row(
     button
 }
 
-pub(crate) fn track_icon(track: crate::campaign::model::UpgradeTrack) -> Rect {
+pub(crate) fn hangar_track_icon(track: crate::campaign::model::UpgradeTrack) -> Rect {
     match track {
-        crate::campaign::model::UpgradeTrack::Hp => theme::ICON_GUARD,
-        crate::campaign::model::UpgradeTrack::Armor => theme::ICON_COUNTER,
-        crate::campaign::model::UpgradeTrack::Mobility => theme::ICON_MOVE,
-        crate::campaign::model::UpgradeTrack::Weapon => theme::ICON_ATTACK,
+        crate::campaign::model::UpgradeTrack::Hp => theme::TRACK_HP_RECT,
+        crate::campaign::model::UpgradeTrack::Armor => theme::ICON_GUARD,
+        crate::campaign::model::UpgradeTrack::Mobility => theme::TRACK_MOBILITY_HANGAR_RECT,
+        crate::campaign::model::UpgradeTrack::Weapon => theme::TRACK_WEAPON_RECT,
+    }
+}
+
+pub(crate) fn ending_track_icon(track: crate::campaign::model::UpgradeTrack) -> Rect {
+    match track {
+        crate::campaign::model::UpgradeTrack::Hp => theme::TRACK_HP_RECT,
+        crate::campaign::model::UpgradeTrack::Armor => theme::ICON_GUARD,
+        crate::campaign::model::UpgradeTrack::Mobility => theme::TRACK_MOBILITY_ENDING_RECT,
+        crate::campaign::model::UpgradeTrack::Weapon => theme::TRACK_WEAPON_RECT,
     }
 }
