@@ -807,6 +807,7 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
         BriefingSnapshot {
             mission: MissionId::One,
             title: definition.title,
+            bonus_title: "Turnabout",
             enemy_count: 4,
             primary: definition.primary_objective,
             optional: definition.optional_objective,
@@ -814,6 +815,11 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
             optional_reward: 100,
             credits: 0,
         }
+    );
+    let mission_four = mission_definition(MissionId::Four).unwrap();
+    assert_eq!(
+        briefing_snapshot(mission_four, &CampaignState::new_game()).bonus_title,
+        "Chain Reaction"
     );
 }
 

@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    text::LetterSpacing,
+    ui::{BackgroundGradient, ColorStop, RadialGradient, RadialGradientShape, UiPosition},
+};
 
 use crate::campaign::model::{PlayerMech, UpgradeLevels};
 use crate::presentation::{CampaignRuntime, CanvasRoot, assets::UiAssets};
@@ -29,6 +33,17 @@ pub fn setup_ending_screen(
         "Ending Screen",
         Color::srgb_u8(4, 7, 13),
     );
+    commands.entity(root).insert(BackgroundGradient(vec![
+        RadialGradient::new(
+            UiPosition::top_left(Val::Percent(50.0), Val::Percent(30.0)),
+            RadialGradientShape::Ellipse(Val::Percent(90.0), Val::Percent(70.0)),
+            vec![
+                ColorStop::percent(Color::srgb_u8(13, 34, 48), 0.0),
+                ColorStop::percent(Color::srgb_u8(4, 7, 13), 75.0),
+            ],
+        )
+        .into(),
+    ]));
     let content = commands
         .spawn((
             Node {
@@ -65,13 +80,14 @@ pub fn setup_ending_screen(
         &mut commands,
         heading,
         &ui_assets.icons,
-        theme::UNIT_GLYPH_HEX_RECT,
-        theme::ACCENT,
+        theme::ENDING_EMBLEM_RECT,
+        Color::WHITE,
         96.0,
     );
     commands.spawn((
         Text::new("CAMPAIGN"),
         theme::chakra_petch(&ui_assets.fonts, 76.0, FontWeight(700)),
+        LetterSpacing::Px(15.2),
         TextColor(Color::srgb_u8(238, 246, 255)),
         TextShadow {
             offset: Vec2::ZERO,
@@ -80,16 +96,7 @@ pub fn setup_ending_screen(
         Pickable::IGNORE,
         ChildOf(heading),
     ));
-    spawn_pips(
-        &mut commands,
-        heading,
-        7,
-        7,
-        theme::ACCENT,
-        10.0,
-        10.0,
-        10.0,
-    );
+    spawn_pips(&mut commands, heading, 7, 7, theme::MINT, 26.0, 8.0, 6.0);
 
     let cards = commands
         .spawn((
@@ -131,13 +138,14 @@ pub fn setup_ending_screen(
         &mut commands,
         button,
         &ui_assets.icons,
-        theme::ICON_BACK,
-        theme::ACCENT,
+        theme::ENDING_RETURN_RECT,
+        Color::WHITE,
         34.0,
     );
     commands.spawn((
         Text::new("TITLE"),
         theme::chakra_petch(&ui_assets.fonts, 26.0, FontWeight(600)),
+        LetterSpacing::Px(5.2),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(button),
@@ -169,11 +177,12 @@ fn spawn_mech_card(
             ChildOf(parent),
         ))
         .id();
-    let glyph = match mech {
-        PlayerMech::Vanguard => theme::UNIT_GLYPH_HEX_RECT,
-        PlayerMech::Gunner => theme::UNIT_GLYPH_DIAMOND_RECT,
-        PlayerMech::Interceptor => theme::UNIT_GLYPH_TRIANGLE_RECT,
+    let archetype = match mech {
+        PlayerMech::Vanguard => crate::domain::model::UnitArchetype::Vanguard,
+        PlayerMech::Gunner => crate::domain::model::UnitArchetype::Gunner,
+        PlayerMech::Interceptor => crate::domain::model::UnitArchetype::Interceptor,
     };
+    let glyph = theme::unit_archetype_style(archetype);
     let heading = commands
         .spawn((
             Node {
@@ -186,10 +195,18 @@ fn spawn_mech_card(
             ChildOf(card),
         ))
         .id();
-    spawn_icon(commands, heading, &assets.icons, glyph, theme::ACCENT, 30.0);
+    spawn_icon(
+        commands,
+        heading,
+        &assets.icons,
+        glyph.glyph_rect,
+        glyph.color,
+        20.0,
+    );
     commands.spawn((
         Text::new(label),
         theme::chakra_petch(&assets.fonts, 22.0, FontWeight(600)),
+        LetterSpacing::Px(2.2),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(heading),
@@ -212,9 +229,9 @@ fn spawn_mech_card(
             commands,
             row,
             &assets.icons,
-            super::shared::track_icon(track),
-            theme::ACCENT,
-            22.0,
+            super::shared::ending_track_icon(track),
+            theme::MUTED,
+            20.0,
         );
         let pips = commands
             .spawn((
@@ -228,7 +245,7 @@ fn spawn_mech_card(
             ))
             .id();
         for index in 0..3 {
-            spawn_pip(commands, pips, index < level, theme::ACCENT, 10.0, 10.0);
+            spawn_pip(commands, pips, index < level, theme::ACCENT, 26.0, 8.0);
         }
     }
 }

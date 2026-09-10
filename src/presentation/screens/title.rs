@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    text::{LetterSpacing, LineHeight},
+    ui::{BackgroundGradient, ColorStop, LinearGradient},
+};
 
 use crate::campaign::session::FlowError;
 use crate::presentation::{CampaignRuntime, CanvasRoot};
@@ -41,7 +45,27 @@ pub fn setup_title_screen(
     );
     commands.spawn((
         super::shared::fullscreen_node(),
-        BackgroundColor(Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.62)),
+        BackgroundGradient(vec![
+            LinearGradient::to_bottom(vec![
+                ColorStop::percent(
+                    Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.92),
+                    0.0,
+                ),
+                ColorStop::percent(
+                    Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.82),
+                    26.0,
+                ),
+                ColorStop::percent(
+                    Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.28),
+                    50.0,
+                ),
+                ColorStop::percent(
+                    Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.95),
+                    100.0,
+                ),
+            ])
+            .into(),
+        ]),
         Pickable::IGNORE,
         ChildOf(root),
     ));
@@ -78,13 +102,15 @@ pub fn setup_title_screen(
         &mut commands,
         wordmark,
         &ui_assets.icons,
-        crate::presentation::theme::UNIT_GLYPH_HEX_RECT,
-        crate::presentation::theme::ACCENT,
+        crate::presentation::theme::TITLE_EMBLEM_RECT,
+        Color::WHITE,
         56.0,
     );
     commands.spawn((
         Text::new("SCORPIUS"),
         crate::presentation::theme::chakra_petch(&ui_assets.fonts, 132.0, FontWeight(700)),
+        LetterSpacing::Px(29.04),
+        LineHeight::RelativeToFont(0.9),
         TextColor(Color::srgb_u8(238, 246, 255)),
         TextShadow {
             offset: Vec2::ZERO,
@@ -97,8 +123,8 @@ pub fn setup_title_screen(
         &mut commands,
         wordmark,
         &ui_assets.icons,
-        crate::presentation::theme::UNIT_GLYPH_HEX_RECT,
-        crate::presentation::theme::ACCENT,
+        crate::presentation::theme::TITLE_EMBLEM_RECT,
+        Color::WHITE,
         56.0,
     );
     let ornament = commands
@@ -135,13 +161,17 @@ pub fn setup_title_screen(
             ChildOf(ornament),
         ))
         .id();
-    for _ in 0..3 {
+    for rect in [
+        crate::presentation::theme::TITLE_ORNAMENT_GRID_RECT,
+        crate::presentation::theme::TITLE_ORNAMENT_CIRCLE_RECT,
+        crate::presentation::theme::TITLE_ORNAMENT_DIAGONAL_RECT,
+    ] {
         spawn_icon(
             &mut commands,
             ornament_icons,
             &ui_assets.icons,
-            crate::presentation::theme::ICON_SKILL,
-            Color::srgb_u8(159, 182, 201),
+            rect,
+            Color::WHITE,
             26.0,
         );
     }
@@ -181,8 +211,8 @@ pub fn setup_title_screen(
         true,
         &ui_assets.fonts,
         &ui_assets.icons,
-        crate::presentation::theme::ICON_MOVE,
-        crate::presentation::theme::ACCENT,
+        crate::presentation::theme::TITLE_NEW_GAME_RECT,
+        Color::WHITE,
         40.0,
         Node {
             width: px(420),
@@ -200,8 +230,8 @@ pub fn setup_title_screen(
         continue_enabled,
         &ui_assets.fonts,
         &ui_assets.icons,
-        crate::presentation::theme::ICON_BACK,
-        Color::srgb_u8(143, 168, 189),
+        crate::presentation::theme::TITLE_CONTINUE_RECT,
+        Color::WHITE,
         40.0,
         Node {
             width: px(420),

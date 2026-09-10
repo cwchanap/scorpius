@@ -1,10 +1,14 @@
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::{
+    a11y::AccessibilityNode,
+    ecs::system::SystemParam,
+    prelude::*,
+    text::{LetterSpacing, LineHeight},
+};
 
 use crate::app::GameScreen;
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
-    combat::AttackPreview,
     model::{
         BattleEvent, BattlePhase, Faction, MissionResult, OptionalObjective, PrimaryObjective,
         Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
@@ -17,8 +21,8 @@ use super::{
     RestartRequest,
     assets::{AssetLoadStatus, UiAssets},
     battle_menu::{
-        WeaponMeter, WeaponMeterKind, WeaponTag, WeaponTagIcon, WeaponText, WeaponTextKind,
-        spawn_battle_menu,
+        WeaponMeter, WeaponMeterKind, WeaponRow, WeaponTag, WeaponTagIcon, WeaponText,
+        WeaponTextKind, spawn_battle_menu,
     },
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
@@ -471,10 +475,35 @@ pub struct UnitSummary;
 pub struct PreviewText;
 
 #[derive(Component)]
+pub struct PreviewPanel;
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PreviewValue(pub PreviewValueKind);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PreviewValueKind {
+    Damage,
+    Critical,
+    Hit,
+}
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PreviewMeter(pub usize);
+
+#[derive(Component)]
 pub struct StatusText;
 
 #[derive(Component)]
 pub struct PlaybackText;
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LogEntryText(pub usize);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LogEntryRow(pub usize);
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LogEntryDot(pub usize);
 
 #[derive(Component)]
 pub struct ResultOverlay;
@@ -505,6 +534,9 @@ pub struct InspectorTop;
 
 #[derive(Component)]
 pub struct InspectorDetails;
+
+#[derive(Component)]
+pub struct InspectorEnergyRow;
 
 #[derive(Component)]
 pub struct InspectorStats;
@@ -589,10 +621,29 @@ struct HeaderBonusDot;
 #[derive(Component)]
 pub struct ResultIcon;
 
+#[derive(Component)]
+pub struct ResultCard;
+
+#[derive(Component)]
+pub struct ResultRing;
+
+#[derive(Component)]
+pub struct ResultHeadline;
+
+#[derive(Component)]
+pub struct ResultDetail;
+
+#[derive(Component)]
+pub struct ResultStatus;
+
+#[derive(Component, Clone, Copy)]
+pub struct ResultMetricIcon {
+    pub bonus: bool,
+}
+
 #[derive(Component, Clone, Copy)]
 pub(crate) enum HeaderValue {
     Round,
-    Phase,
     Allies,
     Enemies,
     Awaiting,
@@ -605,10 +656,8 @@ pub(crate) enum HudTextRole {
     ThreatCount,
     Preview,
     Status,
-    Playback,
     Result,
     ResultPrimary,
-    ResultBonus,
 }
 
 pub fn setup_mission_ui(
@@ -654,21 +703,36 @@ pub fn setup_mission_ui(
             ChildOf(root),
         ))
         .id();
+    let round_phase = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(12),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(header),
+        ))
+        .id();
     commands.spawn((
         Text::new("01"),
         theme::ibm_plex_mono(&ui_assets.fonts, 34.0, FontWeight(600)),
         TextColor(theme::ACCENT),
         HeaderValue::Round,
         Pickable::IGNORE,
-        ChildOf(header),
+        ChildOf(round_phase),
     ));
     commands.spawn((
-        Text::new("PLAYER PHASE"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
-        TextColor(theme::MUTED),
-        HeaderValue::Phase,
+        Node {
+            width: px(10),
+            height: px(10),
+            border_radius: BorderRadius::all(percent(50)),
+            ..default()
+        },
+        BackgroundColor(theme::ACCENT),
         Pickable::IGNORE,
-        ChildOf(header),
+        ChildOf(round_phase),
     ));
     commands.spawn((
         Node {
@@ -681,29 +745,41 @@ pub fn setup_mission_ui(
         Pickable::IGNORE,
         ChildOf(header),
     ));
+    let metrics = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(20),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(header),
+        ))
+        .id();
     spawn_header_metric(
         &mut commands,
-        header,
+        metrics,
         &ui_assets,
-        theme::ICON_FORWARD_COMPACT,
-        theme::ACCENT,
+        theme::BATTLE_ALLY_RECT,
+        theme::TEXT,
         HeaderValue::Allies,
         "0",
     );
     spawn_header_metric(
         &mut commands,
-        header,
+        metrics,
         &ui_assets,
-        theme::ICON_ATTACK,
+        theme::BATTLE_ENEMY_RECT,
         theme::ENEMY,
         HeaderValue::Enemies,
         "0",
     );
     spawn_header_metric(
         &mut commands,
-        header,
+        metrics,
         &ui_assets,
-        theme::ICON_WAIT,
+        theme::BATTLE_AWAITING_RECT,
         theme::GOLD,
         HeaderValue::Awaiting,
         "0",
@@ -720,21 +796,14 @@ pub fn setup_mission_ui(
         ChildOf(header),
     ));
     commands.spawn((
-        theme::icon_node(ui_assets.icons.clone(), theme::ICON_FORWARD, theme::MUTED),
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::BATTLE_CYCLE_RECT,
+            Color::WHITE,
+        ),
         Node {
             width: px(24),
             height: px(24),
-            ..default()
-        },
-        Pickable::IGNORE,
-        ChildOf(header),
-    ));
-    commands.spawn((
-        Text::new("SCORPIUS // COMBAT LINK"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
-        TextColor(theme::MUTED),
-        Node {
-            margin: UiRect::left(Val::Auto),
             ..default()
         },
         Pickable::IGNORE,
@@ -753,7 +822,11 @@ pub fn setup_mission_ui(
         ))
         .id();
     commands.spawn((
-        theme::icon_node(ui_assets.icons.clone(), theme::ICON_ATTACK, theme::ACCENT),
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::BATTLE_PRIMARY_RECT,
+            Color::WHITE,
+        ),
         Node {
             width: px(24),
             height: px(24),
@@ -766,7 +839,7 @@ pub fn setup_mission_ui(
         .spawn((
             Node {
                 display: Display::Flex,
-                column_gap: px(4),
+                column_gap: px(6),
                 ..default()
             },
             Pickable::IGNORE,
@@ -776,8 +849,8 @@ pub fn setup_mission_ui(
     for index in 0..4 {
         commands.spawn((
             Node {
-                width: px(14),
-                height: px(6),
+                width: px(18),
+                height: px(8),
                 ..default()
             },
             BackgroundColor(theme::BORDER),
@@ -788,8 +861,8 @@ pub fn setup_mission_ui(
     }
     commands.spawn((
         Node {
-            width: px(8),
-            height: px(8),
+            width: px(12),
+            height: px(12),
             ..default()
         },
         BackgroundColor(theme::GOLD),
@@ -797,11 +870,24 @@ pub fn setup_mission_ui(
         Pickable::IGNORE,
         ChildOf(primary),
     ));
+    let header_actions = commands
+        .spawn((
+            Node {
+                margin: UiRect::left(Val::Auto),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(18),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(header),
+        ))
+        .id();
     spawn_header_metric(
         &mut commands,
-        header,
+        header_actions,
         &ui_assets,
-        theme::ICON_GUARD,
+        theme::BATTLE_CREDITS_RECT,
         theme::GOLD,
         HeaderValue::Credits,
         "—",
@@ -817,17 +903,20 @@ pub fn setup_mission_ui(
                 display: Display::Flex,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                margin: UiRect::left(px(8)),
                 ..default()
             },
             BackgroundColor(Color::srgb_u8(14, 26, 38)),
             Pickable::default(),
-            ChildOf(header),
+            ChildOf(header_actions),
         ))
         .observe(on_command_button_click)
         .with_children(|parent| {
             parent.spawn((
-                theme::icon_node(ui_assets.icons.clone(), theme::icon_rect(5), theme::MUTED),
+                theme::icon_node(
+                    ui_assets.icons.clone(),
+                    theme::BATTLE_RESTART_RECT,
+                    Color::WHITE,
+                ),
                 Node {
                     width: px(22),
                     height: px(22),
@@ -927,7 +1016,7 @@ pub fn setup_mission_ui(
                 width: percent(100),
                 display: Display::Flex,
                 align_items: AlignItems::Center,
-                column_gap: px(8),
+                column_gap: px(9),
                 ..default()
             },
             Pickable::IGNORE,
@@ -952,7 +1041,8 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("—"),
-        theme::chakra_petch(&ui_assets.fonts, 18.0, FontWeight(600)),
+        theme::chakra_petch(&ui_assets.fonts, 21.0, FontWeight(600)),
+        LetterSpacing::Px(1.68),
         TextColor(theme::TEXT),
         InspectorText(InspectorTextKind::Name),
         Pickable::IGNORE,
@@ -964,7 +1054,7 @@ pub fn setup_mission_ui(
                 width: percent(100),
                 display: Display::Flex,
                 align_items: AlignItems::Center,
-                column_gap: px(8),
+                column_gap: px(9),
                 ..default()
             },
             Pickable::IGNORE,
@@ -974,8 +1064,8 @@ pub fn setup_mission_ui(
     commands.spawn((
         theme::icon_node(
             ui_assets.icons.clone(),
-            theme::ICON_FORWARD_COMPACT,
-            theme::MINT,
+            theme::INSPECTOR_HP_RECT,
+            Color::WHITE,
         ),
         Node {
             width: px(16),
@@ -991,11 +1081,12 @@ pub fn setup_mission_ui(
             Node {
                 position_type: PositionType::Relative,
                 width: percent(100),
-                height: px(10),
+                height: px(14),
                 flex_grow: 1.0,
                 ..default()
             },
-            BackgroundColor(theme::BORDER),
+            BackgroundColor(Color::srgb_u8(13, 26, 36)),
+            BorderColor::all(Color::srgb_u8(27, 48, 64)),
             Pickable::IGNORE,
             ChildOf(hp_row),
         ))
@@ -1016,8 +1107,13 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("—"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 15.0, FontWeight(600)),
+        theme::ibm_plex_mono(&ui_assets.fonts, 16.0, FontWeight(400)),
         TextColor(theme::TEXT),
+        TextLayout::justify(Justify::Right),
+        Node {
+            min_width: px(58),
+            ..default()
+        },
         InspectorText(InspectorTextKind::Hp),
         Pickable::IGNORE,
         ChildOf(hp_row),
@@ -1028,15 +1124,20 @@ pub fn setup_mission_ui(
                 width: percent(100),
                 display: Display::Flex,
                 align_items: AlignItems::Center,
-                column_gap: px(8),
+                column_gap: px(9),
                 ..default()
             },
+            InspectorEnergyRow,
             Pickable::IGNORE,
             ChildOf(inspector_details),
         ))
         .id();
     commands.spawn((
-        theme::icon_node(ui_assets.icons.clone(), theme::ICON_SKILL, theme::GOLD),
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::INSPECTOR_EN_RECT,
+            Color::WHITE,
+        ),
         Node {
             width: px(16),
             height: px(16),
@@ -1061,8 +1162,9 @@ pub fn setup_mission_ui(
     for index in 0..9 {
         commands.spawn((
             Node {
-                width: px(7),
-                height: px(5),
+                width: px(0),
+                height: px(10),
+                flex_grow: 1.0,
                 ..default()
             },
             BackgroundColor(theme::BORDER),
@@ -1073,8 +1175,13 @@ pub fn setup_mission_ui(
     }
     commands.spawn((
         Text::new("—"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(600)),
+        theme::ibm_plex_mono(&ui_assets.fonts, 16.0, FontWeight(400)),
         TextColor(theme::GOLD),
+        TextLayout::justify(Justify::Right),
+        Node {
+            min_width: px(58),
+            ..default()
+        },
         InspectorText(InspectorTextKind::En),
         Pickable::IGNORE,
         ChildOf(energy_row),
@@ -1105,7 +1212,7 @@ pub fn setup_mission_ui(
         &mut commands,
         inspector_stats,
         &ui_assets,
-        theme::ICON_GUARD,
+        theme::INSPECTOR_ARMOR_RECT,
         InspectorTextKind::Armor,
         "—",
     );
@@ -1113,7 +1220,7 @@ pub fn setup_mission_ui(
         &mut commands,
         inspector_stats,
         &ui_assets,
-        theme::ICON_MOVE,
+        theme::INSPECTOR_MOBILITY_RECT,
         InspectorTextKind::Movement,
         "—",
     );
@@ -1121,7 +1228,7 @@ pub fn setup_mission_ui(
         &mut commands,
         inspector_stats,
         &ui_assets,
-        theme::ICON_EVADE,
+        theme::INSPECTOR_EVASION_RECT,
         InspectorTextKind::Evasion,
         "—",
     );
@@ -1173,8 +1280,8 @@ pub fn setup_mission_ui(
     commands.spawn((
         theme::icon_node(
             ui_assets.icons.clone(),
-            theme::UNIT_GLYPH_HEX_RECT,
-            theme::MUTED,
+            theme::EMPTY_INSPECTOR_RECT,
+            Color::WHITE,
         ),
         Node {
             width: px(42),
@@ -1230,29 +1337,86 @@ pub fn setup_mission_ui(
                 ..default()
             },
             BackgroundColor(theme::PANEL),
+            BorderColor::all(theme::BORDER),
             Pickable::IGNORE,
             ChildOf(sidebar),
         ))
         .id();
+    let log_header = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(10),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(log_panel),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(ui_assets.icons.clone(), theme::LOG_RECT, Color::WHITE),
+        Node {
+            width: px(18),
+            height: px(18),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(log_header),
+    ));
     commands.spawn((
         Text::new("LOG"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(400)),
+        LetterSpacing::Px(2.6),
         TextColor(theme::MUTED),
         Pickable::IGNORE,
-        ChildOf(log_panel),
+        ChildOf(log_header),
     ));
-    commands.spawn((
-        Text::new(""),
-        theme::ibm_plex_mono(&ui_assets.fonts, 14.0, FontWeight(400)),
-        TextColor(theme::MUTED),
-        // The parent owns clipping. Leaving this child unconstrained lets the
-        // text contribute its natural height to the log panel's flex column.
-        Node { ..default() },
-        PlaybackText,
-        HudTextRole::Playback,
-        Pickable::IGNORE,
-        ChildOf(log_panel),
-    ));
+    for index in 0..6 {
+        let entry = commands
+            .spawn((
+                Node {
+                    width: percent(100),
+                    min_width: px(0),
+                    display: Display::None,
+                    align_items: AlignItems::Center,
+                    column_gap: px(10),
+                    ..default()
+                },
+                Visibility::Hidden,
+                LogEntryRow(index),
+                Pickable::IGNORE,
+                ChildOf(log_panel),
+            ))
+            .id();
+        commands.spawn((
+            Node {
+                width: px(8),
+                height: px(8),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            LogEntryDot(index),
+            Pickable::IGNORE,
+            ChildOf(entry),
+        ));
+        commands.spawn((
+            Text::new(""),
+            theme::ibm_plex_mono(&ui_assets.fonts, 15.0, FontWeight(400)),
+            TextColor(Color::srgb_u8(159, 182, 201)),
+            Node {
+                min_width: px(0),
+                flex_grow: 1.0,
+                ..default()
+            },
+            LogEntryText(index),
+            Pickable::IGNORE,
+            ChildOf(entry),
+        ));
+    }
     commands.spawn((
         Text::new(""),
         theme::chakra_petch(&ui_assets.fonts, 13.0, FontWeight(400)),
@@ -1315,12 +1479,13 @@ pub fn setup_mission_ui(
                 ..default()
             },
             BackgroundColor(Color::srgb_u8(22, 13, 13)),
+            BorderColor::all(theme::RESULT_DEFEAT_BORDER),
             Pickable::IGNORE,
             ChildOf(rightbar),
         ))
         .id();
     commands.spawn((
-        theme::icon_node(ui_assets.icons.clone(), theme::ICON_ATTACK, theme::ENEMY),
+        theme::icon_node(ui_assets.icons.clone(), theme::LOCKED_RECT, Color::WHITE),
         Node {
             width: px(24),
             height: px(24),
@@ -1331,7 +1496,8 @@ pub fn setup_mission_ui(
     ));
     commands.spawn((
         Text::new("LOCKED"),
-        theme::ibm_plex_mono(&ui_assets.fonts, 14.0, FontWeight(500)),
+        theme::ibm_plex_mono(&ui_assets.fonts, 14.0, FontWeight(400)),
+        LetterSpacing::Px(2.8),
         TextColor(Color::srgb_u8(255, 156, 144)),
         Pickable::IGNORE,
         ChildOf(locked),
@@ -1348,22 +1514,175 @@ pub fn setup_mission_ui(
         Pickable::IGNORE,
         ChildOf(locked),
     ));
+    let preview = commands
+        .spawn((
+            PreviewPanel,
+            Node {
+                width: percent(100),
+                flex_shrink: 0.0,
+                display: Display::None,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(12),
+                padding: UiRect::all(px(16)),
+                ..default()
+            },
+            BackgroundColor(theme::PANEL),
+            BorderColor::all(Color::srgb_u8(51, 48, 28)),
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(rightbar),
+        ))
+        .id();
+    let preview_header = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(10),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(preview),
+        ))
+        .id();
     commands.spawn((
-        Text::new("TARGET PREVIEW\nArm a weapon and hover a target."),
-        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
-        TextColor(theme::GOLD),
+        theme::icon_node(ui_assets.icons.clone(), theme::PREVIEW_RECT, Color::WHITE),
         Node {
-            width: percent(100),
-            min_height: px(106),
-            padding: UiRect::all(px(16)),
+            width: px(18),
+            height: px(18),
+            flex_shrink: 0.0,
             ..default()
         },
-        BackgroundColor(theme::PANEL),
+        Pickable::IGNORE,
+        ChildOf(preview_header),
+    ));
+    commands.spawn((
+        Text::new("PREVIEW"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(400)),
+        LetterSpacing::Px(2.6),
+        TextColor(Color::srgb_u8(138, 124, 78)),
         PreviewText,
         HudTextRole::Preview,
         Pickable::IGNORE,
-        ChildOf(rightbar),
+        ChildOf(preview_header),
     ));
+    let preview_values = commands
+        .spawn((
+            Node {
+                width: percent(100),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(18),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(preview),
+        ))
+        .id();
+    let preview_damage = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::FlexEnd,
+                column_gap: px(6),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(preview_values),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 40.0, FontWeight(600)),
+        LineHeight::RelativeToFont(0.9),
+        TextColor(theme::GOLD),
+        PreviewValue(PreviewValueKind::Damage),
+        Pickable::IGNORE,
+        ChildOf(preview_damage),
+    ));
+    commands.spawn((
+        Text::new("/—"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 16.0, FontWeight(400)),
+        TextColor(theme::MUTED),
+        Node {
+            margin: UiRect::bottom(px(5)),
+            ..default()
+        },
+        PreviewValue(PreviewValueKind::Critical),
+        Pickable::IGNORE,
+        ChildOf(preview_damage),
+    ));
+    commands.spawn((
+        Node {
+            width: px(1),
+            height: px(34),
+            ..default()
+        },
+        BackgroundColor(theme::BORDER),
+        Pickable::IGNORE,
+        ChildOf(preview_values),
+    ));
+    let preview_hit = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(preview_values),
+        ))
+        .id();
+    commands.spawn((
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::PREVIEW_HIT_RECT,
+            Color::WHITE,
+        ),
+        Node {
+            width: px(18),
+            height: px(18),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(preview_hit),
+    ));
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&ui_assets.fonts, 26.0, FontWeight(400)),
+        TextColor(Color::srgb_u8(207, 224, 236)),
+        PreviewValue(PreviewValueKind::Hit),
+        Pickable::IGNORE,
+        ChildOf(preview_hit),
+    ));
+    let preview_energy = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                column_gap: px(4),
+                margin: UiRect::left(Val::Auto),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(preview_values),
+        ))
+        .id();
+    for index in 0..5 {
+        commands.spawn((
+            Node {
+                width: px(6),
+                height: px(10),
+                ..default()
+            },
+            BackgroundColor(theme::BORDER),
+            PreviewMeter(index),
+            Pickable::IGNORE,
+            ChildOf(preview_energy),
+        ));
+    }
     let threat_list = commands
         .spawn((
             Node {
@@ -1409,21 +1728,47 @@ pub fn setup_mission_ui(
     let result_card = commands
         .spawn((
             Node {
-                width: px(690),
-                padding: UiRect::all(px(28)),
+                width: px(760),
+                padding: UiRect::all(px(52)),
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
-                row_gap: px(18),
+                row_gap: px(30),
                 align_items: AlignItems::Center,
+                border: UiRect::all(px(1)),
                 ..default()
             },
-            BackgroundColor(theme::PANEL),
+            BackgroundColor(theme::RESULT_CARD_BACKGROUND),
+            BorderColor::all(theme::RESULT_VICTORY_BORDER),
+            ResultCard,
             Pickable::IGNORE,
             ChildOf(result_overlay),
         ))
         .id();
+    let result_ring = commands
+        .spawn((
+            Node {
+                width: px(168),
+                height: px(168),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                border: UiRect::all(px(2)),
+                border_radius: BorderRadius::all(percent(50)),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            BorderColor::all(theme::MINT),
+            ResultRing,
+            Pickable::IGNORE,
+            ChildOf(result_card),
+        ))
+        .id();
     commands.spawn((
-        theme::icon_node(ui_assets.icons.clone(), theme::ICON_WAIT, theme::MINT),
+        theme::icon_node(
+            ui_assets.icons.clone(),
+            theme::RESULT_VICTORY_RECT,
+            Color::WHITE,
+        ),
         Node {
             width: px(86),
             height: px(86),
@@ -1431,21 +1776,36 @@ pub fn setup_mission_ui(
         },
         ResultIcon,
         Pickable::IGNORE,
+        ChildOf(result_ring),
+    ));
+    commands.spawn((
+        Text::new(""),
+        theme::chakra_petch(&ui_assets.fonts, 46.0, FontWeight(700)),
+        LetterSpacing::Px(9.2),
+        TextColor(theme::RESULT_VICTORY_TEXT),
+        ResultHeadline,
+        HudTextRole::Result,
+        Pickable::IGNORE,
         ChildOf(result_card),
     ));
     commands.spawn((
         Text::new(""),
-        theme::chakra_petch(&ui_assets.fonts, 28.0, FontWeight(600)),
-        TextColor(theme::TEXT),
-        HudTextRole::Result,
+        theme::chakra_petch(&ui_assets.fonts, 26.0, FontWeight(400)),
+        TextColor(theme::RESULT_DEFEAT_TEXT),
+        TextLayout::justify(Justify::Center),
+        Node {
+            max_width: px(650),
+            ..default()
+        },
+        ResultDetail,
         Pickable::IGNORE,
         ChildOf(result_card),
     ));
     let result_metrics = commands
         .spawn((
             Node {
-                width: percent(100),
                 display: Display::Flex,
+                align_items: AlignItems::Center,
                 column_gap: px(14),
                 ..default()
             },
@@ -1453,56 +1813,96 @@ pub fn setup_mission_ui(
             ChildOf(result_card),
         ))
         .id();
-    for (label, role, color) in [
-        ("PRIMARY", HudTextRole::ResultPrimary, theme::ACCENT),
-        ("BONUS", HudTextRole::ResultBonus, theme::GOLD),
+    for (icon, color) in [
+        (theme::RESULT_PRIMARY_RECT, theme::ACCENT),
+        (theme::RESULT_BONUS_RECT, theme::GOLD),
     ] {
         let metric = commands
             .spawn((
                 Node {
-                    width: percent(50),
-                    padding: UiRect::all(px(16)),
+                    padding: UiRect::axes(px(16), px(22)),
                     display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(8),
+                    align_items: AlignItems::Center,
+                    column_gap: px(12),
+                    border: UiRect::all(px(1)),
                     ..default()
                 },
                 BackgroundColor(Color::srgb_u8(11, 20, 32)),
+                BorderColor::all(if color == theme::GOLD {
+                    Color::srgb_u8(51, 48, 28)
+                } else {
+                    theme::BORDER
+                }),
                 Pickable::IGNORE,
                 ChildOf(result_metrics),
             ))
             .id();
         commands.spawn((
-            Text::new(label),
-            theme::ibm_plex_mono(&ui_assets.fonts, 13.0, FontWeight(500)),
-            TextColor(color),
+            theme::icon_node(ui_assets.icons.clone(), icon, Color::WHITE),
+            Node {
+                width: px(24),
+                height: px(24),
+                ..default()
+            },
+            ResultMetricIcon {
+                bonus: color == theme::GOLD,
+            },
             Pickable::IGNORE,
             ChildOf(metric),
         ));
-        commands.spawn((
-            Text::new("—"),
-            theme::ibm_plex_mono(&ui_assets.fonts, 25.0, FontWeight(600)),
-            TextColor(theme::TEXT),
-            role,
-            Pickable::IGNORE,
-            ChildOf(metric),
-        ));
+        if color == theme::GOLD {
+            commands.spawn((
+                Node {
+                    width: px(14),
+                    height: px(14),
+                    ..default()
+                },
+                BackgroundColor(theme::BORDER),
+                HeaderBonusDot,
+                Pickable::IGNORE,
+                ChildOf(metric),
+            ));
+        } else {
+            commands.spawn((
+                Text::new("—"),
+                theme::ibm_plex_mono(&ui_assets.fonts, 25.0, FontWeight(600)),
+                TextColor(theme::TEXT),
+                HudTextRole::ResultPrimary,
+                Pickable::IGNORE,
+                ChildOf(metric),
+            ));
+        }
     }
+    commands.spawn((
+        Text::new(""),
+        theme::ibm_plex_mono(&ui_assets.fonts, 15.0, FontWeight(400)),
+        TextColor(theme::GOLD),
+        Node {
+            max_width: px(650),
+            display: Display::None,
+            ..default()
+        },
+        ResultStatus,
+        Pickable::IGNORE,
+        ChildOf(result_card),
+    ));
     spawn_command_button(
         &mut commands,
         &ui_assets.fonts,
+        &ui_assets.icons,
         result_card,
         CommandAction::Restart,
-        "RESTART MISSION",
-        260.0,
+        "RETRY",
+        0.0,
     );
     spawn_command_button(
         &mut commands,
         &ui_assets.fonts,
+        &ui_assets.icons,
         result_card,
         CommandAction::ContinueVictory,
         "CONTINUE",
-        260.0,
+        0.0,
     );
 
     commands.spawn((
@@ -1545,7 +1945,7 @@ fn spawn_header_metric(
         ))
         .id();
     commands.spawn((
-        theme::icon_node(assets.icons.clone(), icon, color),
+        theme::icon_node(assets.icons.clone(), icon, Color::WHITE),
         Node {
             width: px(24),
             height: px(24),
@@ -1577,7 +1977,7 @@ fn spawn_inspector_stat(
             Node {
                 display: Display::Flex,
                 align_items: AlignItems::Center,
-                column_gap: px(5),
+                column_gap: px(7),
                 ..default()
             },
             Pickable::IGNORE,
@@ -1585,10 +1985,10 @@ fn spawn_inspector_stat(
         ))
         .id();
     commands.spawn((
-        theme::icon_node(assets.icons.clone(), icon, theme::MUTED),
+        theme::icon_node(assets.icons.clone(), icon, Color::WHITE),
         Node {
-            width: px(16),
-            height: px(16),
+            width: px(17),
+            height: px(17),
             ..default()
         },
         Pickable::IGNORE,
@@ -1596,7 +1996,7 @@ fn spawn_inspector_stat(
     ));
     commands.spawn((
         Text::new(initial),
-        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(600)),
+        theme::ibm_plex_mono(&assets.fonts, 16.0, FontWeight(400)),
         TextColor(theme::TEXT),
         InspectorText(kind),
         Pickable::IGNORE,
@@ -1610,15 +2010,15 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
             ThreatCard(card),
             Node {
                 width: percent(100),
-                min_height: px(148),
+                min_height: px(0),
                 flex_shrink: 0.0,
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
-                row_gap: px(10),
-                padding: UiRect::all(px(14)),
+                padding: UiRect::all(px(16)),
                 ..default()
             },
-            BackgroundColor(Color::srgb_u8(22, 13, 13)),
+            BackgroundColor(Color::srgb_u8(20, 12, 12)),
+            BorderColor::all(Color::srgb_u8(74, 43, 34)),
             Visibility::Hidden,
             Pickable::IGNORE,
             ChildOf(parent),
@@ -1630,69 +2030,76 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
                 width: percent(100),
                 display: Display::Flex,
                 align_items: AlignItems::Center,
-                column_gap: px(7),
+                column_gap: px(12),
                 ..default()
             },
             Pickable::IGNORE,
             ChildOf(card_entity),
         ))
         .id();
-    for target in [false, true] {
-        commands.spawn((
-            theme::icon_node(
-                assets.icons.clone(),
-                theme::UNIT_GLYPH_SQUARE_RECT,
-                theme::ENEMY,
-            ),
-            Node {
-                width: px(18),
-                height: px(18),
-                flex_shrink: 0.0,
-                ..default()
-            },
-            ThreatIcon { card, target },
-            Pickable::IGNORE,
-            ChildOf(top),
-        ));
-        commands.spawn((
-            Text::new("—"),
-            theme::chakra_petch(&assets.fonts, 13.0, FontWeight(600)),
-            TextColor(theme::TEXT),
-            ThreatText {
-                card,
-                kind: if target {
-                    ThreatTextKind::Target
-                } else {
-                    ThreatTextKind::Attacker
-                },
-            },
-            Pickable::IGNORE,
-            ChildOf(top),
-        ));
-        if !target {
-            commands.spawn((
-                Text::new("→"),
-                theme::ibm_plex_mono(&assets.fonts, 16.0, FontWeight(500)),
-                TextColor(theme::ENEMY),
-                Pickable::IGNORE,
-                ChildOf(top),
-            ));
-        }
-    }
+    commands.spawn((
+        theme::icon_node(
+            assets.icons.clone(),
+            theme::UNIT_GLYPH_SQUARE_RECT,
+            theme::ENEMY,
+        ),
+        Node {
+            width: px(18),
+            height: px(18),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        ThreatIcon {
+            card,
+            target: false,
+        },
+        Pickable::IGNORE,
+        ChildOf(top),
+    ));
     commands.spawn((
         Text::new("—"),
-        theme::ibm_plex_mono(&assets.fonts, 11.0, FontWeight(500)),
-        TextColor(theme::MUTED),
+        theme::chakra_petch(&assets.fonts, 19.0, FontWeight(600)),
+        TextColor(Color::srgb_u8(240, 220, 216)),
         ThreatText {
             card,
-            kind: ThreatTextKind::Weapon,
+            kind: ThreatTextKind::Attacker,
         },
         Node {
-            margin: UiRect::left(px(4)),
+            width: percent(100),
+            min_width: px(0),
+            flex_grow: 1.0,
             ..default()
         },
         Pickable::IGNORE,
-        ChildOf(card_entity),
+        ChildOf(top),
+    ));
+    commands.spawn((
+        theme::icon_node(assets.icons.clone(), theme::THREAT_ARROW_RECT, Color::WHITE),
+        Node {
+            width: px(22),
+            height: px(22),
+            flex_shrink: 0.0,
+            margin: UiRect::left(Val::Auto),
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(top),
+    ));
+    commands.spawn((
+        theme::icon_node(
+            assets.icons.clone(),
+            theme::UNIT_GLYPH_SQUARE_RECT,
+            theme::ENEMY,
+        ),
+        Node {
+            width: px(18),
+            height: px(18),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        ThreatIcon { card, target: true },
+        Pickable::IGNORE,
+        ChildOf(top),
     ));
 
     let details = commands
@@ -1701,7 +2108,8 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
                 width: percent(100),
                 display: Display::Flex,
                 align_items: AlignItems::FlexEnd,
-                column_gap: px(12),
+                column_gap: px(16),
+                margin: UiRect::top(px(14)),
                 ..default()
             },
             Pickable::IGNORE,
@@ -1711,8 +2119,8 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
     let shape = commands
         .spawn((
             Node {
-                width: px(54),
-                height: px(54),
+                width: px(42),
+                height: px(42),
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
                 row_gap: px(3),
@@ -1728,7 +2136,7 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
             .spawn((
                 Node {
                     width: percent(100),
-                    height: px(16),
+                    height: px(12),
                     display: Display::Flex,
                     column_gap: px(3),
                     ..default()
@@ -1741,8 +2149,8 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
             let index = row * 3 + column;
             commands.spawn((
                 Node {
-                    width: px(16),
-                    height: px(16),
+                    width: px(12),
+                    height: px(12),
                     ..default()
                 },
                 BackgroundColor(theme::BORDER),
@@ -1752,15 +2160,12 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
             ));
         }
     }
-    let numbers = commands
+    let damage = commands
         .spawn((
             Node {
-                flex_grow: 1.0,
-                min_width: px(0),
                 display: Display::Flex,
-                flex_direction: FlexDirection::Column,
                 align_items: AlignItems::FlexEnd,
-                row_gap: px(7),
+                column_gap: px(6),
                 ..default()
             },
             Pickable::IGNORE,
@@ -1768,50 +2173,91 @@ fn spawn_threat_card(commands: &mut Commands, parent: Entity, assets: &UiAssets,
         ))
         .id();
     commands.spawn((
-        Text::new("— DMG"),
-        theme::chakra_petch(&assets.fonts, 18.0, FontWeight(600)),
-        TextColor(theme::ENEMY),
+        Text::new("—"),
+        theme::ibm_plex_mono(&assets.fonts, 38.0, FontWeight(600)),
+        LineHeight::RelativeToFont(0.9),
+        TextColor(Color::srgb_u8(255, 143, 128)),
         ThreatText {
             card,
             kind: ThreatTextKind::Damage,
         },
         Pickable::IGNORE,
-        ChildOf(numbers),
+        ChildOf(damage),
+    ));
+    commands.spawn((
+        theme::icon_node(
+            assets.icons.clone(),
+            theme::THREAT_DAMAGE_RECT,
+            Color::WHITE,
+        ),
+        Node {
+            width: px(20),
+            height: px(20),
+            margin: UiRect::bottom(px(5)),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(damage),
     ));
     let hit = commands
         .spawn((
             Node {
-                width: percent(100),
                 display: Display::Flex,
                 align_items: AlignItems::Center,
-                column_gap: px(6),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(6),
+                flex_shrink: 0.0,
+                margin: UiRect::left(Val::Auto),
                 ..default()
             },
             Pickable::IGNORE,
-            ChildOf(numbers),
+            ChildOf(details),
+        ))
+        .id();
+    let hit_value = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(7),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(hit),
         ))
         .id();
     commands.spawn((
+        theme::icon_node(assets.icons.clone(), theme::THREAT_HIT_RECT, Color::WHITE),
+        Node {
+            width: px(17),
+            height: px(17),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+        ChildOf(hit_value),
+    ));
+    commands.spawn((
         Text::new("—"),
-        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(600)),
-        TextColor(theme::TEXT),
+        theme::ibm_plex_mono(&assets.fonts, 21.0, FontWeight(400)),
+        TextColor(Color::srgb_u8(224, 192, 184)),
         ThreatText {
             card,
             kind: ThreatTextKind::Hit,
         },
         Pickable::IGNORE,
-        ChildOf(hit),
+        ChildOf(hit_value),
     ));
     let hit_track = commands
         .spawn((
             Node {
                 position_type: PositionType::Relative,
-                width: percent(100),
+                width: px(92),
                 height: px(6),
-                flex_grow: 1.0,
                 ..default()
             },
-            BackgroundColor(theme::BORDER),
+            BackgroundColor(Color::srgb_u8(42, 21, 18)),
             Pickable::IGNORE,
             ChildOf(hit),
         ))
@@ -1850,6 +2296,9 @@ pub struct HudQueries<'w, 's> {
             Without<InspectorTop>,
             Without<InspectorStats>,
             Without<InspectorEmpty>,
+            Without<ResultDetail>,
+            Without<ResultStatus>,
+            Without<LogEntryText>,
         ),
     >,
     native_texts: Query<
@@ -1860,13 +2309,23 @@ pub struct HudQueries<'w, 's> {
             Option<&'static InspectorText>,
             Option<&'static WeaponText>,
             Option<&'static ThreatText>,
+            Option<&'static PreviewValue>,
         ),
         (
-            Or<(With<InspectorText>, With<WeaponText>, With<ThreatText>)>,
+            Or<(
+                With<InspectorText>,
+                With<WeaponText>,
+                With<ThreatText>,
+                With<PreviewValue>,
+            )>,
             Without<HudTextRole>,
             Without<HeaderValue>,
+            Without<ResultDetail>,
+            Without<ResultStatus>,
+            Without<LogEntryText>,
         ),
     >,
+    weapon_rows: Query<'w, 's, (&'static WeaponRow, &'static mut AccessibilityNode)>,
     buttons: Query<
         'w,
         's,
@@ -1876,6 +2335,7 @@ pub struct HudQueries<'w, 's> {
             &'static mut BackgroundColor,
             &'static mut Pickable,
             &'static mut Visibility,
+            &'static mut Node,
         ),
         (
             Without<HudTextRole>,
@@ -1888,6 +2348,11 @@ pub struct HudQueries<'w, 's> {
             Without<InspectorEmpty>,
             Without<ThreatCard>,
             Without<WeaponTagIcon>,
+            Without<ResultDetail>,
+            Without<ResultStatus>,
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
         ),
     >,
     result_overlays: Query<
@@ -1904,9 +2369,23 @@ pub struct HudQueries<'w, 's> {
             Without<InspectorEmpty>,
             Without<ThreatCard>,
             Without<WeaponTagIcon>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
         ),
     >,
-    header_values: Query<'w, 's, (&'static HeaderValue, &'static mut Text), Without<HudTextRole>>,
+    header_values: Query<
+        'w,
+        's,
+        (&'static HeaderValue, &'static mut Text),
+        (
+            Without<HudTextRole>,
+            Without<ResultDetail>,
+            Without<ResultStatus>,
+            Without<LogEntryText>,
+        ),
+    >,
     inspector_portraits: Query<
         'w,
         's,
@@ -1916,16 +2395,27 @@ pub struct HudQueries<'w, 's> {
             Without<ResultOverlay>,
             Without<CommandButton>,
             Without<ResultIcon>,
+            Without<ResultMetricIcon>,
             Without<WeaponTagIcon>,
             Without<HudTextRole>,
             Without<ThreatCard>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
         ),
     >,
     primary_pips: Query<
         'w,
         's,
         (&'static HeaderPrimaryPip, &'static mut BackgroundColor),
-        (Without<HeaderBonusDot>, Without<CommandButton>),
+        (
+            Without<HeaderBonusDot>,
+            Without<CommandButton>,
+            Without<PreviewMeter>,
+            Without<LogEntryDot>,
+            Without<LogEntryRow>,
+        ),
     >,
     bonus_dots: Query<
         'w,
@@ -1935,6 +2425,9 @@ pub struct HudQueries<'w, 's> {
             With<HeaderBonusDot>,
             Without<HeaderPrimaryPip>,
             Without<CommandButton>,
+            Without<PreviewMeter>,
+            Without<LogEntryDot>,
+            Without<LogEntryRow>,
         ),
     >,
     inspector_visibility: Query<
@@ -1962,6 +2455,96 @@ pub struct HudQueries<'w, 's> {
             Without<InspectorPortrait>,
             Without<WeaponTagIcon>,
             Without<HudTextRole>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
+        ),
+    >,
+    inspector_energy_rows: Query<
+        'w,
+        's,
+        (&'static mut Visibility, &'static mut Node),
+        (
+            With<InspectorEnergyRow>,
+            Without<InspectorPortrait>,
+            Without<CommandButton>,
+            Without<HudTextRole>,
+            Without<ResultOverlay>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
+        ),
+    >,
+    preview_panels: Query<
+        'w,
+        's,
+        (&'static mut Visibility, &'static mut Node),
+        (
+            With<PreviewPanel>,
+            Without<ResultOverlay>,
+            Without<InspectorPortrait>,
+            Without<InspectorEnergyRow>,
+            Without<CommandButton>,
+            Without<HudTextRole>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
+        ),
+    >,
+    preview_meters: Query<
+        'w,
+        's,
+        (&'static PreviewMeter, &'static mut BackgroundColor),
+        (
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
+            Without<CommandButton>,
+            Without<LogEntryDot>,
+        ),
+    >,
+    log_entries: Query<
+        'w,
+        's,
+        (
+            &'static LogEntryText,
+            &'static mut Text,
+            &'static mut Visibility,
+            &'static mut Node,
+        ),
+        (
+            Without<HudTextRole>,
+            Without<PlaybackText>,
+            Without<InspectorPortrait>,
+            Without<CommandButton>,
+            Without<LogEntryRow>,
+        ),
+    >,
+    log_rows: Query<
+        'w,
+        's,
+        (
+            &'static LogEntryRow,
+            &'static mut Visibility,
+            &'static mut Node,
+        ),
+        (
+            Without<CommandButton>,
+            Without<LogEntryText>,
+            Without<HudTextRole>,
+        ),
+    >,
+    log_dots: Query<
+        'w,
+        's,
+        (&'static LogEntryDot, &'static mut BackgroundColor),
+        (
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
+            Without<CommandButton>,
+            Without<PreviewMeter>,
         ),
     >,
     inspector_icons: Query<
@@ -1971,6 +2554,7 @@ pub struct HudQueries<'w, 's> {
         (
             Without<InspectorPortrait>,
             Without<ResultIcon>,
+            Without<ResultMetricIcon>,
             Without<ThreatIcon>,
             Without<WeaponTagIcon>,
         ),
@@ -1991,6 +2575,12 @@ pub struct HudQueries<'w, 's> {
             Without<ThreatMeter>,
             Without<ThreatCard>,
             Without<ResultOverlay>,
+            Without<PreviewMeter>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryDot>,
+            Without<LogEntryRow>,
         ),
     >,
     threat_cards: Query<
@@ -2013,6 +2603,10 @@ pub struct HudQueries<'w, 's> {
             Without<InspectorPortrait>,
             Without<WeaponTagIcon>,
             Without<HudTextRole>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
         ),
     >,
     threat_icons: Query<
@@ -2022,6 +2616,7 @@ pub struct HudQueries<'w, 's> {
         (
             Without<InspectorPortrait>,
             Without<ResultIcon>,
+            Without<ResultMetricIcon>,
             Without<InspectorIcon>,
             Without<WeaponTagIcon>,
         ),
@@ -2042,6 +2637,12 @@ pub struct HudQueries<'w, 's> {
             Without<WeaponMeter>,
             Without<ThreatCard>,
             Without<ResultOverlay>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<PreviewMeter>,
+            Without<LogEntryDot>,
+            Without<LogEntryRow>,
         ),
     >,
     weapon_meters: Query<
@@ -2060,6 +2661,12 @@ pub struct HudQueries<'w, 's> {
             Without<ThreatMeter>,
             Without<ThreatCard>,
             Without<ResultOverlay>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<PreviewMeter>,
+            Without<LogEntryDot>,
+            Without<LogEntryRow>,
         ),
     >,
     weapon_tags: Query<
@@ -2075,16 +2682,87 @@ pub struct HudQueries<'w, 's> {
             Without<InspectorIcon>,
             Without<ThreatIcon>,
             Without<ResultIcon>,
+            Without<ResultMetricIcon>,
             Without<CommandButton>,
             Without<HudTextRole>,
             Without<ThreatCard>,
             Without<ResultOverlay>,
             Without<HeaderPrimaryPip>,
             Without<HeaderBonusDot>,
+            Without<InspectorEnergyRow>,
+            Without<PreviewPanel>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
         ),
     >,
     result_icons:
         Query<'w, 's, &'static mut ImageNode, (With<ResultIcon>, Without<InspectorPortrait>)>,
+    result_metric_icons: Query<
+        'w,
+        's,
+        (&'static mut ImageNode, &'static ResultMetricIcon),
+        (With<ResultMetricIcon>, Without<ResultIcon>),
+    >,
+    result_cards: Query<
+        'w,
+        's,
+        (&'static mut BackgroundColor, &'static mut BorderColor),
+        (
+            With<ResultCard>,
+            Without<CommandButton>,
+            Without<HeaderPrimaryPip>,
+            Without<HeaderBonusDot>,
+            Without<InspectorMeter>,
+            Without<ThreatMeter>,
+            Without<WeaponMeter>,
+            Without<PreviewMeter>,
+            Without<LogEntryDot>,
+        ),
+    >,
+    result_rings: Query<'w, 's, &'static mut BorderColor, (With<ResultRing>, Without<ResultCard>)>,
+    result_headlines: Query<'w, 's, &'static mut TextColor, With<ResultHeadline>>,
+    result_details: Query<
+        'w,
+        's,
+        (&'static mut Text, &'static mut Node),
+        (
+            With<ResultDetail>,
+            Without<ResultStatus>,
+            Without<CommandButton>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
+            Without<ThreatCard>,
+            Without<PreviewPanel>,
+            Without<InspectorEnergyRow>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
+        ),
+    >,
+    result_status: Query<
+        'w,
+        's,
+        (&'static mut Text, &'static mut Node),
+        (
+            With<ResultStatus>,
+            Without<ResultDetail>,
+            Without<CommandButton>,
+            Without<InspectorTop>,
+            Without<InspectorStats>,
+            Without<InspectorEmpty>,
+            Without<InspectorMeter>,
+            Without<WeaponMeter>,
+            Without<ThreatMeter>,
+            Without<ThreatCard>,
+            Without<PreviewPanel>,
+            Without<InspectorEnergyRow>,
+            Without<LogEntryText>,
+            Without<LogEntryRow>,
+        ),
+    >,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2112,10 +2790,6 @@ pub fn update_hud(
             })
         })
         .collect();
-    let preview_text = interaction.preview.as_ref().map_or_else(
-        || "TARGET PREVIEW\nArm a weapon and hover a target.".to_owned(),
-        |preview| format_preview(&battle.0, preview),
-    );
     let status_text = if playback.input_locked {
         "Resolving committed events...".to_owned()
     } else if status.0.is_empty() {
@@ -2142,53 +2816,105 @@ pub fn update_hud(
                 text
             }
             HudTextRole::ThreatCount => hud.threats.len().to_string(),
-            HudTextRole::Preview => preview_text.clone(),
+            HudTextRole::Preview => "PREVIEW".to_owned(),
             HudTextRole::Status => status_text.clone(),
-            HudTextRole::Playback => recent_log.as_deref().map_or_else(String::new, |log| {
-                log.0.iter().cloned().collect::<Vec<_>>().join("\n")
-            }),
             HudTextRole::Result => battle.0.result().map_or_else(String::new, |result| {
-                result_overlay_copy(result, battle.0.rules().primary, active_mission.0)
-            }),
-            HudTextRole::ResultPrimary => battle.0.result().map_or_else(
-                || "—".to_owned(),
-                |result| if result.victory { "CLEAR" } else { "FAILED" }.to_owned(),
-            ),
-            HudTextRole::ResultBonus => battle.0.result().map_or_else(
-                || "—".to_owned(),
-                |result| {
-                    if result.optional_complete {
-                        "ACHIEVED"
-                    } else {
-                        "MISSED"
-                    }
+                let copy = result_overlay_copy(result, battle.0.rules().primary, active_mission.0);
+                copy.split_once('\n')
+                    .map_or(copy.as_str(), |(headline, _)| headline)
                     .to_owned()
-                },
-            ),
+            }),
+            HudTextRole::ResultPrimary => result_primary_progress(hud.objective_track.as_ref()),
         };
-        if matches!(role, HudTextRole::Playback)
-            && let Some(mut visibility) = visibility
-        {
-            let has_log = recent_log.as_deref().is_some_and(|log| !log.0.is_empty());
-            *visibility = if playback.current.is_some() || has_log {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
+        let _ = visibility;
     }
 
-    for (mut text, inspector_text, weapon_text, threat_text) in &mut queries.native_texts {
+    for (row, mut visibility, mut node) in &mut queries.log_rows {
+        let shown = recent_log
+            .as_deref()
+            .is_some_and(|log| log.0.get(row.0).is_some());
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
+    }
+    for (entry, mut text, mut visibility, mut node) in &mut queries.log_entries {
+        let value = recent_log
+            .as_deref()
+            .and_then(|log| log.0.get(entry.0))
+            .map(|value| value.replace('\n', " · "));
+        let shown = value.is_some();
+        text.0 = value.unwrap_or_default();
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
+    }
+    for (dot, mut background) in &mut queries.log_dots {
+        let value = recent_log.as_deref().and_then(|log| log.0.get(dot.0));
+        background.0 = value.map_or(theme::BORDER, |value| log_dot_color(value));
+    }
+    for (mut visibility, mut node) in &mut queries.preview_panels {
+        let shown = interaction.preview.is_some();
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
+    }
+    for (meter, mut background) in &mut queries.preview_meters {
+        let cost = interaction
+            .preview
+            .as_ref()
+            .map_or(0, |preview| preview.en_cost.max(0) as usize);
+        background.0 = if meter.0 < cost {
+            theme::GOLD
+        } else {
+            theme::BORDER
+        };
+    }
+
+    for (mut text, mut node) in &mut queries.result_details {
+        let detail = battle.0.result().and_then(|result| {
+            result_overlay_copy(result, battle.0.rules().primary, active_mission.0)
+                .split_once('\n')
+                .map(|(_, detail)| detail.to_owned())
+        });
+        text.0 = detail.unwrap_or_default();
+        node.display = if battle.0.result().is_some_and(|result| !result.victory) {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    for (mut text, mut node) in &mut queries.result_status {
+        let shown = hud.is_terminal && status.0.starts_with("save file error:");
+        text.0 = if shown {
+            status.0.clone()
+        } else {
+            String::new()
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
+    }
+
+    for (mut text, inspector_text, weapon_text, threat_text, preview_value) in
+        &mut queries.native_texts
+    {
         if let Some(inspector_text) = inspector_text {
             text.0 = match inspector_text.0 {
                 InspectorTextKind::Name => hud.inspector.name.unwrap_or("—").to_owned(),
                 InspectorTextKind::Hp => match (hud.inspector.hp, hud.inspector.max_hp) {
-                    (Some(hp), Some(max_hp)) => format!("HP {hp}/{max_hp}"),
-                    _ => "HP —".to_owned(),
+                    (Some(hp), Some(max_hp)) => format!("{hp}/{max_hp}"),
+                    _ => "—".to_owned(),
                 },
                 InspectorTextKind::En => match (hud.inspector.en, hud.inspector.max_en) {
-                    (Some(en), Some(max_en)) => format!("EN {en}/{max_en}"),
-                    _ => "EN —".to_owned(),
+                    (Some(en), Some(max_en)) => format!("{en}/{max_en}"),
+                    _ => "—".to_owned(),
                 },
                 InspectorTextKind::Armor => hud
                     .inspector
@@ -2210,19 +2936,8 @@ pub fn update_hud(
                 .and_then(Option::as_ref);
             text.0 = match (weapon, weapon_text.kind) {
                 (Some(weapon), WeaponTextKind::Name) => weapon.name.to_owned(),
-                (Some(weapon), WeaponTextKind::Damage) => {
-                    format!("{} DMG", weapon.base_damage)
-                }
-                (Some(weapon), WeaponTextKind::Hit) => {
-                    let accuracy = battle
-                        .0
-                        .active_unit()
-                        .and_then(|unit| battle.0.unit(unit))
-                        .map_or(weapon.hit_modifier, |unit| {
-                            (unit.stats.accuracy + weapon.hit_modifier).clamp(5, 95)
-                        });
-                    format!("{accuracy}% HIT")
-                }
+                (Some(weapon), WeaponTextKind::Damage) => weapon.base_damage.to_string(),
+                (Some(weapon), WeaponTextKind::Hit) => format_signed(weapon.hit_modifier),
                 _ => "—".to_owned(),
             };
         } else if let Some(threat_text) = threat_text {
@@ -2233,15 +2948,35 @@ pub fn update_hud(
                 (Some(threat), ThreatTextKind::Target) => {
                     threat.intended_occupant.unwrap_or("EMPTY").to_owned()
                 }
-                (Some(threat), ThreatTextKind::Damage) => {
-                    format!("{} DMG", threat.normal_damage)
-                }
+                (Some(threat), ThreatTextKind::Damage) => threat.normal_damage.to_string(),
                 (Some(threat), ThreatTextKind::Hit) => {
-                    format!("{}% HIT", threat.hit_chance)
+                    format!("{}%", threat.hit_chance)
                 }
                 _ => "—".to_owned(),
             };
+        } else if let Some(preview_value) = preview_value {
+            text.0 = interaction.preview.as_ref().map_or_else(
+                || match preview_value.0 {
+                    PreviewValueKind::Damage => "—".to_owned(),
+                    PreviewValueKind::Critical => "/—".to_owned(),
+                    PreviewValueKind::Hit => "—".to_owned(),
+                },
+                |preview| match preview_value.0 {
+                    PreviewValueKind::Damage => preview.normal_damage.to_string(),
+                    PreviewValueKind::Critical => format!("/{}", preview.critical_damage),
+                    PreviewValueKind::Hit => format!("{}%", preview.hit_chance),
+                },
+            );
         }
+    }
+
+    for (row, mut accessibility) in &mut queries.weapon_rows {
+        let label = hud
+            .weapon_specs
+            .get(row.0)
+            .and_then(Option::as_ref)
+            .map_or("Weapon", |weapon| weapon.name);
+        accessibility.set_label(label.to_owned().into_boxed_str());
     }
 
     let inspector_selected = !hud.inspector.is_empty();
@@ -2258,6 +2993,15 @@ pub fn update_hud(
         };
         node.display = if shown { Display::Flex } else { Display::None };
         let _ = empty;
+    }
+    for (mut visibility, mut node) in &mut queries.inspector_energy_rows {
+        let shown = inspector_selected && hud.inspector.faction == Some(Faction::Player);
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+        node.display = if shown { Display::Flex } else { Display::None };
     }
 
     for (mut image, icon) in &mut queries.inspector_icons {
@@ -2424,7 +3168,6 @@ pub fn update_hud(
     for (value, mut text) in &mut queries.header_values {
         text.0 = match value {
             HeaderValue::Round => format!("{:02}", battle.0.round()),
-            HeaderValue::Phase => phase_label(battle.0.phase()).to_owned(),
             HeaderValue::Allies => hud.ally_count.to_string(),
             HeaderValue::Enemies => hud.enemy_count.to_string(),
             HeaderValue::Awaiting => hud.awaiting_count.to_string(),
@@ -2491,17 +3234,48 @@ pub fn update_hud(
     for mut image in &mut queries.result_icons {
         if hud.is_victory {
             image.image = ui_assets.icons.clone();
-            image.rect = Some(theme::ICON_WAIT);
-            image.color = theme::MINT;
+            image.rect = Some(theme::RESULT_VICTORY_RECT);
+            image.color = Color::WHITE;
         } else if hud.is_terminal {
             image.image = ui_assets.icons.clone();
-            image.rect = Some(theme::ICON_COUNTER);
-            image.color = theme::ENEMY;
+            image.rect = Some(theme::RESULT_DEFEAT_RECT);
+            image.color = Color::WHITE;
         } else {
             image.image = ui_assets.icons.clone();
-            image.rect = Some(theme::ICON_ATTACK);
-            image.color = theme::GOLD;
+            image.rect = Some(theme::RESULT_PRIMARY_RECT);
+            image.color = Color::WHITE;
         }
+    }
+    for (mut image, metric) in &mut queries.result_metric_icons {
+        image.image = ui_assets.icons.clone();
+        image.rect = Some(if metric.bonus {
+            theme::RESULT_BONUS_RECT
+        } else {
+            theme::RESULT_PRIMARY_RECT
+        });
+        image.color = Color::WHITE;
+    }
+    for (mut background, mut border) in &mut queries.result_cards {
+        background.0 = theme::RESULT_CARD_BACKGROUND;
+        border.set_all(if hud.is_victory {
+            theme::RESULT_VICTORY_BORDER
+        } else {
+            theme::RESULT_DEFEAT_BORDER
+        });
+    }
+    for mut border in &mut queries.result_rings {
+        *border = BorderColor::all(if hud.is_victory {
+            theme::MINT
+        } else {
+            theme::ENEMY
+        });
+    }
+    for mut color in &mut queries.result_headlines {
+        color.0 = if hud.is_victory {
+            theme::RESULT_VICTORY_TEXT
+        } else {
+            theme::RESULT_DEFEAT_TEXT
+        };
     }
 
     for mut visibility in &mut queries.result_overlays {
@@ -2525,7 +3299,7 @@ pub fn update_hud(
         ),
         _ => hud.is_terminal && !hud.is_victory && !playback.input_locked,
     };
-    for (button, header_restart, mut background, mut pickable, mut visibility) in
+    for (button, header_restart, mut background, mut pickable, mut visibility, mut node) in
         &mut queries.buttons
     {
         let enabled = !playback.input_locked
@@ -2584,6 +3358,7 @@ pub fn update_hud(
             } else {
                 Visibility::Hidden
             };
+            node.display = if shown { Display::Flex } else { Display::None };
         }
     }
 }
@@ -2613,21 +3388,28 @@ pub fn update_asset_status_text(
 fn spawn_command_button(
     commands: &mut Commands,
     fonts: &theme::FontHandles,
+    icons: &Handle<Image>,
     parent: Entity,
     action: CommandAction,
     label: &str,
-    width: f32,
+    _width: f32,
 ) -> Entity {
+    let icon = match action {
+        CommandAction::ContinueVictory => theme::ICON_FORWARD_COMPACT,
+        CommandAction::Restart => theme::BATTLE_RESTART_RECT,
+        _ => theme::ICON_WAIT,
+    };
     let button = commands
         .spawn((
             Button,
             CommandButton(action),
             Node {
-                width: px(width),
-                height: px(42),
+                width: percent(100),
+                height: px(84),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                padding: UiRect::axes(px(5), px(3)),
+                column_gap: px(16),
+                padding: UiRect::horizontal(px(18)),
                 ..default()
             },
             BackgroundColor(Color::srgb(0.055, 0.07, 0.09)),
@@ -2636,15 +3418,25 @@ fn spawn_command_button(
         ))
         .observe(on_command_button_click)
         .id();
-    commands
-        .spawn((
-            Text::new(label),
-            theme::chakra_petch(fonts, 11.5, FontWeight::NORMAL),
-            TextColor(Color::srgb(0.88, 0.94, 1.0)),
-            Pickable::IGNORE,
-            ChildOf(button),
-        ))
-        .id()
+    commands.spawn((
+        Node {
+            width: px(32),
+            height: px(32),
+            ..default()
+        },
+        theme::icon_node(icons.clone(), icon, Color::WHITE),
+        Pickable::IGNORE,
+        ChildOf(button),
+    ));
+    commands.spawn((
+        Text::new(label),
+        theme::chakra_petch(fonts, 26.0, FontWeight::NORMAL),
+        LetterSpacing::Px(5.2),
+        TextColor(theme::TEXT),
+        Pickable::IGNORE,
+        ChildOf(button),
+    ));
+    button
 }
 
 fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
@@ -2663,21 +3455,29 @@ fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
 
 /// Result-overlay copy, derived from the active mission's authored data — no
 /// mission-specific wording is hardcoded here.
+fn result_primary_progress(track: Option<&ObjectiveTrackSnapshot>) -> String {
+    match track {
+        Some(ObjectiveTrackSnapshot::EliminateAll { remaining, total }) => {
+            format!("{}/{}", total.saturating_sub(*remaining), total)
+        }
+        Some(ObjectiveTrackSnapshot::Protect { hp, max_hp, .. })
+        | Some(ObjectiveTrackSnapshot::Target { hp, max_hp, .. }) => {
+            format!("HP {hp}/{max_hp}")
+        }
+        Some(ObjectiveTrackSnapshot::Intercept { distance, .. }) => {
+            format!("{distance} FROM EXIT")
+        }
+        None => "—".to_owned(),
+    }
+}
+
 pub fn result_overlay_copy(
     result: MissionResult,
     primary: PrimaryObjective,
-    definition: &MissionDefinition,
+    _definition: &MissionDefinition,
 ) -> String {
     if result.victory {
-        format!(
-            "MISSION COMPLETE\n{}\nBONUS {}",
-            definition.title,
-            if result.optional_complete {
-                "Achieved"
-            } else {
-                "Missed"
-            }
-        )
+        "RELAY SECURED".to_owned()
     } else {
         let reason = match primary {
             PrimaryObjective::EliminateAllEnemies | PrimaryObjective::EliminateTarget { .. } => {
@@ -2748,53 +3548,6 @@ fn unit_name(battle: &BattleState, unit: UnitId) -> &'static str {
     battle.unit(unit).map_or("UNKNOWN", |unit| unit.name)
 }
 
-fn format_preview(battle: &BattleState, preview: &AttackPreview) -> String {
-    let target = battle
-        .occupant_at(preview.target)
-        .and_then(|unit| battle.unit(unit))
-        .map(|unit| unit.name.to_owned())
-        .or_else(|| {
-            battle
-                .board()
-                .has_live_explosive(preview.target)
-                .then(|| "EXPLOSIVE".to_owned())
-        })
-        .unwrap_or_else(|| format!("CELL {},{}", preview.target.x, preview.target.y));
-    let footprint = preview
-        .footprint
-        .iter()
-        .map(|cell| format!("{},{}", cell.x, cell.y))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let push = battle
-        .weapon(preview.weapon)
-        .filter(|weapon| weapon.push)
-        .map_or_else(String::new, |_| match preview.push_destination {
-            None => " | PUSH: EDGE COLLISION".to_owned(),
-            Some(destination)
-                if battle.board().is_blocking(destination)
-                    || battle.board().has_live_explosive(destination)
-                    || battle.occupant_at(destination).is_some() =>
-            {
-                " | PUSH: COLLISION 3".to_owned()
-            }
-            Some(destination) if battle.board().is_hazard(destination) => {
-                " | PUSH: HAZARD 3".to_owned()
-            }
-            Some(destination) => format!(" | PUSH -> {},{}", destination.x, destination.y),
-        });
-    format!(
-        "TARGET {} | {}% HIT | {} / {} CRIT DMG | EN {}{}\nCELLS [{}]",
-        target,
-        preview.hit_chance,
-        preview.normal_damage,
-        preview.critical_damage,
-        preview.en_cost,
-        push,
-        footprint
-    )
-}
-
 fn ascii_separators(value: &str) -> String {
     value.replace('·', "/")
 }
@@ -2815,6 +3568,24 @@ fn format_track(track: &ObjectiveTrackSnapshot) -> String {
         } => {
             format!("TARGET {name} HP {hp}/{max_hp}")
         }
+    }
+}
+
+fn format_signed(value: i16) -> String {
+    if value >= 0 {
+        format!("+{value}")
+    } else {
+        value.to_string()
+    }
+}
+
+fn log_dot_color(entry: &str) -> Color {
+    if entry.contains("MISS") || entry.contains("KNOCKED") || entry.contains("FAILED") {
+        theme::ENEMY
+    } else if entry.contains("HIT") || entry.contains("HP") || entry.contains("COLLISION") {
+        theme::GOLD
+    } else {
+        theme::MINT
     }
 }
 

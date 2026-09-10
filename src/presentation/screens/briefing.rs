@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    prelude::*,
+    text::LetterSpacing,
+    ui::{BackgroundGradient, ColorStop, LinearGradient},
+};
 
 use crate::presentation::{CampaignRuntime, CanvasRoot, assets::UiAssets};
 
@@ -87,6 +91,7 @@ pub fn setup_briefing_screen(
     commands.spawn((
         Text::new(title_copy),
         theme::chakra_petch(&ui_assets.fonts, 34.0, FontWeight(600)),
+        LetterSpacing::Px(2.04),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(title),
@@ -122,8 +127,8 @@ pub fn setup_briefing_screen(
         &mut commands,
         credits,
         &ui_assets.icons,
-        theme::ICON_SKILL,
-        theme::GOLD,
+        theme::CREDITS_LARGE_RECT,
+        Color::WHITE,
         30.0,
     );
     commands.spawn((
@@ -194,7 +199,16 @@ fn spawn_briefing_art(
             height: px(180),
             ..default()
         },
-        BackgroundColor(Color::srgba(6.0 / 255.0, 10.0 / 255.0, 18.0 / 255.0, 0.8)),
+        BackgroundGradient(vec![
+            LinearGradient::to_bottom(vec![
+                ColorStop::percent(Color::NONE, 0.0),
+                ColorStop::percent(
+                    Color::srgba(6.0 / 255.0, 10.0 / 255.0, 18.0 / 255.0, 0.95),
+                    100.0,
+                ),
+            ])
+            .into(),
+        ]),
         Pickable::IGNORE,
         ChildOf(art),
     ));
@@ -216,7 +230,7 @@ fn spawn_briefing_art(
         commands,
         badges,
         assets,
-        theme::ICON_GUARD,
+        theme::BRIEFING_GRID_RECT,
         theme::MUTED,
         "9×9",
     );
@@ -224,7 +238,7 @@ fn spawn_briefing_art(
         commands,
         badges,
         assets,
-        theme::ICON_ATTACK,
+        theme::BRIEFING_ENEMY_RECT,
         theme::ENEMY,
         &snapshot.enemy_count.to_string(),
     );
@@ -232,7 +246,7 @@ fn spawn_briefing_art(
         commands,
         badges,
         assets,
-        theme::ICON_SKILL,
+        theme::BRIEFING_HAZARD_RECT,
         theme::GOLD,
         "1",
     );
@@ -262,7 +276,7 @@ fn spawn_badge(
             ChildOf(parent),
         ))
         .id();
-    spawn_icon(commands, badge, &assets.icons, icon, color, 24.0);
+    spawn_icon(commands, badge, &assets.icons, icon, Color::WHITE, 24.0);
     commands.spawn((
         Text::new(label),
         theme::ibm_plex_mono(&assets.fonts, 20.0, FontWeight(400)),
@@ -300,7 +314,7 @@ fn spawn_briefing_panel(
         commands,
         panel,
         assets,
-        theme::ICON_SKILL,
+        theme::BRIEFING_PRIMARY_RECT,
         theme::ACCENT,
         "PRIMARY",
         snapshot.primary,
@@ -310,9 +324,9 @@ fn spawn_briefing_panel(
         commands,
         panel,
         assets,
-        theme::ICON_BACK,
+        theme::BRIEFING_BONUS_RECT,
         theme::GOLD,
-        "BONUS · TURNABOUT",
+        &format!("BONUS · {}", snapshot.bonus_title.to_ascii_uppercase()),
         snapshot.optional,
         None,
     );
@@ -363,13 +377,14 @@ fn spawn_briefing_panel(
         commands,
         deploy,
         &assets.icons,
-        theme::ICON_MOVE,
-        theme::ACCENT,
+        theme::BRIEFING_DEPLOY_RECT,
+        Color::WHITE,
         40.0,
     );
     commands.spawn((
         Text::new("DEPLOY"),
         theme::chakra_petch(&assets.fonts, 30.0, FontWeight(600)),
+        LetterSpacing::Px(6.0),
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(deploy),
@@ -383,7 +398,7 @@ fn spawn_objective_card(
     assets: &UiAssets,
     icon: Rect,
     color: Color,
-    heading: &'static str,
+    heading: &str,
     description: &str,
     pips: Option<usize>,
 ) {
@@ -406,7 +421,7 @@ fn spawn_objective_card(
             ChildOf(parent),
         ))
         .id();
-    spawn_icon(commands, card, &assets.icons, icon, color, 46.0);
+    spawn_icon(commands, card, &assets.icons, icon, Color::WHITE, 46.0);
     let content = commands
         .spawn((
             Node {
@@ -424,6 +439,7 @@ fn spawn_objective_card(
     commands.spawn((
         Text::new(heading),
         theme::ibm_plex_mono(&assets.fonts, 15.0, FontWeight(400)),
+        LetterSpacing::Px(3.0),
         TextColor(color),
         Pickable::IGNORE,
         ChildOf(content),
@@ -476,6 +492,7 @@ fn spawn_reward(
     commands.spawn((
         Text::new(heading),
         theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
+        LetterSpacing::Px(2.52),
         TextColor(theme::MUTED),
         Pickable::IGNORE,
         ChildOf(card),
@@ -507,8 +524,12 @@ fn spawn_reward(
         commands,
         amount_row,
         &assets.icons,
-        theme::ICON_SKILL,
-        theme::MUTED,
+        if color == theme::GOLD {
+            theme::BRIEFING_BONUS_REWARD_RECT
+        } else {
+            theme::BRIEFING_BASE_REWARD_RECT
+        },
+        Color::WHITE,
         20.0,
     );
 }

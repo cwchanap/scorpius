@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    a11y::AccessibilityNode,
+    prelude::*,
+    text::{LetterSpacing, LineHeight},
+};
 
 use super::{
     BattleRuntime, EventPlayback,
@@ -36,6 +40,11 @@ pub struct TargetingPanel;
 
 #[derive(Component)]
 pub struct TargetingLabel;
+
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TargetingIcon {
+    pub move_mode: bool,
+}
 
 #[derive(Component)]
 pub struct ResolveButton;
@@ -151,7 +160,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
             ChildOf(parent),
         ))
         .id();
-    spawn_back_row(commands, weapons, assets);
+    spawn_back_row(commands, weapons, assets, theme::MENU_TARGET_RECT);
     for slot in 0..3 {
         spawn_weapon_row(
             commands,
@@ -171,7 +180,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
             ChildOf(parent),
         ))
         .id();
-    spawn_back_row(commands, stances, assets);
+    spawn_back_row(commands, stances, assets, theme::STANCE_GUARD_RECT);
     for (action, icon, label) in [
         (
             CommandAction::Reaction(crate::domain::model::Reaction::Counter),
@@ -207,6 +216,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
             CommandButton(CommandAction::Cancel),
             targeting_row_node(64.0),
             BackgroundColor(Color::srgb_u8(42, 21, 18)),
+            BorderColor::all(Color::srgb_u8(110, 51, 43)),
             Pickable::default(),
             ChildOf(targeting),
         ))
@@ -215,7 +225,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
     commands.spawn((
         theme::icon_node(
             assets.icons.clone(),
-            theme::ICON_EVADE,
+            theme::TARGETING_CANCEL_RECT,
             Color::srgb_u8(255, 179, 170),
         ),
         icon_node(26.0),
@@ -225,19 +235,34 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
     commands.spawn((
         Text::new("CANCEL"),
         theme::chakra_petch(&assets.fonts, 18.0, FontWeight(600)),
+        LetterSpacing::Px(2.52),
         TextColor(Color::srgb_u8(255, 179, 170)),
         Pickable::IGNORE,
         ChildOf(cancel),
     ));
     commands.spawn((
-        Text::new("TARGET"),
-        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(500)),
-        TextColor(theme::MUTED),
+        theme::icon_node(
+            assets.icons.clone(),
+            theme::ICON_MOVE,
+            Color::srgb_u8(143, 168, 189),
+        ),
+        icon_node(24.0),
+        TargetingIcon { move_mode: true },
+        Visibility::Hidden,
+        Pickable::IGNORE,
+        ChildOf(cancel),
+    ));
+    commands.spawn((
+        theme::icon_node(assets.icons.clone(), theme::ICON_ATTACK, theme::GOLD),
+        TargetingIcon { move_mode: false },
+        Visibility::Hidden,
         Node {
+            width: px(24),
+            height: px(24),
+            flex_shrink: 0.0,
             margin: UiRect::left(Val::Auto),
             ..default()
         },
-        TargetingLabel,
         Pickable::IGNORE,
         ChildOf(cancel),
     ));
@@ -305,13 +330,20 @@ pub fn update_battle_menu(
     playback: Res<EventPlayback>,
     mut regions: Query<
         (&MenuRegion, &mut Visibility, &mut Node),
-        (Without<TargetingPanel>, Without<ResolveButton>),
+        (
+            Without<TargetingPanel>,
+            Without<ResolveButton>,
+            Without<TargetingIcon>,
+        ),
     >,
     mut targeting: Query<
         (&TargetingPanel, &mut Visibility, &mut Node),
         (Without<MenuRegion>, Without<ResolveButton>),
     >,
-    mut labels: Query<&mut Text, With<TargetingLabel>>,
+    mut targeting_icons: Query<
+        (&TargetingIcon, &mut Visibility),
+        (Without<TargetingPanel>, Without<ResolveButton>),
+    >,
     mut buttons: Query<(&MenuButton, &mut Pickable)>,
     mut resolve: Query<(&mut Visibility, &mut Node), With<ResolveButton>>,
 ) {
@@ -358,14 +390,19 @@ pub fn update_battle_menu(
             Display::None
         };
     }
-    let target_text = match interaction.mode {
-        InteractionMode::Move => "DESTINATION",
-        InteractionMode::Attack(_) => "ATTACK TARGET",
-        InteractionMode::AegisTarget => "ALLY",
-        InteractionMode::Inspect => "TARGET",
-    };
-    for mut text in &mut labels {
-        text.0 = target_text.to_owned();
+    for (icon, mut visibility) in &mut targeting_icons {
+        let shown = targeting_active
+            && matches!(
+                (icon.move_mode, interaction.mode),
+                (true, InteractionMode::Move)
+                    | (false, InteractionMode::Attack(_))
+                    | (false, InteractionMode::AegisTarget)
+            );
+        *visibility = if shown {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
     for (button, mut pickable) in &mut buttons {
         let enabled = active
@@ -508,6 +545,7 @@ fn spawn_weapon_row(
             Button,
             CommandButton(action),
             WeaponRow(slot),
+            AccessibilityNode::default(),
             Node {
                 width: percent(100),
                 height: px(72),
@@ -516,19 +554,37 @@ fn spawn_weapon_row(
                 align_items: AlignItems::Center,
                 column_gap: px(14),
                 padding: UiRect::horizontal(px(16)),
+                border: UiRect::bottom(px(1)),
                 ..default()
             },
-            BackgroundColor(Color::srgb_u8(10, 26, 38)),
+            BackgroundColor(Color::NONE),
+            BorderColor::all(Color::srgb_u8(18, 34, 47)),
             Pickable::default(),
             ChildOf(parent),
         ))
         .observe(on_command_button_click)
         .id();
+    commands.spawn((
+        Text::new("—"),
+        theme::ibm_plex_mono(&assets.fonts, 1.0, FontWeight(400)),
+        TextColor(Color::NONE),
+        Node {
+            display: Display::None,
+            ..default()
+        },
+        Visibility::Hidden,
+        WeaponText {
+            slot,
+            kind: WeaponTextKind::Name,
+        },
+        Pickable::IGNORE,
+        ChildOf(row),
+    ));
     let shape = commands
         .spawn((
             Node {
-                width: px(48),
-                height: px(48),
+                width: px(36),
+                height: px(36),
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
                 row_gap: px(3),
@@ -544,7 +600,7 @@ fn spawn_weapon_row(
             .spawn((
                 Node {
                     width: percent(100),
-                    height: px(14),
+                    height: px(10),
                     display: Display::Flex,
                     column_gap: px(3),
                     ..default()
@@ -556,8 +612,8 @@ fn spawn_weapon_row(
         for column_index in 0..3 {
             commands.spawn((
                 Node {
-                    width: px(14),
-                    height: px(14),
+                    width: px(10),
+                    height: px(10),
                     ..default()
                 },
                 BackgroundColor(theme::BORDER),
@@ -586,24 +642,13 @@ fn spawn_weapon_row(
             ChildOf(row),
         ))
         .id();
-    commands.spawn((
-        Text::new("—"),
-        theme::chakra_petch(&assets.fonts, 13.0, FontWeight(600)),
-        TextColor(theme::TEXT),
-        WeaponText {
-            slot,
-            kind: WeaponTextKind::Name,
-        },
-        Pickable::IGNORE,
-        ChildOf(body),
-    ));
-    let details = commands
+    let numbers = commands
         .spawn((
             Node {
                 width: percent(100),
                 display: Display::Flex,
-                align_items: AlignItems::Center,
-                column_gap: px(10),
+                align_items: AlignItems::FlexEnd,
+                column_gap: px(8),
                 ..default()
             },
             Pickable::IGNORE,
@@ -612,25 +657,30 @@ fn spawn_weapon_row(
         .id();
     commands.spawn((
         Text::new("—"),
-        theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(600)),
+        theme::ibm_plex_mono(&assets.fonts, 28.0, FontWeight(600)),
+        LineHeight::RelativeToFont(0.9),
         TextColor(theme::GOLD),
         WeaponText {
             slot,
             kind: WeaponTextKind::Damage,
         },
         Pickable::IGNORE,
-        ChildOf(details),
+        ChildOf(numbers),
     ));
     commands.spawn((
         Text::new("—"),
-        theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(500)),
+        theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
         TextColor(theme::MUTED),
+        Node {
+            margin: UiRect::bottom(px(2)),
+            ..default()
+        },
         WeaponText {
             slot,
             kind: WeaponTextKind::Hit,
         },
         Pickable::IGNORE,
-        ChildOf(details),
+        ChildOf(numbers),
     ));
     let range_track = commands
         .spawn((
@@ -638,12 +688,11 @@ fn spawn_weapon_row(
                 position_type: PositionType::Relative,
                 width: percent(100),
                 height: px(4),
-                flex_grow: 1.0,
                 ..default()
             },
             BackgroundColor(theme::BORDER),
             Pickable::IGNORE,
-            ChildOf(details),
+            ChildOf(body),
         ))
         .id();
     commands.spawn((
@@ -692,8 +741,8 @@ fn spawn_weapon_row(
     for index in 0..5 {
         commands.spawn((
             Node {
-                width: px(7),
-                height: px(5),
+                width: px(6),
+                height: px(10),
                 ..default()
             },
             BackgroundColor(theme::BORDER),
@@ -709,7 +758,7 @@ fn spawn_weapon_row(
         .spawn((
             Node {
                 display: Display::Flex,
-                column_gap: px(4),
+                column_gap: px(5),
                 ..default()
             },
             Pickable::IGNORE,
@@ -743,27 +792,27 @@ pub enum WeaponTag {
     Counter,
 }
 
-fn spawn_back_row(commands: &mut Commands, parent: Entity, assets: &UiAssets) {
+fn spawn_back_row(commands: &mut Commands, parent: Entity, assets: &UiAssets, companion: Rect) {
     let row = commands
         .spawn((
             MenuButton(MenuAction::Back),
             targeting_row_node(44.0),
             BackgroundColor(Color::srgb_u8(10, 26, 38)),
+            BorderColor::all(Color::srgb_u8(29, 50, 68)),
             Pickable::default(),
             ChildOf(parent),
         ))
         .observe(on_menu_button_click)
         .id();
     commands.spawn((
-        theme::icon_node(assets.icons.clone(), theme::ICON_BACK, theme::MUTED),
+        theme::icon_node(assets.icons.clone(), theme::MENU_BACK_RECT, Color::WHITE),
         icon_node(20.0),
         Pickable::IGNORE,
         ChildOf(row),
     ));
     commands.spawn((
-        Text::new("BACK"),
-        theme::ibm_plex_mono(&assets.fonts, 13.0, FontWeight(500)),
-        TextColor(theme::MUTED),
+        theme::icon_node(assets.icons.clone(), companion, Color::WHITE),
+        icon_node(20.0),
         Pickable::IGNORE,
         ChildOf(row),
     ));

@@ -78,8 +78,8 @@ fn spawn_receipt_panel(
         commands,
         heading,
         &assets.icons,
-        super::super::theme::ICON_SKILL,
-        theme::GOLD,
+        super::super::theme::CREDITS_LARGE_RECT,
+        Color::WHITE,
         26.0,
     );
     commands.spawn((

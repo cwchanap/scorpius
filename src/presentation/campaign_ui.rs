@@ -57,6 +57,7 @@ pub struct DialogueSnapshot {
 pub struct BriefingSnapshot {
     pub mission: MissionId,
     pub title: &'static str,
+    pub bonus_title: &'static str,
     pub enemy_count: usize,
     pub primary: &'static str,
     pub optional: &'static str,
@@ -110,6 +111,15 @@ pub struct UpgradeCreditsText;
 pub struct UpgradeRow(pub PlayerMech, pub UpgradeTrack);
 
 #[derive(Component, Clone, Copy)]
+pub struct UpgradePurchaseIcon(pub PlayerMech, pub UpgradeTrack);
+
+#[derive(Component, Clone, Copy)]
+pub struct UpgradeTrackIcon(pub PlayerMech, pub UpgradeTrack);
+
+#[derive(Component, Clone, Copy)]
+pub struct UpgradeCostText(pub PlayerMech, pub UpgradeTrack);
+
+#[derive(Component, Clone, Copy)]
 pub struct UpgradePip {
     pub mech: PlayerMech,
     pub track: UpgradeTrack,
@@ -150,6 +160,10 @@ pub fn briefing_snapshot(
     BriefingSnapshot {
         mission: definition.id,
         title: definition.title,
+        bonus_title: definition
+            .optional_objective
+            .split_once(':')
+            .map_or(definition.optional_objective, |(title, _)| title),
         enemy_count,
         primary: definition.primary_objective,
         optional: definition.optional_objective,
@@ -213,16 +227,7 @@ pub fn track_effect(track: UpgradeTrack, level: u8) -> String {
 }
 
 pub fn format_upgrade_row(snapshot: &UpgradeRowSnapshot) -> String {
-    format!(
-        "{}   LV {}   {}  ->  {}   {}",
-        track_label(snapshot.track),
-        snapshot.level,
-        snapshot.current_effect,
-        snapshot.next_effect,
-        snapshot
-            .cost
-            .map_or_else(|| "MAX".to_owned(), |cost| format!("{cost} CR")),
-    )
+    snapshot.next_effect.clone()
 }
 
 /// Shared campaign-screen cleanup. The explicit markers keep one screen from
@@ -433,24 +438,38 @@ pub fn update_campaign_status_text(
     text.0 = status.0.clone();
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn update_upgrade_screen(
     runtime: Res<CampaignRuntime>,
     mut rows: Query<
         (&UpgradeRow, &mut Text),
-        (Without<UpgradeCreditsText>, Without<CampaignStatusText>),
+        (
+            Without<UpgradeCreditsText>,
+            Without<CampaignStatusText>,
+            Without<UpgradeCostText>,
+        ),
     >,
     mut credits: Single<&mut Text, (With<UpgradeCreditsText>, Without<CampaignStatusText>)>,
     mut buttons: Query<
         (&CampaignUiAction, &mut BackgroundColor, &mut Pickable),
-        (Without<UpgradeRow>, Without<UpgradePip>),
+        (
+            Without<UpgradeRow>,
+            Without<UpgradePip>,
+            Without<UpgradeCostText>,
+        ),
     >,
     mut pips: Query<(&UpgradePip, &mut BackgroundColor)>,
+    mut track_icons: Query<(&UpgradeTrackIcon, &mut ImageNode), Without<UpgradePurchaseIcon>>,
+    mut purchase_icons: Query<(&UpgradePurchaseIcon, &mut ImageNode), Without<UpgradeTrackIcon>>,
+    mut costs: Query<
+        (&UpgradeCostText, &mut Text),
+        (Without<UpgradeCreditsText>, Without<UpgradeRow>),
+    >,
 ) {
     let Some(state) = runtime.0.state.as_ref() else {
         return;
     };
-    credits.0 = format!("CREDITS {}", state.credits);
+    credits.0 = state.credits.to_string();
     for (row, mut text) in &mut rows {
         text.0 = format_upgrade_row(&upgrade_row_snapshot(state, row.0, row.1));
     }
@@ -458,7 +477,8 @@ pub fn update_upgrade_screen(
         let CampaignUiAction::PurchaseUpgrade(mech, track) = *action else {
             continue;
         };
-        let enabled = upgrade_row_snapshot(state, mech, track).affordable;
+        let snapshot = upgrade_row_snapshot(state, mech, track);
+        let enabled = snapshot.affordable;
         background.0 = if enabled {
             super::theme::PANEL_RAISED
         } else {
@@ -470,10 +490,43 @@ pub fn update_upgrade_screen(
             Pickable::IGNORE
         };
     }
+    for (icon, mut image) in &mut purchase_icons {
+        let snapshot = upgrade_row_snapshot(state, icon.0, icon.1);
+        image.rect = Some(if snapshot.maxed {
+            super::theme::ICON_WAIT
+        } else {
+            super::theme::CREDITS_PURCHASE_RECT
+        });
+        image.color = if snapshot.maxed {
+            super::theme::MINT
+        } else if snapshot.affordable {
+            Color::WHITE
+        } else {
+            Color::srgb_u8(51, 69, 90)
+        };
+    }
+    for (icon, mut image) in &mut track_icons {
+        let snapshot = upgrade_row_snapshot(state, icon.0, icon.1);
+        image.color = if snapshot.maxed {
+            super::theme::MINT
+        } else {
+            super::theme::MUTED
+        };
+    }
+    for (cost, mut text) in &mut costs {
+        let snapshot = upgrade_row_snapshot(state, cost.0, cost.1);
+        text.0 = snapshot
+            .cost
+            .map_or_else(|| "—".to_owned(), |value| value.to_string());
+    }
     for (pip, mut background) in &mut pips {
         let level = state.upgrades.levels(pip.mech).level(pip.track);
         background.0 = if pip.index < level {
-            super::theme::ACCENT
+            if level >= 3 {
+                super::theme::MINT
+            } else {
+                super::theme::ACCENT
+            }
         } else {
             super::theme::BORDER
         };
@@ -533,5 +586,20 @@ mod tests {
             campaign_destination(CampaignUiAction::Proceed, &unfinished_seven),
             Some(GameScreen::PreMissionStory)
         );
+    }
+
+    #[test]
+    fn upgrade_row_format_is_the_next_effect_only() {
+        let row = UpgradeRowSnapshot {
+            mech: PlayerMech::Vanguard,
+            track: UpgradeTrack::Hp,
+            level: 1,
+            current_effect: "+3 MAX HP".to_owned(),
+            next_effect: "+6 MAX HP".to_owned(),
+            cost: Some(100),
+            maxed: false,
+            affordable: true,
+        };
+        assert_eq!(format_upgrade_row(&row), "+6 MAX HP");
     }
 }
