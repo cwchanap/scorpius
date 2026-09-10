@@ -172,11 +172,11 @@ pub(crate) fn spawn_dialogue_screen(
     let overlay = if allow_skip {
         LinearGradient::to_bottom(vec![
             ColorStop::percent(
-                Color::srgba(3.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.25),
+                Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.25),
                 0.0,
             ),
             ColorStop::percent(
-                Color::srgba(3.0 / 255.0, 6.0 / 255.0, 12.0 / 255.0, 0.05),
+                Color::srgba(5.0 / 255.0, 8.0 / 255.0, 15.0 / 255.0, 0.05),
                 45.0,
             ),
             ColorStop::percent(

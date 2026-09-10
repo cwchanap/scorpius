@@ -1086,6 +1086,32 @@ fn result_button_state(app: &mut App, action: CommandAction) -> (Visibility, boo
         .expect("result action must have a pickable button")
 }
 
+fn result_button_style(app: &mut App, action: CommandAction) -> (Color, BorderColor, UiRect) {
+    let overlay = app
+        .world_mut()
+        .query_filtered::<Entity, With<ResultOverlay>>()
+        .single(app.world())
+        .expect("one result overlay");
+    let result_card = app
+        .world_mut()
+        .query::<(Entity, &ChildOf)>()
+        .iter(app.world())
+        .find_map(|(entity, parent)| (parent.parent() == overlay).then_some(entity))
+        .expect("result card must be a child of the result overlay");
+    app.world_mut()
+        .query::<(
+            &CommandButton,
+            &BackgroundColor,
+            &BorderColor,
+            &Node,
+            &ChildOf,
+        )>()
+        .iter(app.world())
+        .find(|(button, _, _, _, parent)| button.0 == action && parent.parent() == result_card)
+        .map(|(_, background, border, node, _)| (background.0, *border, node.border))
+        .expect("result action style must be present")
+}
+
 #[test]
 fn battle_result_snapshot_renders_terminal_victory_overlay_and_metrics() {
     let mut app = battle_fixture_app(terminal_battle(true), None);
@@ -1140,6 +1166,14 @@ fn battle_result_snapshot_renders_terminal_victory_overlay_and_metrics() {
         (Visibility::Visible, true, Display::Flex)
     );
     assert_eq!(
+        result_button_style(&mut app, CommandAction::ContinueVictory),
+        (
+            theme::PANEL_RAISED,
+            BorderColor::all(theme::ACCENT),
+            UiRect::all(px(1.0))
+        )
+    );
+    assert_eq!(
         result_button_state(&mut app, CommandAction::Restart),
         (Visibility::Hidden, false, Display::None)
     );
@@ -1185,6 +1219,14 @@ fn battle_result_snapshot_renders_terminal_defeat_overlay_and_metrics() {
     assert_eq!(
         result_button_state(&mut app, CommandAction::Restart),
         (Visibility::Visible, true, Display::Flex)
+    );
+    assert_eq!(
+        result_button_style(&mut app, CommandAction::Restart),
+        (
+            theme::PANEL_RAISED,
+            BorderColor::all(theme::ACCENT),
+            UiRect::all(px(1.0))
+        )
     );
     assert_eq!(
         result_button_state(&mut app, CommandAction::ContinueVictory),

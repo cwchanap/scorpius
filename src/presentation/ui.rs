@@ -3382,7 +3382,14 @@ pub fn update_hud(
             }
             _ => false,
         };
-        background.0 = if button.0 == CommandAction::Cancel {
+        let terminal_result_action = header_restart.is_none()
+            && matches!(
+                button.0,
+                CommandAction::Restart | CommandAction::ContinueVictory
+            );
+        background.0 = if terminal_result_action {
+            theme::PANEL_RAISED
+        } else if button.0 == CommandAction::Cancel {
             theme::TARGETING_CANCEL_BACKGROUND
         } else if button.0 == CommandAction::ResolveAttacks {
             Color::srgb_u8(63, 42, 6)
@@ -3395,6 +3402,8 @@ pub fn update_hud(
         };
         if button.0 == CommandAction::Cancel {
             *border = BorderColor::all(theme::TARGETING_CANCEL_BORDER);
+        } else if terminal_result_action {
+            *border = BorderColor::all(theme::ACCENT);
         }
         *pickable = if enabled {
             Pickable::default()
@@ -3475,9 +3484,11 @@ fn spawn_command_button(
                 justify_content: JustifyContent::Center,
                 column_gap: px(16),
                 padding: UiRect::horizontal(px(18)),
+                border: UiRect::all(px(1)),
                 ..default()
             },
-            BackgroundColor(Color::srgb(0.055, 0.07, 0.09)),
+            BackgroundColor(theme::PANEL_RAISED),
+            BorderColor::all(theme::ACCENT),
             Pickable::default(),
             ChildOf(parent),
         ))
