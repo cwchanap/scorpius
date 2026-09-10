@@ -29,7 +29,8 @@ pub struct BattleState {
 }
 
 impl BattleState {
-    pub(crate) fn new(
+    /// Construct a battle from typed authored or fixture data.
+    pub fn new(
         board: BoardState,
         units: impl IntoIterator<Item = UnitState>,
         weapons: impl IntoIterator<Item = WeaponSpec>,

@@ -91,8 +91,10 @@ pub fn spawn_canvas_root(commands: &mut Commands) -> Entity {
 }
 
 /// Startup system for the shared viewport/canvas hierarchy.
-pub fn setup_canvas(mut commands: Commands) {
-    spawn_canvas_root(&mut commands);
+pub fn setup_canvas(mut commands: Commands, canvas_roots: Query<Entity, With<CanvasRoot>>) {
+    if canvas_roots.iter().next().is_none() {
+        spawn_canvas_root(&mut commands);
+    }
 }
 
 /// Keep fixed-pixel UI values fitted to the primary window's logical size.

@@ -213,6 +213,6 @@
     "native": "actual Bevy output at named implementation commit",
     "comparison": "equal-size side-by-side, overlay, absolute difference; no broad masks"
   },
-  "native_validation": "not run; branch remains planning-only",
+  "native_validation": "Task 5 native image-target capture completed on the implementation branch: all 44 typed fixtures passed at physical 1920x1080, with the letterbox fixture at 1600x1000; source/aligned reference PNGs remain pending.",
   "primary_canvas_px": [1920,1080]
 }
