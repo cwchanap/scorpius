@@ -3,14 +3,15 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 
-use crate::domain::model::BattleEvent;
+use crate::domain::model::{BattleEvent, UnitId};
 
 use super::{
-    BattleEventQueue, BattleRuntime, BattleStage, EventEffect, EventPlayback, PresentationRoot,
-    RecentBattleLog, RestartRoundPending, TokenFootprintVisual, TokenSelectionVisual, UnitVisual,
+    BattleEventQueue, BattleRuntime, BattleStage, EventEffect, EventPlayback, IntentTargetVisual,
+    PresentationRoot, ReactionVisual, RecentBattleLog, RestartRoundPending, TokenFootprintVisual,
+    TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::StatusMessage,
-    layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center},
+    layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center, token_depth},
     theme,
     ui::{HudRoot, format_event},
 };
@@ -25,6 +26,7 @@ type UnitVisualQuery<'w, 's> = Query<
         &'static mut Node,
         &'static mut UiTransform,
         &'static mut Visibility,
+        Option<&'static mut ZIndex>,
     ),
     Without<EventEffect>,
 >;
@@ -35,7 +37,11 @@ type DamageNumberQuery<'w, 's> =
 type FootprintVisualQuery<'w, 's> = Query<
     'w,
     's,
-    (&'static TokenFootprintVisual, &'static mut Node),
+    (
+        &'static TokenFootprintVisual,
+        &'static mut Node,
+        Option<&'static mut ZIndex>,
+    ),
     (
         Without<UnitVisual>,
         Without<TokenSelectionVisual>,
@@ -45,13 +51,50 @@ type FootprintVisualQuery<'w, 's> = Query<
 type SelectionVisualQuery<'w, 's> = Query<
     'w,
     's,
-    (&'static TokenSelectionVisual, &'static mut Node),
+    (
+        &'static TokenSelectionVisual,
+        &'static mut Node,
+        Option<&'static mut ZIndex>,
+    ),
     (
         Without<UnitVisual>,
         Without<TokenFootprintVisual>,
         Without<DamageNumberEffect>,
     ),
 >;
+type IntentTargetVisualQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static IntentTargetVisual, &'static mut Node),
+    (
+        Without<UnitVisual>,
+        Without<TokenFootprintVisual>,
+        Without<TokenSelectionVisual>,
+        Without<DamageNumberEffect>,
+    ),
+>;
+type ReactionVisualQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static ReactionVisual, &'static mut Node),
+    (
+        Without<UnitVisual>,
+        Without<TokenFootprintVisual>,
+        Without<TokenSelectionVisual>,
+        Without<DamageNumberEffect>,
+        Without<IntentTargetVisual>,
+    ),
+>;
+
+/// Unit-bound stage visuals that travel together during move/push playback.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct UnitPlaybackQueries<'w, 's> {
+    units: UnitVisualQuery<'w, 's>,
+    footprints: FootprintVisualQuery<'w, 's>,
+    selections: SelectionVisualQuery<'w, 's>,
+    intent_targets: IntentTargetVisualQuery<'w, 's>,
+    reactions: ReactionVisualQuery<'w, 's>,
+}
 
 #[derive(Component)]
 pub(crate) struct DamageNumberEffect {
@@ -102,22 +145,14 @@ pub(crate) fn play_battle_events(
     mut queue: ResMut<BattleEventQueue>,
     mut playback: ResMut<EventPlayback>,
     mut recent_log: ResMut<RecentBattleLog>,
-    mut unit_visuals: UnitVisualQuery,
-    mut footprint_visuals: FootprintVisualQuery,
-    mut selection_visuals: SelectionVisualQuery,
+    mut unit_queries: UnitPlaybackQueries,
     mut effects: EventEffectQuery,
     mut damage_numbers: DamageNumberQuery,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
         timer.tick(time.delta());
         let progress = timer.fraction();
-        animate_unit_event(
-            event,
-            progress,
-            &mut unit_visuals,
-            &mut footprint_visuals,
-            &mut selection_visuals,
-        );
+        animate_unit_event(event, progress, &mut unit_queries);
         animate_effects(progress, &mut effects);
         animate_damage_numbers(progress, &mut damage_numbers);
         timer.is_finished()
@@ -142,22 +177,26 @@ pub(crate) fn play_battle_events(
     recent_log.push(format_event(&event, &battle.0));
 
     if let Some(parent) = stage_parent(&stages, &roots) {
-        spawn_event_effect(&mut commands, parent, &event, &battle, &ui_assets);
+        spawn_event_effect(
+            &mut commands,
+            parent,
+            &event,
+            &battle,
+            &unit_queries.units,
+            &ui_assets,
+        );
     }
     if let BattleEvent::DamageApplied { target, amount, .. } = &event
         && let Some(hud_root) = hud_roots.iter().next()
         && let Some(unit) = battle.0.unit(*target)
     {
-        let origin = iso_center(unit.position) + Vec2::new(0.0, -TOKEN_HEIGHT - 10.0);
+        let center = rendered_stage_center(&unit_queries.units, *target)
+            .map(|stage_center| stage_center + battle_stage_rect().min)
+            .unwrap_or_else(|| iso_center(unit.position));
+        let origin = center + Vec2::new(0.0, -TOKEN_HEIGHT - 10.0);
         spawn_damage_number(&mut commands, hud_root, &ui_assets.fonts, origin, *amount);
     }
-    animate_unit_event(
-        &event,
-        0.0,
-        &mut unit_visuals,
-        &mut footprint_visuals,
-        &mut selection_visuals,
-    );
+    animate_unit_event(&event, 0.0, &mut unit_queries);
     playback.current = Some((
         event.clone(),
         Timer::new(event_duration(&event), TimerMode::Once),
@@ -200,45 +239,109 @@ fn selection_position(position: crate::domain::board::GridPos) -> Vec2 {
     Vec2::new(center.x - 56.0, center.y - 28.0)
 }
 
+/// `IntentTargetVisual` markers sit on the same 112x56 diamond footprint as
+/// the selection ring.
+fn intent_target_position(position: crate::domain::board::GridPos) -> Vec2 {
+    selection_position(position)
+}
+
+fn reaction_position(position: crate::domain::board::GridPos) -> Vec2 {
+    let center = stage_point(position);
+    Vec2::new(center.x - 16.0, center.y - 64.0)
+}
+
+/// Continuous sibling depth along the from/to slide; `token_depth` is linear
+/// in `x + y`, so lerping the endpoint depths tracks the rendered position.
+fn animated_token_depth(
+    from: crate::domain::board::GridPos,
+    to: crate::domain::board::GridPos,
+    eased: f32,
+) -> i32 {
+    let from = token_depth(from) as f32;
+    (from + (token_depth(to) as f32 - from) * eased).round() as i32
+}
+
+/// Stage-local center of the card currently rendered for `unit`. Combat
+/// feedback must land where the token is drawn; the domain position has
+/// already advanced past pushes queued behind the event being played.
+fn rendered_stage_center(visuals: &UnitVisualQuery<'_, '_>, unit: UnitId) -> Option<Vec2> {
+    visuals.iter().find_map(|(visual, node, ..)| {
+        if visual.0 != unit {
+            return None;
+        }
+        match (node.left, node.top) {
+            (Val::Px(left), Val::Px(top)) => Some(Vec2::new(
+                left + TOKEN_WIDTH * 0.5,
+                top + TOKEN_HEIGHT + 4.0,
+            )),
+            _ => None,
+        }
+    })
+}
+
 fn animate_unit_event(
     event: &BattleEvent,
     progress: f32,
-    visuals: &mut UnitVisualQuery<'_, '_>,
-    footprints: &mut FootprintVisualQuery<'_, '_>,
-    selections: &mut SelectionVisualQuery<'_, '_>,
+    queries: &mut UnitPlaybackQueries<'_, '_>,
 ) {
     let eased = progress * progress * (3.0 - 2.0 * progress);
     if let BattleEvent::UnitMoved { unit, from, to } | BattleEvent::UnitPushed { unit, from, to } =
         event
     {
-        // Footprint and selection are flat stage siblings, not card children,
-        // so they must travel the same from/to path while input is locked.
-        for (footprint, mut node) in footprints.iter_mut() {
+        // Footprint, selection, and unit-attached markers are flat stage
+        // siblings, not card children, so they must travel the same from/to
+        // path while input is locked. ZIndex follows the animated depth so
+        // the moving token re-sorts against blockers mid-slide instead of
+        // snapping when the resting sync unlocks.
+        let depth = animated_token_depth(*from, *to, eased);
+        for (footprint, mut node, zindex) in queries.footprints.iter_mut() {
             if footprint.0 == *unit {
                 let current = footprint_position(*from).lerp(footprint_position(*to), eased);
                 node.left = px(current.x);
                 node.top = px(current.y);
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(depth - 1);
+                }
             }
         }
-        for (selection, mut node) in selections.iter_mut() {
+        for (selection, mut node, zindex) in queries.selections.iter_mut() {
             if selection.0 == *unit {
                 let current = selection_position(*from).lerp(selection_position(*to), eased);
+                node.left = px(current.x);
+                node.top = px(current.y);
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(depth);
+                }
+            }
+        }
+        for (marker, mut node) in queries.intent_targets.iter_mut() {
+            if marker.target == *unit {
+                let current =
+                    intent_target_position(*from).lerp(intent_target_position(*to), eased);
+                node.left = px(current.x);
+                node.top = px(current.y);
+            }
+        }
+        for (marker, mut node) in queries.reactions.iter_mut() {
+            if marker.unit == *unit {
+                let current = reaction_position(*from).lerp(reaction_position(*to), eased);
                 node.left = px(current.x);
                 node.top = px(current.y);
             }
         }
     }
-    for (visual, mut node, mut transform, mut visibility) in visuals.iter_mut() {
+    for (visual, mut node, mut transform, mut visibility, zindex) in queries.units.iter_mut() {
         match event {
             BattleEvent::UnitMoved { unit, from, to }
             | BattleEvent::UnitPushed { unit, from, to }
                 if *unit == visual.0 =>
             {
-                let from = node_position(*from);
-                let to = node_position(*to);
-                let current = from.lerp(to, eased);
+                let current = node_position(*from).lerp(node_position(*to), eased);
                 node.left = px(current.x);
                 node.top = px(current.y);
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(animated_token_depth(*from, *to, eased));
+                }
             }
             BattleEvent::AttackRolled {
                 attacker,
@@ -330,29 +433,34 @@ fn spawn_event_effect(
     parent: Entity,
     event: &BattleEvent,
     battle: &BattleRuntime,
+    visuals: &UnitVisualQuery<'_, '_>,
     ui_assets: &UiAssets,
 ) {
-    let position = match event {
+    let center = match event {
         BattleEvent::AttackHitEmpty { cell, .. }
         | BattleEvent::ExplosionTriggered { position: cell, .. }
         | BattleEvent::HazardTriggered { position: cell, .. }
         | BattleEvent::ExplosiveDamaged { position: cell, .. }
         | BattleEvent::CollisionOccurred {
             blocked_at: cell, ..
-        } => Some(*cell),
+        } => Some(stage_point(*cell)),
         BattleEvent::AttackRolled {
             target, hit: true, ..
         }
         | BattleEvent::DamageApplied { target, .. }
         | BattleEvent::UnitKnockedOut { unit: target, .. } => {
-            battle.0.unit(*target).map(|unit| unit.position)
+            rendered_stage_center(visuals, *target).or_else(|| {
+                battle
+                    .0
+                    .unit(*target)
+                    .map(|unit| stage_point(unit.position))
+            })
         }
         _ => None,
     };
-    let Some(position) = position else {
+    let Some(center) = center else {
         return;
     };
-    let center = stage_point(position);
     let icon = match event {
         BattleEvent::ExplosionTriggered { .. } => theme::ICON_ATTACK,
         BattleEvent::HazardTriggered { .. } => theme::ICON_GUARD,
@@ -386,18 +494,17 @@ fn spawn_event_effect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mission::mission_one::mission_one;
+    use crate::domain::combat::DamageSource;
+    use crate::domain::model::WeaponId;
+    use crate::mission::mission_one::{ids, mission_one};
     use bevy::ecs::system::RunSystemOnce;
+    use bevy::time::TimeUpdateStrategy;
 
     fn animate_damage_numbers_halfway(mut damage_numbers: DamageNumberQuery) {
         animate_damage_numbers(0.5, &mut damage_numbers);
     }
 
-    fn animate_move_halfway(
-        mut visuals: UnitVisualQuery,
-        mut footprints: FootprintVisualQuery,
-        mut selections: SelectionVisualQuery,
-    ) {
+    fn animate_move_halfway(mut queries: UnitPlaybackQueries) {
         animate_unit_event(
             &BattleEvent::UnitMoved {
                 unit: crate::domain::model::UnitId(1),
@@ -405,9 +512,7 @@ mod tests {
                 to: crate::domain::board::GridPos::new(3, 1),
             },
             0.5,
-            &mut visuals,
-            &mut footprints,
-            &mut selections,
+            &mut queries,
         );
     }
 
@@ -465,6 +570,8 @@ mod tests {
     fn move_animation_carries_footprint_and_selection_with_the_card() {
         let mut app = App::new();
         let unit = crate::domain::model::UnitId(1);
+        let from = crate::domain::board::GridPos::new(1, 1);
+        let to = crate::domain::board::GridPos::new(3, 1);
         let card = app
             .world_mut()
             .spawn((
@@ -474,6 +581,7 @@ mod tests {
                     ..default()
                 },
                 UiTransform::IDENTITY,
+                ZIndex(token_depth(from)),
             ))
             .id();
         let footprint = app
@@ -484,12 +592,40 @@ mod tests {
                     position_type: PositionType::Absolute,
                     ..default()
                 },
+                ZIndex(token_depth(from) - 1),
             ))
             .id();
         let selection = app
             .world_mut()
             .spawn((
                 TokenSelectionVisual(unit),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                ZIndex(token_depth(from)),
+            ))
+            .id();
+        let intent_target = app
+            .world_mut()
+            .spawn((
+                IntentTargetVisual {
+                    attacker: crate::domain::model::UnitId(2),
+                    target: unit,
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+            ))
+            .id();
+        let reaction = app
+            .world_mut()
+            .spawn((
+                ReactionVisual {
+                    unit,
+                    reaction: crate::domain::model::Reaction::Guard,
+                },
                 Node {
                     position_type: PositionType::Absolute,
                     ..default()
@@ -501,8 +637,6 @@ mod tests {
             .run_system_once(animate_move_halfway)
             .unwrap();
 
-        let from = crate::domain::board::GridPos::new(1, 1);
-        let to = crate::domain::board::GridPos::new(3, 1);
         let eased = 0.5_f32;
         let card_mid = node_position(from).lerp(node_position(to), eased);
         let card_node = app.world().get::<Node>(card).unwrap();
@@ -516,6 +650,108 @@ mod tests {
         let selection_node = app.world().get::<Node>(selection).unwrap();
         assert_eq!(selection_node.left, px(selection_mid.x));
         assert_eq!(selection_node.top, px(selection_mid.y));
+
+        let depth = animated_token_depth(from, to, eased);
+        assert_eq!(app.world().get::<ZIndex>(card), Some(&ZIndex(depth)));
+        assert_eq!(
+            app.world().get::<ZIndex>(footprint),
+            Some(&ZIndex(depth - 1))
+        );
+        assert_eq!(app.world().get::<ZIndex>(selection), Some(&ZIndex(depth)));
+
+        let intent_mid = intent_target_position(from).lerp(intent_target_position(to), eased);
+        let intent_node = app.world().get::<Node>(intent_target).unwrap();
+        assert_eq!(intent_node.left, px(intent_mid.x));
+        assert_eq!(intent_node.top, px(intent_mid.y));
+        let reaction_mid = reaction_position(from).lerp(reaction_position(to), eased);
+        let reaction_node = app.world().get::<Node>(reaction).unwrap();
+        assert_eq!(reaction_node.left, px(reaction_mid.x));
+        assert_eq!(reaction_node.top, px(reaction_mid.y));
+    }
+
+    #[test]
+    fn unit_target_feedback_anchors_to_the_rendered_token_position() {
+        // The domain applies an attack's damage and push before playback sees
+        // the events, so `unit.position` is already the post-push cell. The
+        // on-stage card still renders at the pre-push cell; impact icons and
+        // damage numbers must anchor to that rendered position.
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        let rendered_cell = battle.unit(ids::VANGUARD).unwrap().position;
+        battle
+            .move_unit(ids::VANGUARD, crate::domain::board::GridPos::new(4, 8))
+            .unwrap();
+
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+                0.25,
+            )))
+            .insert_resource(BattleRuntime(battle))
+            .insert_resource(UiAssets {
+                key_art: Handle::default(),
+                briefing_art: Handle::default(),
+                vanguard_art: Handle::default(),
+                gunner_art: Handle::default(),
+                interceptor_art: Handle::default(),
+                icons: Handle::default(),
+                board: Handle::default(),
+                fonts: std::array::from_fn(|_| Handle::default()),
+            })
+            .insert_resource(BattleEventQueue(std::collections::VecDeque::from([
+                BattleEvent::AttackRolled {
+                    attacker: ids::VANGUARD,
+                    weapon: WeaponId(0),
+                    target: ids::VANGUARD,
+                    roll: 40,
+                    hit: true,
+                    critical_roll: None,
+                    critical: false,
+                },
+                BattleEvent::DamageApplied {
+                    target: ids::VANGUARD,
+                    amount: 4,
+                    remaining_hp: 9,
+                    source: DamageSource::Collision,
+                },
+            ])))
+            .init_resource::<EventPlayback>()
+            .init_resource::<RecentBattleLog>()
+            .add_systems(Update, play_battle_events);
+        app.world_mut().spawn(BattleStage);
+        app.world_mut().spawn(HudRoot);
+        let rendered = node_position(rendered_cell);
+        app.world_mut().spawn((
+            UnitVisual(ids::VANGUARD),
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(rendered.x),
+                top: px(rendered.y),
+                ..default()
+            },
+            UiTransform::IDENTITY,
+        ));
+
+        app.update();
+
+        let center = stage_point(rendered_cell);
+        let mut effects = app.world_mut().query_filtered::<&Node, With<EventEffect>>();
+        let effect_node = effects.single(app.world()).unwrap();
+        assert_eq!(effect_node.left, px(center.x - 32.0));
+        assert_eq!(effect_node.top, px(center.y - 32.0));
+
+        app.update();
+
+        let origin = iso_center(rendered_cell) + Vec2::new(0.0, -TOKEN_HEIGHT - 10.0);
+        let mut numbers = app.world_mut().query::<(&DamageNumberEffect, &Node)>();
+        let (number, node) = numbers.single(app.world()).unwrap();
+        assert_eq!(number.origin, origin);
+        assert_eq!(node.left, px(origin.x));
+        assert_eq!(node.top, px(origin.y));
+        let effect_node = effects.single(app.world()).unwrap();
+        assert_eq!(effect_node.left, px(center.x - 32.0));
+        assert_eq!(effect_node.top, px(center.y - 32.0));
     }
 
     #[test]
