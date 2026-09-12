@@ -19,8 +19,9 @@ use scorpius::{
     mission::{MissionId, mission_definition},
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
-        CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, MenuState, PresentationRoot,
-        TelegraphVisual, TokenFootprintVisual, TokenHpFill, TokenSelectionVisual, UnitVisual,
+        CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, IntentTargetVisual,
+        MenuState, PresentationRoot, ReactionVisual, TelegraphVisual, TokenFootprintVisual,
+        TokenHpFill, TokenSelectionVisual, UnitVisual,
         assets::UiAssets,
         battlefield::{mission_grid_cells, setup_mission_scene},
         interaction::{
@@ -28,7 +29,8 @@ use scorpius::{
             handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
         },
         sync::{
-            apply_unit_transforms, reconcile_extraction_marker, reconcile_telegraph_markers,
+            apply_unit_transforms, reconcile_extraction_marker, reconcile_intent_guides,
+            reconcile_reaction_markers, reconcile_telegraph_markers, sync_auxiliary_transforms,
             sync_cell_highlights, sync_token_cards,
         },
         theme,
@@ -253,6 +255,99 @@ fn token_shadow_and_selection_footprints_follow_domain_positions() {
     assert_eq!(app.world().get::<ZIndex>(card), Some(&ZIndex(depth)));
     assert_eq!(app.world().get::<ZIndex>(shadow), Some(&ZIndex(depth - 1)));
     assert_eq!(app.world().get::<ZIndex>(active_ring), Some(&ZIndex(depth)));
+}
+
+#[test]
+fn unit_bound_markers_derive_depth_from_their_units_cell() {
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    battle.begin_activation(ids::GUNNER).unwrap();
+    battle
+        .choose_reaction(ids::GUNNER, Reaction::Guard)
+        .unwrap();
+
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(battle))
+        .insert_resource(blank_ui_assets())
+        .add_systems(
+            Update,
+            (
+                reconcile_intent_guides,
+                reconcile_reaction_markers,
+                sync_auxiliary_transforms,
+            )
+                .chain(),
+        );
+    app.world_mut().spawn(PresentationRoot);
+    app.update();
+
+    let assert_intent_depths = |app: &mut App| {
+        let markers: Vec<(UnitId, ZIndex)> = {
+            let mut query = app.world_mut().query::<(&IntentTargetVisual, &ZIndex)>();
+            query
+                .iter(app.world())
+                .map(|(marker, zindex)| (marker.target, *zindex))
+                .collect()
+        };
+        assert!(!markers.is_empty(), "committed intents mark their targets");
+        for (target, zindex) in markers {
+            let cell = app
+                .world()
+                .resource::<BattleRuntime>()
+                .0
+                .unit(target)
+                .unwrap()
+                .position;
+            assert_eq!(
+                zindex,
+                ZIndex(scorpius::presentation::layout::token_depth(cell) - 1)
+            );
+        }
+    };
+    assert_intent_depths(&mut app);
+
+    let gunner_position = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .unit(ids::GUNNER)
+        .unwrap()
+        .position;
+    let mut reactions = app.world_mut().query::<(&ReactionVisual, &ZIndex)>();
+    let (marker, zindex) = reactions.single(app.world()).unwrap();
+    assert_eq!(marker.unit, ids::GUNNER);
+    assert_eq!(
+        *zindex,
+        ZIndex(scorpius::presentation::layout::token_depth(gunner_position) + 1)
+    );
+
+    let destination = app
+        .world()
+        .resource::<BattleRuntime>()
+        .0
+        .reachable_cells(ids::GUNNER)
+        .unwrap()
+        .into_iter()
+        .find(|cell| cell.x + cell.y != gunner_position.x + gunner_position.y)
+        .expect("a reachable cell at a different depth");
+    app.world_mut()
+        .resource_mut::<BattleRuntime>()
+        .0
+        .move_unit(ids::GUNNER, destination)
+        .unwrap();
+    app.update();
+
+    let mut reactions = app.world_mut().query::<(&ReactionVisual, &ZIndex, &Node)>();
+    let (_, zindex, node) = reactions.single(app.world()).unwrap();
+    assert_eq!(
+        *zindex,
+        ZIndex(scorpius::presentation::layout::token_depth(destination) + 1)
+    );
+    let center = scorpius::presentation::layout::iso_center(destination)
+        - scorpius::presentation::layout::battle_stage_rect().min;
+    assert_eq!(node.left, px(center.x - 16.0));
+    assert_eq!(node.top, px(center.y - 64.0));
+    assert_intent_depths(&mut app);
 }
 
 #[test]

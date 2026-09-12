@@ -371,7 +371,7 @@ pub fn reconcile_intent_guides(
             .spawn((
                 IntentTargetVisual { attacker, target },
                 marker_node(stage_point(target_unit.position), 112.0, 56.0, 0.0),
-                ZIndex(22),
+                ZIndex(token_depth(target_unit.position) - 1),
                 Pickable::IGNORE,
             ))
             .id();
@@ -494,7 +494,7 @@ pub fn reconcile_reaction_markers(
             .spawn((
                 ReactionVisual { unit, reaction },
                 marker_node(stage_point(unit_state.position), 32.0, 32.0, -48.0),
-                ZIndex(23),
+                ZIndex(token_depth(unit_state.position) + 1),
                 Pickable::IGNORE,
             ))
             .id();
@@ -519,24 +519,26 @@ pub fn reconcile_reaction_markers(
 pub fn sync_auxiliary_transforms(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
-    mut targets: Query<(&IntentTargetVisual, &mut Node), Without<ReactionVisual>>,
-    mut reactions: Query<(&ReactionVisual, &mut Node), Without<IntentTargetVisual>>,
+    mut targets: Query<(&IntentTargetVisual, &mut Node, &mut ZIndex), Without<ReactionVisual>>,
+    mut reactions: Query<(&ReactionVisual, &mut Node, &mut ZIndex), Without<IntentTargetVisual>>,
 ) {
     if playback.is_some_and(|playback| playback.input_locked) {
         return;
     }
-    for (marker, mut node) in &mut targets {
+    for (marker, mut node, mut zindex) in &mut targets {
         if let Some(unit) = battle.0.unit(marker.target) {
             let center = stage_point(unit.position);
             node.left = px(center.x - 56.0);
             node.top = px(center.y - 28.0);
+            *zindex = ZIndex(token_depth(unit.position) - 1);
         }
     }
-    for (marker, mut node) in &mut reactions {
+    for (marker, mut node, mut zindex) in &mut reactions {
         if let Some(unit) = battle.0.unit(marker.unit) {
             let center = stage_point(unit.position);
             node.left = px(center.x - 16.0);
             node.top = px(center.y - 48.0 - 16.0);
+            *zindex = ZIndex(token_depth(unit.position) + 1);
         }
     }
 }
