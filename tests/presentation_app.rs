@@ -162,6 +162,17 @@ fn token_shadow_and_selection_footprints_follow_domain_positions() {
             ..default()
         })
         .add_systems(Update, apply_unit_transforms);
+    let card = app
+        .world_mut()
+        .spawn((
+            UnitVisual(ids::VANGUARD),
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            Visibility::Visible,
+        ))
+        .id();
     let shadow = app
         .world_mut()
         .spawn((
@@ -237,6 +248,11 @@ fn token_shadow_and_selection_footprints_follow_domain_positions() {
         app.world().get::<ImageNode>(inspected_ring).unwrap().color,
         theme::BOARD_INSPECTED
     );
+
+    let depth = scorpius::presentation::layout::token_depth(moved_to);
+    assert_eq!(app.world().get::<ZIndex>(card), Some(&ZIndex(depth)));
+    assert_eq!(app.world().get::<ZIndex>(shadow), Some(&ZIndex(depth - 1)));
+    assert_eq!(app.world().get::<ZIndex>(active_ring), Some(&ZIndex(depth)));
 }
 
 #[test]

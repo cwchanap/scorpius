@@ -10,7 +10,7 @@ use super::{
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::{InteractionMode, InteractionState},
-    layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center},
+    layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center, token_depth},
     theme,
 };
 
@@ -70,6 +70,7 @@ type UnitTransformQuery<'w, 's> = Query<
     (
         &'static UnitVisual,
         &'static mut Node,
+        &'static mut ZIndex,
         &'static mut Visibility,
     ),
     (Without<TokenFootprintVisual>, Without<TokenSelectionVisual>),
@@ -80,6 +81,7 @@ type FootprintTransformQuery<'w, 's> = Query<
     (
         &'static TokenFootprintVisual,
         &'static mut Node,
+        &'static mut ZIndex,
         &'static mut Visibility,
     ),
     (Without<UnitVisual>, Without<TokenSelectionVisual>),
@@ -91,6 +93,7 @@ type SelectionFootprintQuery<'w, 's> = Query<
         &'static TokenSelectionVisual,
         &'static mut Node,
         &'static mut ImageNode,
+        &'static mut ZIndex,
         &'static mut Visibility,
     ),
     (Without<UnitVisual>, Without<TokenFootprintVisual>),
@@ -107,11 +110,12 @@ pub fn apply_unit_transforms(
     if playback.is_some_and(|playback| playback.input_locked) {
         return;
     }
-    for (visual, mut node, mut visibility) in &mut visuals {
+    for (visual, mut node, mut zindex, mut visibility) in &mut visuals {
         if let Some(unit) = battle.0.unit(visual.0) {
             let center = stage_point(unit.position);
             node.left = px(center.x - TOKEN_WIDTH * 0.5);
             node.top = px(center.y - TOKEN_HEIGHT - 4.0);
+            *zindex = ZIndex(token_depth(unit.position));
             *visibility = if unit.is_knocked_out() {
                 Visibility::Hidden
             } else {
@@ -119,11 +123,12 @@ pub fn apply_unit_transforms(
             };
         }
     }
-    for (footprint, mut node, mut visibility) in &mut footprints {
+    for (footprint, mut node, mut zindex, mut visibility) in &mut footprints {
         if let Some(unit) = battle.0.unit(footprint.0) {
             let center = stage_point(unit.position);
             node.left = px(center.x - 56.0);
             node.top = px(center.y - 68.0);
+            *zindex = ZIndex(token_depth(unit.position) - 1);
             *visibility = if unit.is_knocked_out() {
                 Visibility::Hidden
             } else {
@@ -134,11 +139,12 @@ pub fn apply_unit_transforms(
     let inspected = interaction
         .as_deref()
         .and_then(|interaction| interaction.inspected_unit);
-    for (footprint, mut node, mut image, mut visibility) in &mut selection_footprints {
+    for (footprint, mut node, mut image, mut zindex, mut visibility) in &mut selection_footprints {
         if let Some(unit) = battle.0.unit(footprint.0) {
             let center = stage_point(unit.position);
             node.left = px(center.x - 56.0);
             node.top = px(center.y - 28.0);
+            *zindex = ZIndex(token_depth(unit.position));
             let tint = if unit.is_knocked_out() {
                 None
             } else if battle.0.active_unit() == Some(unit.id) {
