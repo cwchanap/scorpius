@@ -10,8 +10,8 @@ use crate::domain::{
     battle::BattleState,
     board::GridPos,
     model::{
-        BattleEvent, BattlePhase, Faction, MissionResult, OptionalObjective, PrimaryObjective,
-        Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
+        BattleEvent, BattlePhase, Faction, MAX_WEAPONS_PER_UNIT, MissionResult, OptionalObjective,
+        PrimaryObjective, Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
     },
 };
 use crate::mission::MissionDefinition;
@@ -226,11 +226,11 @@ impl HudSnapshot {
             .active_unit()
             .and_then(|unit| battle.unit(unit))
             .filter(|unit| battle.phase() == BattlePhase::Player && !unit.is_knocked_out());
-        let mut weapon_names = [None; 3];
-        let mut weapon_enabled = [false; 3];
+        let mut weapon_names = [None; MAX_WEAPONS_PER_UNIT];
+        let mut weapon_enabled = [false; MAX_WEAPONS_PER_UNIT];
         let mut weapon_specs = std::array::from_fn(|_| None);
         if let Some(unit) = active {
-            for (slot, weapon_id) in unit.weapons.iter().take(3).enumerate() {
+            for (slot, weapon_id) in unit.weapons.iter().take(MAX_WEAPONS_PER_UNIT).enumerate() {
                 if let Some(weapon) = battle.weapon(*weapon_id) {
                     weapon_names[slot] = Some(weapon.name);
                     let enabled = !unit.activation.acted && unit.en >= weapon.en_cost;

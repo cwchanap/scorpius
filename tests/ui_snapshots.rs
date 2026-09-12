@@ -240,11 +240,60 @@ fn briefing_and_aftermath_keep_authored_data_in_the_screen_tree() {
     let aftermath_actions = actions(&mut app);
     assert!(aftermath_actions.contains(&CampaignUiAction::AdvanceAftermath));
     assert!(!aftermath_actions.contains(&CampaignUiAction::SkipDialogue));
-    assert!(
-        app.world_mut()
-            .query::<&Text>()
-            .iter(app.world())
-            .any(|text| text.0 == "400")
+    let aftermath_texts: Vec<_> = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|text| text.0.clone())
+        .collect();
+    for label in ["BASE", "BONUS", "TOTAL", "CREDITS"] {
+        assert!(
+            aftermath_texts.iter().any(|text| text.as_str() == label),
+            "aftermath receipt must show {label}: {aftermath_texts:?}"
+        );
+    }
+    assert!(aftermath_texts.iter().any(|text| text.as_str() == "300"));
+    assert!(aftermath_texts.iter().any(|text| text.as_str() == "+100"));
+    assert_eq!(
+        aftermath_texts
+            .iter()
+            .filter(|text| text.as_str() == "400")
+            .count(),
+        2,
+        "aftermath TOTAL and CREDITS both read 400: {aftermath_texts:?}"
+    );
+
+    let mut app = fixture_app(CampaignState {
+        next_mission: MissionId::Two,
+        ..CampaignState::new_game()
+    });
+    app.world_mut()
+        .resource_mut::<CampaignRuntime>()
+        .0
+        .last_completion = Some(CompletionReceipt {
+        mission: MissionId::One,
+        base_reward: 300,
+        optional_reward: 0,
+        total_reward: 300,
+        credits_after: 300,
+    });
+    app.insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()));
+    app.add_systems(Update, setup_aftermath_screen);
+    app.update();
+    let base_texts: Vec<_> = app
+        .world_mut()
+        .query::<&Text>()
+        .iter(app.world())
+        .map(|text| text.0.clone())
+        .collect();
+    assert!(base_texts.iter().any(|text| text.as_str() == "+0"));
+    assert_eq!(
+        base_texts
+            .iter()
+            .filter(|text| text.as_str() == "300")
+            .count(),
+        3,
+        "base-only aftermath BASE, TOTAL, and CREDITS all read 300: {base_texts:?}"
     );
 }
 

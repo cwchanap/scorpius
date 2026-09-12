@@ -100,7 +100,7 @@ pub struct DialogueSpeaker;
 pub struct DialogueText;
 
 #[derive(Component)]
-pub struct DialoguePip(pub usize);
+pub struct DialoguePip(pub usize, pub Color);
 
 #[derive(Component)]
 pub struct CampaignStatusText;
@@ -426,11 +426,7 @@ pub fn update_dialogue_screen(
     for (pip, mut node, mut background) in &mut pips {
         let active = pip.0 == cursor.0;
         node.width = px(if active { 22.0 } else { 10.0 });
-        background.0 = if active {
-            super::theme::ACCENT
-        } else {
-            super::theme::BORDER
-        };
+        background.0 = if active { pip.1 } else { super::theme::BORDER };
     }
 }
 

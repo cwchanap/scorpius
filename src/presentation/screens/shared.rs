@@ -312,7 +312,7 @@ pub(crate) fn spawn_dialogue_screen(
                 ..default()
             },
             BackgroundColor(if index == 0 { accent } else { theme::BORDER }),
-            DialoguePip(index),
+            DialoguePip(index, accent),
             Pickable::IGNORE,
             ChildOf(pips),
         ));

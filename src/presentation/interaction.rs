@@ -23,6 +23,7 @@ use super::{
 };
 
 pub use super::battle_menu::MenuState;
+use super::battle_menu::{MenuAction, apply_menu_action};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum InteractionMode {
@@ -395,6 +396,19 @@ pub(crate) fn handle_keyboard_shortcuts(
     asset_status: Res<AssetLoadStatus>,
 ) {
     if !stage_event_ready(&asset_status, &playback) {
+        return;
+    }
+    let menu_action = if keyboard.just_pressed(KeyCode::KeyA) {
+        Some(MenuAction::Open(MenuState::Weapons))
+    } else if keyboard.just_pressed(KeyCode::KeyS) {
+        Some(MenuAction::Open(MenuState::Stances))
+    } else if keyboard.just_pressed(KeyCode::Backspace) {
+        Some(MenuAction::Back)
+    } else {
+        None
+    };
+    if let Some(menu_action) = menu_action {
+        apply_menu_action(&battle.0, &mut interaction, menu_action);
         return;
     }
     let action = if keyboard.just_pressed(KeyCode::KeyM) {

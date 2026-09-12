@@ -399,7 +399,7 @@ fn spawn_token(
             position_type: PositionType::Absolute,
             left: px(0.0),
             top: px(0.0),
-            width: percent(100.0 * f32::from(unit.hp.max(0)) / f32::from(unit.stats.max_hp)),
+            width: percent(100.0 * f32::from(unit.hp.max(0)) / f32::from(unit.stats.max_hp.max(1))),
             height: px(6.0),
             ..default()
         },

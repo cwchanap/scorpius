@@ -4,6 +4,8 @@ use bevy::{
     text::{LetterSpacing, LineHeight},
 };
 
+use crate::domain::model::MAX_WEAPONS_PER_UNIT;
+
 use super::{
     BattleRuntime, EventPlayback,
     assets::UiAssets,
@@ -164,7 +166,7 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         ))
         .id();
     spawn_back_row(commands, weapons, assets, theme::MENU_TARGET_RECT);
-    for slot in 0..3 {
+    for slot in 0..MAX_WEAPONS_PER_UNIT {
         spawn_weapon_row(
             commands,
             weapons,
@@ -471,6 +473,7 @@ fn spawn_nav_row(
 ) {
     let row = commands
         .spawn((
+            Button,
             MenuButton(menu),
             targeting_row_node(54.0),
             BackgroundColor(Color::srgb_u8(10, 26, 38)),
@@ -804,6 +807,7 @@ pub enum WeaponTag {
 fn spawn_back_row(commands: &mut Commands, parent: Entity, assets: &UiAssets, companion: Rect) {
     let row = commands
         .spawn((
+            Button,
             MenuButton(MenuAction::Back),
             targeting_row_node(44.0),
             BackgroundColor(Color::srgb_u8(10, 26, 38)),

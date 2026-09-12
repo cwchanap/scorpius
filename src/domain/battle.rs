@@ -5,9 +5,10 @@ use super::{
     combat::DamageSource,
     enemy::AttackIntent,
     model::{
-        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MissionResult,
-        MissionRules, ObjectiveProgress, OptionalObjective, PilotSkillState, PrimaryObjective,
-        Reaction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId, WeaponSpec,
+        ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MAX_WEAPONS_PER_UNIT,
+        MissionResult, MissionRules, ObjectiveProgress, OptionalObjective, PilotSkillState,
+        PrimaryObjective, Reaction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId,
+        WeaponSpec,
     },
     rng::BattleRng,
 };
@@ -37,9 +38,19 @@ impl BattleState {
         rules: MissionRules,
         seed: u64,
     ) -> Self {
+        let units: BTreeMap<UnitId, UnitState> =
+            units.into_iter().map(|unit| (unit.id, unit)).collect();
+        for unit in units.values() {
+            assert!(
+                unit.weapons.len() <= MAX_WEAPONS_PER_UNIT,
+                "{} carries {} weapons (max {MAX_WEAPONS_PER_UNIT})",
+                unit.name,
+                unit.weapons.len()
+            );
+        }
         Self {
             board,
-            units: units.into_iter().map(|unit| (unit.id, unit)).collect(),
+            units,
             weapons: weapons
                 .into_iter()
                 .map(|weapon| (weapon.id, weapon))
@@ -621,6 +632,42 @@ mod tests {
                 from: GridPos::new(1, 1),
                 to: GridPos::new(1, 2),
             }]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "weapons (max 3)")]
+    fn battle_rejects_a_unit_carrying_more_than_three_weapons() {
+        let stats = UnitStats {
+            max_hp: 20,
+            armor: 3,
+            movement: 3,
+            accuracy: 78,
+            evasion: 5,
+            max_en: 7,
+        };
+        BattleState::new(
+            BoardState::empty(3, 3),
+            [UnitState {
+                id: UnitId(1),
+                name: "Overloaded",
+                archetype: UnitArchetype::Vanguard,
+                faction: Faction::Player,
+                stats,
+                hp: stats.max_hp,
+                en: stats.max_en,
+                position: GridPos::new(1, 1),
+                weapons: vec![WeaponId(1), WeaponId(2), WeaponId(3), WeaponId(4)],
+                activation: ActivationState::default(),
+                reaction: None,
+            }],
+            [],
+            MissionRules {
+                primary: PrimaryObjective::EliminateAllEnemies,
+                optional: OptionalObjective::Turnabout,
+                opening_plan: &[],
+            },
+            0,
         );
     }
 

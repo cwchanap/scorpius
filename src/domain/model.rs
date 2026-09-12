@@ -74,6 +74,10 @@ pub struct ActivationState {
     pub finished: bool,
 }
 
+/// A unit may carry at most this many weapons; presentation exposes one row
+/// per slot and commands address slots by index.
+pub const MAX_WEAPONS_PER_UNIT: usize = 3;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UnitState {
     pub id: UnitId,

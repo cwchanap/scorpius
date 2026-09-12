@@ -185,7 +185,7 @@ fn animate_unit_event(event: &BattleEvent, progress: f32, visuals: &mut UnitVisu
                 }
             }
             BattleEvent::DamageApplied { target, .. } if *target == visual.0 => {
-                transform.translation.x = px((progress * PI * 6.0).sin() * 0.08);
+                transform.translation.x = px((progress * PI * 6.0).sin() * 6.0);
             }
             BattleEvent::UnitKnockedOut { unit, .. } if *unit == visual.0 => {
                 *visibility = Visibility::Visible;
@@ -301,7 +301,6 @@ fn spawn_event_effect(
                 ..default()
             },
             UiTransform::IDENTITY,
-            BackgroundColor(Color::srgba(0.8, 0.1, 0.1, 0.9)),
             EventEffect,
             Pickable::IGNORE,
             ChildOf(parent),
