@@ -11,7 +11,9 @@ use super::{
     TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::StatusMessage,
-    layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center, token_depth},
+    layout::{
+        STAGE_EFFECT_DEPTH, TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center, token_depth,
+    },
     theme,
     ui::{HudRoot, format_event},
 };
@@ -65,7 +67,11 @@ type SelectionVisualQuery<'w, 's> = Query<
 type IntentTargetVisualQuery<'w, 's> = Query<
     'w,
     's,
-    (&'static IntentTargetVisual, &'static mut Node),
+    (
+        &'static IntentTargetVisual,
+        &'static mut Node,
+        Option<&'static mut ZIndex>,
+    ),
     (
         Without<UnitVisual>,
         Without<TokenFootprintVisual>,
@@ -76,7 +82,11 @@ type IntentTargetVisualQuery<'w, 's> = Query<
 type ReactionVisualQuery<'w, 's> = Query<
     'w,
     's,
-    (&'static ReactionVisual, &'static mut Node),
+    (
+        &'static ReactionVisual,
+        &'static mut Node,
+        Option<&'static mut ZIndex>,
+    ),
     (
         Without<UnitVisual>,
         Without<TokenFootprintVisual>,
@@ -314,19 +324,25 @@ fn animate_unit_event(
                 }
             }
         }
-        for (marker, mut node) in queries.intent_targets.iter_mut() {
+        for (marker, mut node, zindex) in queries.intent_targets.iter_mut() {
             if marker.target == *unit {
                 let current =
                     intent_target_position(*from).lerp(intent_target_position(*to), eased);
                 node.left = px(current.x);
                 node.top = px(current.y);
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(depth - 1);
+                }
             }
         }
-        for (marker, mut node) in queries.reactions.iter_mut() {
+        for (marker, mut node, zindex) in queries.reactions.iter_mut() {
             if marker.unit == *unit {
                 let current = reaction_position(*from).lerp(reaction_position(*to), eased);
                 node.left = px(current.x);
                 node.top = px(current.y);
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(depth + 1);
+                }
             }
         }
     }
@@ -480,6 +496,7 @@ fn spawn_event_effect(
             },
             UiTransform::IDENTITY,
             EventEffect,
+            ZIndex(STAGE_EFFECT_DEPTH),
             Pickable::IGNORE,
             ChildOf(parent),
         ))
@@ -617,6 +634,7 @@ mod tests {
                     position_type: PositionType::Absolute,
                     ..default()
                 },
+                ZIndex(token_depth(from) - 1),
             ))
             .id();
         let reaction = app
@@ -630,6 +648,7 @@ mod tests {
                     position_type: PositionType::Absolute,
                     ..default()
                 },
+                ZIndex(token_depth(from) + 1),
             ))
             .id();
 
@@ -663,10 +682,18 @@ mod tests {
         let intent_node = app.world().get::<Node>(intent_target).unwrap();
         assert_eq!(intent_node.left, px(intent_mid.x));
         assert_eq!(intent_node.top, px(intent_mid.y));
+        assert_eq!(
+            app.world().get::<ZIndex>(intent_target),
+            Some(&ZIndex(depth - 1))
+        );
         let reaction_mid = reaction_position(from).lerp(reaction_position(to), eased);
         let reaction_node = app.world().get::<Node>(reaction).unwrap();
         assert_eq!(reaction_node.left, px(reaction_mid.x));
         assert_eq!(reaction_node.top, px(reaction_mid.y));
+        assert_eq!(
+            app.world().get::<ZIndex>(reaction),
+            Some(&ZIndex(depth + 1))
+        );
     }
 
     #[test]
@@ -736,10 +763,13 @@ mod tests {
         app.update();
 
         let center = stage_point(rendered_cell);
-        let mut effects = app.world_mut().query_filtered::<&Node, With<EventEffect>>();
-        let effect_node = effects.single(app.world()).unwrap();
+        let mut effects = app
+            .world_mut()
+            .query_filtered::<(&Node, &ZIndex), With<EventEffect>>();
+        let (effect_node, effect_depth) = effects.single(app.world()).unwrap();
         assert_eq!(effect_node.left, px(center.x - 32.0));
         assert_eq!(effect_node.top, px(center.y - 32.0));
+        assert_eq!(*effect_depth, ZIndex(STAGE_EFFECT_DEPTH));
 
         app.update();
 
@@ -749,7 +779,7 @@ mod tests {
         assert_eq!(number.origin, origin);
         assert_eq!(node.left, px(origin.x));
         assert_eq!(node.top, px(origin.y));
-        let effect_node = effects.single(app.world()).unwrap();
+        let (effect_node, _) = effects.single(app.world()).unwrap();
         assert_eq!(effect_node.left, px(center.x - 32.0));
         assert_eq!(effect_node.top, px(center.y - 32.0));
     }

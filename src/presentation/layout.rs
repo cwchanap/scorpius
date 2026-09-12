@@ -138,6 +138,10 @@ pub const fn token_depth(pos: GridPos) -> i32 {
     11 + (depth_key(pos) as i32) * 3
 }
 
+/// Foreground layer above the deepest blocker/token slice; transient combat
+/// feedback uses it so impact icons always overlay the stage stack.
+pub const STAGE_EFFECT_DEPTH: i32 = token_depth(GridPos::new(8, 8)) + 1;
+
 /// Maps a stage-local pixel point to one of the authored 9×9 diamonds.
 ///
 /// The inclusive edge check intentionally resolves a shared edge by the
