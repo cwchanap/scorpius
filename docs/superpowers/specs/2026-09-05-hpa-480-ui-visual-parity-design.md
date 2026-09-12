@@ -4,7 +4,7 @@
 **Revised:** 2026-09-07 for the supplied 2.5D gameplay layout and Bevy UI mechanism review  
 **Issue:** [HPA-480](https://linear.app/cwchanap/issue/HPA-480)  
 **Branch:** `hpa-480-ui-visual-parity`  
-**Status:** Design for implementation; native UI parity is not yet implemented or verified.  
+**Status:** Implementation complete; native campaign acceptance passed per [hpa-480.md](../../validation/hpa-480.md). Source-aligned visual comparison against the supplied reference remains the open gate.  
 **Baseline:** `d981682840eb9147ba9eb7f7c56b2ceae88a3aed` on `main`.  
 **Plan:** [Implementation plan](../plans/2026-09-05-hpa-480-ui-visual-parity.md)  
 **Reference record:** [Reference manifest](../../references/hpa-480/reference-manifest.json)

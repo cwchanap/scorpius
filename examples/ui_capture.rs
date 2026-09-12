@@ -21,7 +21,7 @@ use bevy::{
     camera::RenderTarget,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
-    render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk},
+    render::view::screenshot::{Screenshot, ScreenshotCaptured},
     time::{Time, TimeUpdateStrategy, Virtual},
     window::PrimaryWindow,
 };
@@ -350,9 +350,7 @@ fn drive_capture(world: &mut World) {
     if !screen_is_built(world, screen) {
         return;
     }
-    if !fixture_has_asset_override(fixture)
-        && !matches!(world.resource::<AssetLoadStatus>(), AssetLoadStatus::Ready)
-    {
+    if !capture_assets_ready(world, fixture) {
         return;
     }
 
@@ -494,9 +492,7 @@ fn finish_capture(world: &mut World) {
     if !screen_is_built(world, screen) {
         return;
     }
-    if !fixture_has_asset_override(fixture)
-        && !matches!(world.resource::<AssetLoadStatus>(), AssetLoadStatus::Ready)
-    {
+    if !capture_assets_ready(world, fixture) {
         return;
     }
 
@@ -541,34 +537,40 @@ fn finish_capture(world: &mut World) {
         output.display()
     );
     let screenshot = world.spawn(Screenshot::image(target_image)).id();
-    world.entity_mut(screenshot).observe(save_to_disk(output));
-    world.entity_mut(screenshot).observe(capture_complete);
+    world.entity_mut(screenshot).observe(save_capture(output));
     world.resource_mut::<CaptureRun>().capture_requested = true;
 }
 
-fn capture_complete(event: On<ScreenshotCaptured>, mut run: ResMut<CaptureRun>) {
-    match event.image.clone().try_into_dynamic() {
-        Ok(image) => {
-            let image = image.to_rgb8();
-            if image.pixels().all(|pixel| pixel.0 == [0, 0, 0]) {
-                eprintln!(
-                    "capture failed: screenshot output={} is uniformly black; the native window must be visible and not fully occluded",
-                    run.output.display()
-                );
-                run.capture_failed = true;
-            } else {
-                eprintln!("capture screenshot ready: output={}", run.output.display());
-            }
-        }
-        Err(error) => {
+/// Validate, encode, and save the capture in one observer so a missing or
+/// invalid file can never be reported as a successful capture.
+fn save_capture(output: PathBuf) -> impl FnMut(On<ScreenshotCaptured>, ResMut<CaptureRun>) {
+    move |event, mut run| {
+        run.capture_failed = true;
+        let Ok(image) = event.image.clone().try_into_dynamic() else {
             eprintln!(
-                "capture failed: screenshot output={} could not be decoded: {error:?}",
-                run.output.display()
+                "capture failed: screenshot output={} could not be decoded",
+                output.display()
             );
-            run.capture_failed = true;
+            run.capture_finished = true;
+            return;
+        };
+        let image = image.to_rgb8();
+        if image.pixels().all(|pixel| pixel.0 == [0, 0, 0]) {
+            eprintln!(
+                "capture failed: screenshot output={} is uniformly black; the native window must be visible and not fully occluded",
+                output.display()
+            );
+        } else if let Err(error) = image.save(&output) {
+            eprintln!(
+                "capture failed: screenshot output={} could not be saved: {error}",
+                output.display()
+            );
+        } else {
+            eprintln!("capture screenshot ready: output={}", output.display());
+            run.capture_failed = false;
         }
+        run.capture_finished = true;
     }
-    run.capture_finished = true;
 }
 
 fn exit_after_capture(run: Res<CaptureRun>, mut exit: MessageWriter<AppExit>) {
@@ -598,6 +600,26 @@ fn screen_is_built(world: &mut World, screen: GameScreen) -> bool {
             .iter(world)
             .next()
             .is_some(),
+    }
+}
+
+/// Gate the capture on production asset readiness. `Failed` never recovers in
+/// `monitor_mission_assets`, so a normal fixture exits with an error instead
+/// of waiting forever; explicit `SetAssetStatus` fixtures keep their override.
+fn capture_assets_ready(world: &mut World, fixture: &CaptureFixture) -> bool {
+    if fixture_has_asset_override(fixture) {
+        return true;
+    }
+    match world.resource::<AssetLoadStatus>() {
+        AssetLoadStatus::Ready => true,
+        AssetLoadStatus::Loading => false,
+        AssetLoadStatus::Failed(path) => {
+            eprintln!("capture failed: UI asset {path} did not load");
+            let mut run = world.resource_mut::<CaptureRun>();
+            run.capture_failed = true;
+            run.capture_finished = true;
+            false
+        }
     }
 }
 
