@@ -132,6 +132,12 @@ pub const fn depth_key(pos: GridPos) -> i16 {
     pos.x as i16 + pos.y as i16
 }
 
+/// Sibling `ZIndex` for the token card and selection ring at `pos`; the
+/// footprint shadow sits one step below at `token_depth(pos) - 1`.
+pub const fn token_depth(pos: GridPos) -> i32 {
+    11 + (depth_key(pos) as i32) * 3
+}
+
 /// Maps a stage-local pixel point to one of the authored 9×9 diamonds.
 ///
 /// The inclusive edge check intentionally resolves a shared edge by the

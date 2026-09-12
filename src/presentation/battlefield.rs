@@ -14,6 +14,7 @@ use super::{
     layout::{
         BATTLE_GRID_HEIGHT, BATTLE_GRID_WIDTH, BATTLE_STAGE_SIZE, BLOCK_HEIGHT, TILE_HEIGHT,
         TILE_WIDTH, TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, depth_key, iso_center,
+        token_depth,
     },
     theme,
 };
@@ -283,7 +284,7 @@ fn spawn_token(
 ) {
     let center = stage_point(unit.position);
     let style = theme::unit_archetype_style(unit.archetype);
-    let depth = 11 + i32::from(depth_key(unit.position)) * 3;
+    let depth = token_depth(unit.position);
     commands.spawn((
         Name::new(format!("{} footprint", unit.name)),
         Node {

@@ -7,7 +7,7 @@ use crate::domain::model::BattleEvent;
 
 use super::{
     BattleEventQueue, BattleRuntime, BattleStage, EventEffect, EventPlayback, PresentationRoot,
-    RecentBattleLog, RestartRoundPending, UnitVisual,
+    RecentBattleLog, RestartRoundPending, TokenFootprintVisual, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::StatusMessage,
     layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center},
@@ -32,6 +32,26 @@ type EventEffectQuery<'w, 's> =
     Query<'w, 's, (Entity, &'static mut UiTransform), (With<EventEffect>, Without<UnitVisual>)>;
 type DamageNumberQuery<'w, 's> =
     Query<'w, 's, (Entity, &'static DamageNumberEffect, &'static mut Node), Without<UnitVisual>>;
+type FootprintVisualQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static TokenFootprintVisual, &'static mut Node),
+    (
+        Without<UnitVisual>,
+        Without<TokenSelectionVisual>,
+        Without<DamageNumberEffect>,
+    ),
+>;
+type SelectionVisualQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static TokenSelectionVisual, &'static mut Node),
+    (
+        Without<UnitVisual>,
+        Without<TokenFootprintVisual>,
+        Without<DamageNumberEffect>,
+    ),
+>;
 
 #[derive(Component)]
 pub(crate) struct DamageNumberEffect {
@@ -83,13 +103,21 @@ pub(crate) fn play_battle_events(
     mut playback: ResMut<EventPlayback>,
     mut recent_log: ResMut<RecentBattleLog>,
     mut unit_visuals: UnitVisualQuery,
+    mut footprint_visuals: FootprintVisualQuery,
+    mut selection_visuals: SelectionVisualQuery,
     mut effects: EventEffectQuery,
     mut damage_numbers: DamageNumberQuery,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
         timer.tick(time.delta());
         let progress = timer.fraction();
-        animate_unit_event(event, progress, &mut unit_visuals);
+        animate_unit_event(
+            event,
+            progress,
+            &mut unit_visuals,
+            &mut footprint_visuals,
+            &mut selection_visuals,
+        );
         animate_effects(progress, &mut effects);
         animate_damage_numbers(progress, &mut damage_numbers);
         timer.is_finished()
@@ -123,7 +151,13 @@ pub(crate) fn play_battle_events(
         let origin = iso_center(unit.position) + Vec2::new(0.0, -TOKEN_HEIGHT - 10.0);
         spawn_damage_number(&mut commands, hud_root, &ui_assets.fonts, origin, *amount);
     }
-    animate_unit_event(&event, 0.0, &mut unit_visuals);
+    animate_unit_event(
+        &event,
+        0.0,
+        &mut unit_visuals,
+        &mut footprint_visuals,
+        &mut selection_visuals,
+    );
     playback.current = Some((
         event.clone(),
         Timer::new(event_duration(&event), TimerMode::Once),
@@ -156,8 +190,44 @@ fn node_position(position: crate::domain::board::GridPos) -> Vec2 {
     Vec2::new(center.x - TOKEN_WIDTH * 0.5, center.y - TOKEN_HEIGHT - 4.0)
 }
 
-fn animate_unit_event(event: &BattleEvent, progress: f32, visuals: &mut UnitVisualQuery<'_, '_>) {
+fn footprint_position(position: crate::domain::board::GridPos) -> Vec2 {
+    let center = stage_point(position);
+    Vec2::new(center.x - 56.0, center.y - 68.0)
+}
+
+fn selection_position(position: crate::domain::board::GridPos) -> Vec2 {
+    let center = stage_point(position);
+    Vec2::new(center.x - 56.0, center.y - 28.0)
+}
+
+fn animate_unit_event(
+    event: &BattleEvent,
+    progress: f32,
+    visuals: &mut UnitVisualQuery<'_, '_>,
+    footprints: &mut FootprintVisualQuery<'_, '_>,
+    selections: &mut SelectionVisualQuery<'_, '_>,
+) {
     let eased = progress * progress * (3.0 - 2.0 * progress);
+    if let BattleEvent::UnitMoved { unit, from, to } | BattleEvent::UnitPushed { unit, from, to } =
+        event
+    {
+        // Footprint and selection are flat stage siblings, not card children,
+        // so they must travel the same from/to path while input is locked.
+        for (footprint, mut node) in footprints.iter_mut() {
+            if footprint.0 == *unit {
+                let current = footprint_position(*from).lerp(footprint_position(*to), eased);
+                node.left = px(current.x);
+                node.top = px(current.y);
+            }
+        }
+        for (selection, mut node) in selections.iter_mut() {
+            if selection.0 == *unit {
+                let current = selection_position(*from).lerp(selection_position(*to), eased);
+                node.left = px(current.x);
+                node.top = px(current.y);
+            }
+        }
+    }
     for (visual, mut node, mut transform, mut visibility) in visuals.iter_mut() {
         match event {
             BattleEvent::UnitMoved { unit, from, to }
@@ -323,6 +393,24 @@ mod tests {
         animate_damage_numbers(0.5, &mut damage_numbers);
     }
 
+    fn animate_move_halfway(
+        mut visuals: UnitVisualQuery,
+        mut footprints: FootprintVisualQuery,
+        mut selections: SelectionVisualQuery,
+    ) {
+        animate_unit_event(
+            &BattleEvent::UnitMoved {
+                unit: crate::domain::model::UnitId(1),
+                from: crate::domain::board::GridPos::new(1, 1),
+                to: crate::domain::board::GridPos::new(3, 1),
+            },
+            0.5,
+            &mut visuals,
+            &mut footprints,
+            &mut selections,
+        );
+    }
+
     fn despawn_via_playback_cleanup(
         mut commands: Commands,
         mut effects: EventEffectQuery,
@@ -371,6 +459,63 @@ mod tests {
             .world_mut()
             .query_filtered::<Entity, With<DamageNumberEffect>>();
         assert!(query.iter(app.world()).next().is_none());
+    }
+
+    #[test]
+    fn move_animation_carries_footprint_and_selection_with_the_card() {
+        let mut app = App::new();
+        let unit = crate::domain::model::UnitId(1);
+        let card = app
+            .world_mut()
+            .spawn((
+                UnitVisual(unit),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                UiTransform::IDENTITY,
+            ))
+            .id();
+        let footprint = app
+            .world_mut()
+            .spawn((
+                TokenFootprintVisual(unit),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+            ))
+            .id();
+        let selection = app
+            .world_mut()
+            .spawn((
+                TokenSelectionVisual(unit),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+            ))
+            .id();
+
+        app.world_mut()
+            .run_system_once(animate_move_halfway)
+            .unwrap();
+
+        let from = crate::domain::board::GridPos::new(1, 1);
+        let to = crate::domain::board::GridPos::new(3, 1);
+        let eased = 0.5_f32;
+        let card_mid = node_position(from).lerp(node_position(to), eased);
+        let card_node = app.world().get::<Node>(card).unwrap();
+        assert_eq!(card_node.left, px(card_mid.x));
+        assert_eq!(card_node.top, px(card_mid.y));
+        let footprint_mid = footprint_position(from).lerp(footprint_position(to), eased);
+        let footprint_node = app.world().get::<Node>(footprint).unwrap();
+        assert_eq!(footprint_node.left, px(footprint_mid.x));
+        assert_eq!(footprint_node.top, px(footprint_mid.y));
+        let selection_mid = selection_position(from).lerp(selection_position(to), eased);
+        let selection_node = app.world().get::<Node>(selection).unwrap();
+        assert_eq!(selection_node.left, px(selection_mid.x));
+        assert_eq!(selection_node.top, px(selection_mid.y));
     }
 
     #[test]
