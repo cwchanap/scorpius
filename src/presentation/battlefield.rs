@@ -387,9 +387,7 @@ fn spawn_token(
                 height: px(TOKEN_HEIGHT),
                 ..default()
             },
-            ImageNode::new(art)
-                .with_mode(NodeImageMode::Stretch)
-                .with_color(Color::srgba(1.0, 1.0, 1.0, 0.82)),
+            ImageNode::new(art).with_color(Color::srgba(1.0, 1.0, 1.0, 0.82)),
             Pickable::IGNORE,
             ChildOf(card),
         ));
