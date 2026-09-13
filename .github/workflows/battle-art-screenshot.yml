@@ -24,8 +24,21 @@ jobs:
           vulkaninfo --summary
       - run: rustup update stable
       - run: rustup default stable
+      - name: Use fast unoptimized profile for screenshot build
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Cargo.toml')
+          s = p.read_text()
+          s = s.replace('opt-level = 1', 'opt-level = 0')
+          s = s.replace('opt-level = 3', 'opt-level = 0')
+          p.write_text(s)
+          PY
       - run: mkdir -p artifacts
       - name: Capture battle with generated art
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_INCREMENTAL: "0"
         run: |
           export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*.json' | head -1)
           export WGPU_BACKEND=vulkan
