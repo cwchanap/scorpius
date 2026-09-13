@@ -67,30 +67,36 @@ jobs:
           from pathlib import Path
           p = Path('examples/ui_capture.rs')
           s = p.read_text()
-          start = s.index('fn configure_capture_target(')
-          end = s.index('\nfn advance_capture_time(', start)
-          s = s[:start] + 'fn configure_capture_target(_world: &mut World) -> bool {\n    true\n}\n' + s[end:]
-          old = '''    let (output, width, height, time_ms, target_image) = {
-              let run = world.resource::<CaptureRun>();
-              (
-                  run.output.clone(),
-                  run.width,
-                  run.height,
-                  run.time_ms,
-                  run.target_image
-                      .clone()
-                      .expect("capture target is configured"),
-              )
-          };'''
-          new = '''    let (output, width, height, time_ms) = {
+
+          target_start = s.index('fn configure_capture_target(')
+          target_end = s.index('\nfn advance_capture_time(', target_start)
+          s = (
+              s[:target_start]
+              + 'fn configure_capture_target(_world: &mut World) -> bool {\n    true\n}\n'
+              + s[target_end:]
+          )
+
+          finish_start = s.index('fn finish_capture(')
+          tuple_start = s.index(
+              '    let (output, width, height, time_ms, target_image) = {',
+              finish_start,
+          )
+          tuple_end = s.index('    eprintln!(', tuple_start)
+          replacement = '''    let (output, width, height, time_ms) = {
               let run = world.resource::<CaptureRun>();
               (run.output.clone(), run.width, run.height, run.time_ms)
-          };'''
-          if old not in s:
-              raise SystemExit('finish_capture target tuple not found')
-          s = s.replace(old, new, 1)
-          s = s.replace('let screenshot = world.spawn(Screenshot::image(target_image)).id();',
-                        'let screenshot = world.spawn(Screenshot::primary_window()).id();', 1)
+          };
+'''
+          s = s[:tuple_start] + replacement + s[tuple_end:]
+
+          old_screenshot = 'let screenshot = world.spawn(Screenshot::image(target_image)).id();'
+          if old_screenshot not in s:
+              raise SystemExit('offscreen screenshot call not found')
+          s = s.replace(
+              old_screenshot,
+              'let screenshot = world.spawn(Screenshot::primary_window()).id();',
+              1,
+          )
           p.write_text(s)
           PY
       - run: mkdir -p artifacts
