@@ -1,0 +1,40 @@
+name: Battle art screenshot
+
+on:
+  push:
+    branches:
+      - anime-battle-token-art
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install headless graphics dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            g++ pkg-config libx11-dev libasound2-dev libudev-dev \
+            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev \
+            xvfb mesa-vulkan-drivers libvulkan1 vulkan-tools
+      - name: Verify lavapipe
+        run: |
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*.json' | head -1)
+          echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
+          vulkaninfo --summary
+      - run: rustup update stable
+      - run: rustup default stable
+      - run: mkdir -p artifacts
+      - name: Capture battle with generated art
+        run: |
+          export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name '*lvp*.json' | head -1)
+          export WGPU_BACKEND=vulkan
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a cargo run --features ui-capture --example ui_capture -- \
+            --scenario battle-idle \
+            --size 1920x1080 \
+            --output artifacts/battle-anime-art.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: battle-anime-art-screenshot
+          path: artifacts/battle-anime-art.png
