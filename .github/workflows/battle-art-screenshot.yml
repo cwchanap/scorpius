@@ -20,22 +20,24 @@ jobs:
             g++ pkg-config libx11-dev libasound2-dev libudev-dev \
             libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev \
             xvfb mesa-vulkan-drivers libvulkan1 vulkan-tools python3-pil
-      - name: Re-encode mech art as plain RGBA PNG
+      - name: Restore and normalize mech art
         run: |
+          cat .github/art-chunks/interceptor-*.b64 | tr -d '\n' | base64 -d > assets/ui/interceptor.png
           python3 - <<'PY'
           from PIL import Image
           from pathlib import Path
           for name in ('vanguard', 'gunner', 'interceptor'):
               path = Path('assets/ui') / f'{name}.png'
               image = Image.open(path).convert('RGBA')
+              image.load()
               image.save(path, format='PNG', optimize=False, compress_level=6)
               print(name, image.size, image.mode)
           PY
-          if ! git diff --quiet -- assets/ui/vanguard.png assets/ui/gunner.png assets/ui/interceptor.png; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add assets/ui/vanguard.png assets/ui/gunner.png assets/ui/interceptor.png
-            git commit -m "fix: re-encode anime mech assets for Bevy"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/ui/vanguard.png assets/ui/gunner.png assets/ui/interceptor.png
+          if ! git diff --cached --quiet; then
+            git commit -m "fix: restore Bevy-compatible anime mech assets"
             git push origin HEAD:anime-battle-token-art
           fi
       - name: Verify lavapipe
