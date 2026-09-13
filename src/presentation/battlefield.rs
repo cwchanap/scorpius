@@ -383,8 +383,10 @@ fn spawn_token(
                 position_type: PositionType::Absolute,
                 left: px(0.0),
                 top: px(0.0),
+                // Pin width only: Auto derives height from the source image so
+                // the authored mech art keeps its aspect ratio. The token
+                // clips any vertical overflow instead of squashing the image.
                 width: px(TOKEN_WIDTH),
-                height: px(TOKEN_HEIGHT),
                 ..default()
             },
             ImageNode::new(art).with_color(Color::srgba(1.0, 1.0, 1.0, 0.82)),
