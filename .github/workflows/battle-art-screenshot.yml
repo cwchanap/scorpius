@@ -76,10 +76,12 @@ jobs:
           p.write_text(s)
           PY
       - run: mkdir -p artifacts
-      - name: Capture actual Scorpius window
+      - name: Build screenshot fixture
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_INCREMENTAL: "0"
+        run: cargo build --features ui-capture --example ui_capture
+      - name: Capture actual Scorpius window
         run: |
           xvfb-run -a -s '-screen 0 1920x1080x24' bash -lc '
             set -e
@@ -88,12 +90,12 @@ jobs:
             export VK_ICD_FILENAMES=$(find /usr/share/vulkan/icd.d -name "*lvp*.json" | head -1)
             export WGPU_BACKEND=vulkan
             export LIBGL_ALWAYS_SOFTWARE=1
-            cargo run --features ui-capture --example ui_capture -- \
+            target/debug/examples/ui_capture \
               --scenario battle-idle \
               --size 1920x1080 \
               --output artifacts/battle-anime-art.png &
             app_pid=$!
-            for i in $(seq 1 240); do
+            for i in $(seq 1 120); do
               [ -f artifacts/battle-anime-art.ready ] && break
               if ! kill -0 "$app_pid" 2>/dev/null; then
                 wait "$app_pid"
