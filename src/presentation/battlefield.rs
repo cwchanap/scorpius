@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::domain::{board::GridPos, model::Faction};
+use crate::domain::{
+    board::GridPos,
+    model::{Faction, UnitArchetype},
+};
 
 use super::{
     BattleCamera2d, BattleRuntime, BattleStage, CanvasRoot, CellInsetVisual, CellVisual,
@@ -355,6 +358,7 @@ fn spawn_token(
             } else {
                 Color::srgba(0.22, 0.08, 0.06, 0.98)
             }),
+            Outline::new(px(1), px(-1), style.color),
             Visibility::Visible,
             ZIndex(depth),
             Pickable::default(),
@@ -365,13 +369,57 @@ fn spawn_token(
         .observe(on_battlefield_token_out)
         .id();
 
+    let player_art = match (unit.faction, unit.archetype) {
+        (Faction::Player, UnitArchetype::Vanguard) => Some(ui_assets.vanguard_art.clone()),
+        (Faction::Player, UnitArchetype::Gunner) => Some(ui_assets.gunner_art.clone()),
+        (Faction::Player, UnitArchetype::Interceptor) => Some(ui_assets.interceptor_art.clone()),
+        _ => None,
+    };
+
+    let has_player_art = player_art.is_some();
+    if let Some(art) = player_art {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0.0),
+                top: px(0.0),
+                width: px(TOKEN_WIDTH),
+                height: px(TOKEN_HEIGHT),
+                ..default()
+            },
+            ImageNode::new(art)
+                .with_mode(NodeImageMode::Stretch)
+                .with_color(Color::srgba(1.0, 1.0, 1.0, 0.82)),
+            Pickable::IGNORE,
+            ChildOf(card),
+        ));
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0.0),
+                bottom: px(0.0),
+                width: percent(100),
+                height: px(24.0),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.02, 0.05, 0.08, 0.72)),
+            Pickable::IGNORE,
+            ChildOf(card),
+        ));
+    }
+
+    let (glyph_left, glyph_top, glyph_size) = if has_player_art {
+        (7.0, 40.0, 18.0)
+    } else {
+        (23.0, 20.0, 30.0)
+    };
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            left: px(23.0),
-            top: px(20.0),
-            width: px(30.0),
-            height: px(30.0),
+            left: px(glyph_left),
+            top: px(glyph_top),
+            width: px(glyph_size),
+            height: px(glyph_size),
             ..default()
         },
         theme::icon_node(ui_assets.icons.clone(), style.glyph_rect, style.color),
@@ -456,6 +504,7 @@ fn token_card_node(position: GridPos) -> Node {
         top: px(center.y - TOKEN_HEIGHT - 4.0),
         width: px(TOKEN_WIDTH),
         height: px(TOKEN_HEIGHT),
+        overflow: Overflow::clip(),
         ..default()
     }
 }
