@@ -1,0 +1,26 @@
+name: Battle art smoke
+
+on:
+  push:
+    branches:
+      - anime-battle-token-art
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update
+      - run: sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev xvfb libgl1-mesa-dri
+      - run: rustup update stable
+      - run: rustup default stable
+      - run: mkdir -p artifacts
+      - name: Capture battle idle
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          WGPU_BACKEND: gl
+        run: xvfb-run -a cargo run --features ui-capture --example ui_capture -- --scenario battle-idle --output artifacts/battle-idle.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: battle-art-smoke
+          path: artifacts/battle-idle.png
