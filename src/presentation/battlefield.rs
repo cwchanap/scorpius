@@ -7,6 +7,7 @@ use super::{
     PresentationNeedsRebuild, PresentationRoot, PropVisual, TokenAwaiting, TokenCard,
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
+    e2e_id,
     interaction::{
         on_battlefield_stage_click, on_battlefield_stage_move, on_battlefield_stage_out,
         on_battlefield_token_click, on_battlefield_token_move, on_battlefield_token_out,
@@ -136,6 +137,11 @@ fn populate_mission_root(
                 ChildOf(stage),
             ))
             .id();
+        e2e_id(
+            commands,
+            outer,
+            (cell == GridPos::new(4, 8)).then_some("battle.cell.4.8"),
+        );
         commands.spawn((
             cell_inset_node(),
             theme::board_node(ui_assets.board.clone(), theme::BOARD_DIAMOND_RECT, fill),
@@ -364,6 +370,11 @@ fn spawn_token(
         .observe(on_battlefield_token_move)
         .observe(on_battlefield_token_out)
         .id();
+    e2e_id(
+        commands,
+        card,
+        (unit.id == crate::mission::squad::ids::VANGUARD).then_some("battle.unit.vanguard"),
+    );
 
     commands.spawn((
         Node {

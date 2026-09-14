@@ -5,7 +5,7 @@ use bevy::{
     ui::{BackgroundGradient, ColorStop, LinearGradient},
 };
 
-use crate::presentation::{CampaignCamera, CanvasRoot, UiPickingCamera};
+use crate::presentation::{CampaignCamera, CanvasRoot, UiPickingCamera, e2e_id};
 
 use super::super::{
     campaign_ui::{
@@ -376,7 +376,7 @@ pub(crate) fn spawn_button(
     enabled: bool,
     node: Node,
 ) -> Entity {
-    commands
+    let button = commands
         .spawn((
             Button,
             action,
@@ -394,7 +394,18 @@ pub(crate) fn spawn_button(
             ChildOf(parent),
         ))
         .observe(crate::presentation::campaign_ui::on_campaign_ui_click)
-        .id()
+        .id();
+    e2e_id(
+        commands,
+        button,
+        match action {
+            CampaignUiAction::NewGame => Some("campaign.new_game"),
+            CampaignUiAction::SkipDialogue => Some("campaign.skip_dialogue"),
+            CampaignUiAction::StartMission => Some("campaign.start_mission"),
+            _ => None,
+        },
+    );
+    button
 }
 
 #[allow(clippy::too_many_arguments)]

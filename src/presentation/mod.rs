@@ -25,6 +25,19 @@ use crate::domain::{
 };
 use crate::mission::MissionDefinition;
 
+/// Selector id for the E2E critical flow, inserted on existing production
+/// entities when the `e2e` feature is on. A no-op outside the feature, so
+/// non-e2e builds never touch the optional crate.
+#[cfg(feature = "e2e")]
+pub(crate) fn e2e_id(commands: &mut Commands, entity: Entity, id: Option<&'static str>) {
+    if let Some(id) = id {
+        commands.entity(entity).insert(bevy_e2e::E2eId::new(id));
+    }
+}
+
+#[cfg(not(feature = "e2e"))]
+pub(crate) fn e2e_id(_commands: &mut Commands, _entity: Entity, _id: Option<&'static str>) {}
+
 #[derive(Resource)]
 pub struct BattleRuntime(pub BattleState);
 
