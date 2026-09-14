@@ -8,8 +8,12 @@ jobs:
   build-lint:
     name: Build + lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: sudo apt-get update
       - run: sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
       - run: rustup update stable
@@ -27,6 +31,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: sudo apt-get update
       - run: sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
       - run: rustup update stable
@@ -43,8 +49,12 @@ jobs:
   e2e-rendered:
     name: Rendered E2E
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: sudo apt-get update
       - run: sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev xvfb libxcursor-dev libxi-dev libxrandr-dev libgl1 libgl1-mesa-dri libvulkan1 mesa-vulkan-drivers
       - run: rustup update stable
