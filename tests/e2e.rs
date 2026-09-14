@@ -38,7 +38,12 @@ fn critical_flow_boots_to_mission_one_and_moves_vanguard() -> Result<()> {
         .startup_timeout(Duration::from_secs(60))
         .operation_timeout(Duration::from_secs(10));
 
-    let outcome = run(options, |game| {
+    // Removes the temp save root on every exit path (normal return, `Err`
+    // return, panic unwind). It removes only the save root; harness failure
+    // artifacts live separately under `test_output/`, never under it.
+    let _remove_save_root = RemoveOnDrop(save_root);
+
+    run(options, |game| {
         // Title -> pre-mission VN -> briefing.
         game.wait_for("campaign.new_game")?;
         game.click("campaign.new_game")?;
@@ -80,13 +85,18 @@ fn critical_flow_boots_to_mission_one_and_moves_vanguard() -> Result<()> {
              expected {MOVE_DELTA:?} for (4, 7) -> (4, 8)"
         );
         Ok(())
-    });
+    })
+}
 
-    // Best-effort cleanup; `run` has already shut the child down on every
-    // return path, and a panic unwinds past this line by design so the
-    // failure artifacts under `test_output/` stay available.
-    let _ = fs::remove_dir_all(save_root);
-    outcome
+/// Best-effort removal of the temporary save root on every exit path
+/// (normal return, `Err` return, panic unwind). Removes only the save
+/// root; harness failure artifacts live under `test_output/`, never here.
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 /// Unique temporary platform data root so the child never touches the real
