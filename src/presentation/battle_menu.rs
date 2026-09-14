@@ -9,6 +9,7 @@ use crate::domain::model::MAX_WEAPONS_PER_UNIT;
 use super::{
     BattleRuntime, EventPlayback,
     assets::UiAssets,
+    e2e_id,
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, on_command_button_click,
     },
@@ -529,6 +530,11 @@ fn spawn_command_row(
         ))
         .observe(on_command_button_click)
         .id();
+    e2e_id(
+        commands,
+        row,
+        (action == CommandAction::Move).then_some("battle.action.move"),
+    );
     commands.spawn((
         theme::icon_node(assets.icons.clone(), icon, theme::ACCENT),
         icon_node(28.0),

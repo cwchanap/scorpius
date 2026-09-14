@@ -24,6 +24,7 @@ use super::{
         WeaponMeter, WeaponMeterKind, WeaponRow, WeaponTag, WeaponTagIcon, WeaponText,
         WeaponTextKind, spawn_battle_menu,
     },
+    e2e_id,
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
         on_command_button_click, restart_allowed,
@@ -682,6 +683,7 @@ pub fn setup_mission_ui(
             ChildOf(canvas),
         ))
         .id();
+    e2e_id(&mut commands, root, Some("battle.hud"));
 
     let header = commands
         .spawn((
