@@ -39,3 +39,20 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
           use_oidc: true
+
+  e2e-rendered:
+    name: Rendered E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update
+      - run: sudo apt-get install --yes g++ pkg-config libx11-dev libasound2-dev libudev-dev libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev xvfb libxcursor-dev libxi-dev libxrandr-dev libgl1
+      - run: rustup update stable
+      - run: rustup default stable
+      - run: xvfb-run -a cargo test --features e2e --test e2e -- --test-threads=1
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-artifacts
+          path: test_output/**
+          if-no-files-found: ignore
