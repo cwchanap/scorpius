@@ -59,14 +59,13 @@ fn critical_flow_boots_to_mission_one_and_moves_vanguard() -> Result<()> {
 
         // The menu rows exist from the first battle frame but only respond
         // once the Player phase begins, so poll: each pass is a no-op during
-        // enemy planning, and a successful pass ends with the token settled
-        // on (4, 8) after the UnitMoved playback finishes.
-        let mut previous: Option<(f64, f64)> = None;
+        // enemy planning, and the predicate only returns once the token has
+        // reached (4, 8) — intermediate UnitMoved playback frames never
+        // satisfy the destination delta.
         game.wait_until(Duration::from_secs(60), |game| {
             let xy = vanguard_node_xy(game)?;
-            let settled = previous == Some(xy) && xy != starting;
-            previous = Some(xy);
-            if settled {
+            let (dx, dy) = (xy.0 - starting.0, xy.1 - starting.1);
+            if (dx - MOVE_DELTA.0).abs() < 0.5 && (dy - MOVE_DELTA.1).abs() < 0.5 {
                 return Ok(true);
             }
             game.click("battle.unit.vanguard")?;
@@ -74,7 +73,6 @@ fn critical_flow_boots_to_mission_one_and_moves_vanguard() -> Result<()> {
             game.click("battle.cell.4.8")?;
             Ok(false)
         })?;
-        game.wait_frames(5)?;
         let landed = vanguard_node_xy(game)?;
 
         let (dx, dy) = (landed.0 - starting.0, landed.1 - starting.1);
