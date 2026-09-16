@@ -523,19 +523,36 @@ fn production_stage_observers_route_blockers_tokens_and_targets_once() {
         .unit(ids::STRIKER)
         .unwrap()
         .position;
-    let token_point = fit.offset + (iso_center(striker_cell) + Vec2::new(0.0, -36.0)) * fit.scale;
+    let token_point = fit.offset + (iso_center(striker_cell) + Vec2::new(0.0, -10.0)) * fit.scale;
     send_headless_pointer_move(&mut app, window, token_point);
     app.update();
     assert_eq!(
         app.world().resource::<InteractionState>().hovered_cell,
         Some(striker_cell),
-        "token-local hover must resolve through the domain position",
+        "feet-zone token hover must resolve to the mech's own diamond",
     );
     assert_eq!(
         app.world().resource::<StagePointerCounts>().moves,
         1,
         "token move must stop before the stage observer"
     );
+
+    // Head-zone hover resolves the diamond behind the mech, not the mech cell.
+    let behind = striker_cell
+        .x
+        .checked_sub(1)
+        .zip(striker_cell.y.checked_sub(1))
+        .map(|(x, y)| GridPos::new(x, y));
+    if let Some(behind_cell) = behind {
+        let overhang = fit.offset + (iso_center(striker_cell) + Vec2::new(0.0, -80.0)) * fit.scale;
+        send_headless_pointer_move(&mut app, window, overhang);
+        app.update();
+        assert_eq!(
+            app.world().resource::<InteractionState>().hovered_cell,
+            Some(behind_cell),
+            "token overhang must hover the underlying diamond",
+        );
+    }
 
     send_headless_pointer_action(
         &mut app,
@@ -712,7 +729,7 @@ fn production_pointer_out_clears_hover_and_preview_while_playback_locked() {
     assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
 
     app.world_mut().resource_mut::<EventPlayback>().input_locked = false;
-    let token_point = fit.offset + (iso_center(target) + Vec2::new(0.0, -36.0)) * fit.scale;
+    let token_point = fit.offset + (iso_center(target) + Vec2::new(0.0, -10.0)) * fit.scale;
     send_headless_pointer_move(&mut app, window, token_point);
     app.update();
     assert_eq!(

@@ -680,7 +680,7 @@ fn apply_action(world: &mut World, action: &CaptureAction, seed: u64) {
         CaptureAction::Inspect(unit) => {
             let result = world.resource_scope(|world, mut battle: Mut<BattleRuntime>| {
                 let mut interaction = world.resource_mut::<InteractionState>();
-                route_token_click(&mut battle.0, &mut interaction, *unit)
+                route_token_click(&mut battle.0, &mut interaction, *unit, None)
             });
             handle_battle_events(world, result);
         }
