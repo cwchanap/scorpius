@@ -116,8 +116,8 @@ pub struct ReactionVisual {
     pub reaction: Reaction,
 }
 
-/// The clickable upright token card for a unit. The card itself is the only
-/// pickable child of the board stage for that unit.
+/// The clickable 96×96 map-sprite root for a unit. The root itself is the
+/// only pickable child of the board stage for that unit.
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenCard(pub UnitId);
 

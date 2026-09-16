@@ -174,7 +174,6 @@ pub fn mission_assets_ready(status: &AssetLoadStatus) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::UnitArchetype;
 
     fn catalog() -> UiAssets {
         UiAssets {
@@ -212,14 +211,23 @@ mod tests {
                 "{archetype:?} must return the shared enemy map handle"
             );
         }
-        assert_eq!(
-            assets.map_sprite(UnitArchetype::Vanguard),
-            &assets.vanguard_map
+        assert!(
+            std::ptr::eq(
+                assets.map_sprite(UnitArchetype::Vanguard),
+                &assets.vanguard_map
+            ),
+            "Vanguard must return its own map handle"
         );
-        assert_eq!(assets.map_sprite(UnitArchetype::Gunner), &assets.gunner_map);
-        assert_eq!(
-            assets.map_sprite(UnitArchetype::Interceptor),
-            &assets.interceptor_map
+        assert!(
+            std::ptr::eq(assets.map_sprite(UnitArchetype::Gunner), &assets.gunner_map),
+            "Gunner must return its own map handle"
+        );
+        assert!(
+            std::ptr::eq(
+                assets.map_sprite(UnitArchetype::Interceptor),
+                &assets.interceptor_map
+            ),
+            "Interceptor must return its own map handle"
         );
     }
 

@@ -3,7 +3,8 @@
 Validation scope: the `anime-battle-token-art` branch (open PR #8), Tasks 1–6 of
 [the SRW map-sprites plan](../superpowers/plans/2026-09-16-srw-map-sprites.md).
 Code gates were recorded at commit `5ef1a32` (`feat: keep map-sprite scale
-effects anchored at the feet`); the Task 6 commit itself adds only docs.
+effects anchored at the feet`); the Task 6 commit itself adds only docs and
+one `.gitignore` line (`/test_output`).
 All steps were executed locally on macOS 26.6.2 / Apple M1 Pro with a real
 display and Metal GPU — nothing was skipped for lack of display.
 

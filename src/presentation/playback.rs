@@ -269,7 +269,7 @@ fn animated_token_depth(
     (from + (token_depth(to) as f32 - from) * eased).round() as i32
 }
 
-/// Stage-local center of the card currently rendered for `unit`. Combat
+/// Stage-local center of the map-sprite root currently rendered for `unit`. Combat
 /// feedback must land where the token is drawn; the domain position has
 /// already advanced past pushes queued behind the event being played.
 fn rendered_stage_center(visuals: &UnitVisualQuery<'_, '_>, unit: UnitId) -> Option<Vec2> {

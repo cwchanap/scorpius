@@ -362,9 +362,7 @@ pub fn on_battlefield_token_out(
     // Hover may now sit on a diamond that is not the token's own domain cell,
     // so the old equality guard would leak stale previews: clear always.
     event.propagate(false);
-    interaction.hovered_cell = None;
-    interaction.preview = None;
-    preview_cells.0.clear();
+    clear_hover_preview(&mut interaction, &mut preview_cells);
 }
 
 #[allow(clippy::too_many_arguments)]
