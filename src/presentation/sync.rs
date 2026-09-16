@@ -10,7 +10,10 @@ use super::{
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     interaction::{InteractionMode, InteractionState},
-    layout::{TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center, token_depth},
+    layout::{
+        battle_stage_rect, footprint_top_left, iso_center, selection_top_left, token_depth,
+        unit_root_top_left,
+    },
     theme,
 };
 
@@ -112,9 +115,9 @@ pub fn apply_unit_transforms(
     }
     for (visual, mut node, mut zindex, mut visibility) in &mut visuals {
         if let Some(unit) = battle.0.unit(visual.0) {
-            let center = stage_point(unit.position);
-            node.left = px(center.x - TOKEN_WIDTH * 0.5);
-            node.top = px(center.y - TOKEN_HEIGHT - 4.0);
+            let root = unit_root_top_left(unit.position);
+            node.left = px(root.x);
+            node.top = px(root.y);
             *zindex = ZIndex(token_depth(unit.position));
             *visibility = if unit.is_knocked_out() {
                 Visibility::Hidden
@@ -125,9 +128,9 @@ pub fn apply_unit_transforms(
     }
     for (footprint, mut node, mut zindex, mut visibility) in &mut footprints {
         if let Some(unit) = battle.0.unit(footprint.0) {
-            let center = stage_point(unit.position);
-            node.left = px(center.x - 56.0);
-            node.top = px(center.y - 68.0);
+            let top_left = footprint_top_left(unit.position);
+            node.left = px(top_left.x);
+            node.top = px(top_left.y);
             *zindex = ZIndex(token_depth(unit.position) - 1);
             *visibility = if unit.is_knocked_out() {
                 Visibility::Hidden
@@ -141,9 +144,9 @@ pub fn apply_unit_transforms(
         .and_then(|interaction| interaction.inspected_unit);
     for (footprint, mut node, mut image, mut zindex, mut visibility) in &mut selection_footprints {
         if let Some(unit) = battle.0.unit(footprint.0) {
-            let center = stage_point(unit.position);
-            node.left = px(center.x - 56.0);
-            node.top = px(center.y - 28.0);
+            let top_left = selection_top_left(unit.position);
+            node.left = px(top_left.x);
+            node.top = px(top_left.y);
             *zindex = ZIndex(token_depth(unit.position));
             let tint = if unit.is_knocked_out() {
                 None
@@ -169,7 +172,7 @@ pub fn apply_unit_transforms(
 pub fn sync_token_cards(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
-    mut cards: Query<(&TokenCard, &mut BackgroundColor)>,
+    mut cards: Query<(&TokenCard, &mut ImageNode)>,
     mut hp_fills: Query<(&TokenHpFill, &mut Node)>,
     mut hp_texts: Query<(&TokenHpText, &mut Text)>,
     mut awaiting: Query<(&TokenAwaiting, &mut Visibility)>,
@@ -177,18 +180,10 @@ pub fn sync_token_cards(
     if playback.is_some_and(|playback| playback.input_locked) {
         return;
     }
-    for (card, mut background) in &mut cards {
+    for (card, mut image) in &mut cards {
         if let Some(unit) = battle.0.unit(card.0) {
-            let base = if unit.faction == Faction::Player {
-                Color::srgba(0.08, 0.20, 0.29, 0.98)
-            } else {
-                Color::srgba(0.22, 0.08, 0.06, 0.98)
-            };
-            *background = if unit.activation.finished && unit.faction == Faction::Player {
-                BackgroundColor(base.with_alpha(0.52))
-            } else {
-                BackgroundColor(base)
-            };
+            let faded = unit.activation.finished && unit.faction == Faction::Player;
+            image.color = Color::WHITE.with_alpha(if faded { 0.52 } else { 1.0 });
         }
     }
     for (fill, mut node) in &mut hp_fills {

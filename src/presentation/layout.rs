@@ -9,8 +9,6 @@ pub const TILE_HEIGHT: f32 = 56.0;
 pub const BLOCK_HEIGHT: f32 = 26.0;
 pub const ISO_ORIGIN: Vec2 = Vec2::new(960.0, 394.0);
 pub const ISO_ORIGIN_STAGE: Vec2 = Vec2::new(504.0, 190.0);
-pub const TOKEN_WIDTH: f32 = 76.0;
-pub const TOKEN_HEIGHT: f32 = 64.0;
 pub const BATTLE_GRID_WIDTH: u8 = 9;
 pub const BATTLE_GRID_HEIGHT: u8 = 9;
 

@@ -13,9 +13,9 @@ use super::{
         on_battlefield_token_click, on_battlefield_token_move, on_battlefield_token_out,
     },
     layout::{
-        BATTLE_GRID_HEIGHT, BATTLE_GRID_WIDTH, BATTLE_STAGE_SIZE, BLOCK_HEIGHT, TILE_HEIGHT,
-        TILE_WIDTH, TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, depth_key, iso_center,
-        token_depth,
+        BATTLE_GRID_HEIGHT, BATTLE_GRID_WIDTH, BATTLE_STAGE_SIZE, BLOCK_HEIGHT, MAP_UNIT_HEIGHT,
+        MAP_UNIT_WIDTH, TILE_HEIGHT, TILE_WIDTH, battle_stage_rect, depth_key, footprint_top_left,
+        iso_center, selection_top_left, token_depth, unit_root_top_left,
     },
     theme,
 };
@@ -288,17 +288,18 @@ fn spawn_token(
     ui_assets: &UiAssets,
     unit: &crate::domain::model::UnitState,
 ) {
-    let center = stage_point(unit.position);
     let style = theme::unit_archetype_style(unit.archetype);
     let depth = token_depth(unit.position);
+    let footprint = footprint_top_left(unit.position);
     commands.spawn((
         Name::new(format!("{} footprint", unit.name)),
         Node {
             position_type: PositionType::Absolute,
-            left: px(center.x - 56.0),
+            left: px(footprint.x),
             // The packed shadow ellipse is centered at local y=69 in its
-            // 112x96 atlas rect; top=cy-68 places that ellipse at cy+1.
-            top: px(center.y - 68.0),
+            // 112x96 atlas rect; the helper's top=cy-68 places that ellipse
+            // at cy+1.
+            top: px(footprint.y),
             width: px(112.0),
             height: px(96.0),
             ..default()
@@ -354,13 +355,9 @@ fn spawn_token(
             Name::new(unit.name),
             UnitVisual(unit.id),
             TokenCard(unit.id),
-            token_card_node(unit.position),
+            token_sprite_node(unit.position),
             UiTransform::IDENTITY,
-            BackgroundColor(if unit.faction == Faction::Player {
-                Color::srgba(0.08, 0.20, 0.29, 0.98)
-            } else {
-                Color::srgba(0.22, 0.08, 0.06, 0.98)
-            }),
+            ImageNode::new(ui_assets.map_sprite(unit.archetype).clone()),
             Visibility::Visible,
             ZIndex(depth),
             Pickable::default(),
@@ -376,27 +373,29 @@ fn spawn_token(
         (unit.id == crate::mission::squad::ids::VANGUARD).then_some("battle.unit.vanguard"),
     );
 
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(23.0),
-            top: px(20.0),
-            width: px(30.0),
-            height: px(30.0),
-            ..default()
-        },
-        theme::icon_node(ui_assets.icons.clone(), style.glyph_rect, style.color),
-        Pickable::IGNORE,
-        ChildOf(card),
-    ));
+    if unit.faction != Faction::Player {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(4.0),
+                top: px(18.0),
+                width: px(18.0),
+                height: px(18.0),
+                ..default()
+            },
+            theme::icon_node(ui_assets.icons.clone(), style.glyph_rect, style.color),
+            Pickable::IGNORE,
+            ChildOf(card),
+        ));
+    }
 
     let hp_bar = commands
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: px(7.0),
-                top: px(8.0),
-                width: px(TOKEN_WIDTH - 14.0),
+                left: px(12.0),
+                top: px(-10.0),
+                width: px(72.0),
                 height: px(6.0),
                 overflow: Overflow::clip(),
                 ..default()
@@ -434,8 +433,8 @@ fn spawn_token(
         }),
         Node {
             position_type: PositionType::Absolute,
-            right: px(6.0),
-            top: px(18.0),
+            right: px(0.0),
+            top: px(-30.0),
             ..default()
         },
         TokenHpText(unit.id),
@@ -445,8 +444,8 @@ fn spawn_token(
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
-            left: px(6.0),
-            top: px(6.0),
+            left: px(4.0),
+            top: px(4.0),
             width: px(9.0),
             height: px(9.0),
             ..default()
@@ -459,24 +458,24 @@ fn spawn_token(
     ));
 }
 
-fn token_card_node(position: GridPos) -> Node {
-    let center = stage_point(position);
+fn token_sprite_node(position: GridPos) -> Node {
+    let root = unit_root_top_left(position);
     Node {
         position_type: PositionType::Absolute,
-        left: px(center.x - TOKEN_WIDTH * 0.5),
-        top: px(center.y - TOKEN_HEIGHT - 4.0),
-        width: px(TOKEN_WIDTH),
-        height: px(TOKEN_HEIGHT),
+        left: px(root.x),
+        top: px(root.y),
+        width: px(MAP_UNIT_WIDTH),
+        height: px(MAP_UNIT_HEIGHT),
         ..default()
     }
 }
 
 fn token_selection_node(position: GridPos) -> Node {
-    let center = stage_point(position);
+    let top_left = selection_top_left(position);
     Node {
         position_type: PositionType::Absolute,
-        left: px(center.x - TILE_WIDTH * 0.5),
-        top: px(center.y - TILE_HEIGHT * 0.5),
+        left: px(top_left.x),
+        top: px(top_left.y),
         width: px(TILE_WIDTH),
         height: px(TILE_HEIGHT),
         ..default()
