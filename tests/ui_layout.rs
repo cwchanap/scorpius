@@ -403,7 +403,7 @@ fn setup_production_picker_scene(mut commands: Commands, battle: Res<BattleRunti
 
     for unit_id in [ids::STRIKER, ids::VANGUARD] {
         let token_cell = battle.0.unit(unit_id).unwrap().position;
-        let token_center = iso_center(token_cell) - battle_stage_rect().min;
+        let root = scorpius::presentation::layout::unit_root_top_left(token_cell);
         commands
             .spawn((
                 TokenCard(unit_id),
@@ -411,11 +411,11 @@ fn setup_production_picker_scene(mut commands: Commands, battle: Res<BattleRunti
                 Visibility::Visible,
                 InheritedVisibility::VISIBLE,
                 Node {
-                    width: Val::Px(76.0),
-                    height: Val::Px(64.0),
+                    width: Val::Px(scorpius::presentation::layout::MAP_UNIT_WIDTH),
+                    height: Val::Px(scorpius::presentation::layout::MAP_UNIT_HEIGHT),
                     position_type: bevy::prelude::PositionType::Absolute,
-                    left: Val::Px(token_center.x - 38.0),
-                    top: Val::Px(token_center.y - 68.0),
+                    left: Val::Px(root.x),
+                    top: Val::Px(root.y),
                     ..Default::default()
                 },
                 ChildOf(stage),
@@ -503,7 +503,9 @@ fn production_stage_observers_route_blockers_tokens_and_targets_once() {
     let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
 
     let blocker = GridPos::new(3, 5);
-    let blocker_point = fit.offset + (iso_center(blocker) + Vec2::new(0.0, -13.0)) * fit.scale;
+    // Probe the blocker diamond's right tip: the tall Striker sprite at (4,6)
+    // and the Vanguard sprite at (4,7) cover the rest of the tile face.
+    let blocker_point = fit.offset + (iso_center(blocker) + Vec2::new(52.0, 0.0)) * fit.scale;
     send_headless_pointer_move(&mut app, window, blocker_point);
     app.update();
     assert_eq!(
@@ -660,7 +662,9 @@ fn production_pointer_out_clears_hover_and_preview_while_playback_locked() {
         .unwrap();
 
     let blocker = GridPos::new(3, 5);
-    let blocker_point = fit.offset + (iso_center(blocker) + Vec2::new(0.0, -13.0)) * fit.scale;
+    // Right diamond tip, clear of the Striker/Vanguard sprites overlapping
+    // this tile.
+    let blocker_point = fit.offset + (iso_center(blocker) + Vec2::new(52.0, 0.0)) * fit.scale;
     send_headless_pointer_move(&mut app, window, blocker_point);
     app.update();
     assert_eq!(

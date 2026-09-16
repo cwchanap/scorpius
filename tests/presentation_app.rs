@@ -20,8 +20,8 @@ use scorpius::{
     presentation::{
         ActiveMission, AttackPreviewCells, BattleEventQueue, BattleRuntime, CampaignRuntime,
         CellInsetVisual, CellVisual, EventPlayback, ExtractionVisual, IntentTargetVisual,
-        MenuState, PresentationRoot, ReactionVisual, TelegraphVisual, TokenFootprintVisual,
-        TokenHpFill, TokenSelectionVisual, UnitVisual,
+        MenuState, PresentationRoot, ReactionVisual, TelegraphVisual, TokenCard,
+        TokenFootprintVisual, TokenHpFill, TokenSelectionVisual, UnitVisual,
         assets::UiAssets,
         battlefield::{mission_grid_cells, setup_mission_scene},
         interaction::{
@@ -94,6 +94,7 @@ fn canonical_move_drives_visual_transform_without_renderer() {
             position_type: PositionType::Absolute,
             ..default()
         },
+        ImageNode::default(),
         Visibility::Visible,
     ));
 
@@ -106,10 +107,37 @@ fn canonical_move_drives_visual_transform_without_renderer() {
 
     let mut nodes = app.world_mut().query::<&Node>();
     let node = nodes.single(app.world()).unwrap();
-    let center = scorpius::presentation::layout::iso_center(GridPos::new(1, 2))
-        - scorpius::presentation::layout::battle_stage_rect().min;
-    assert_eq!(node.left, px(center.x - 38.0));
-    assert_eq!(node.top, px(center.y - 68.0));
+    let root = scorpius::presentation::layout::unit_root_top_left(GridPos::new(1, 2));
+    assert_eq!(node.left, px(root.x));
+    assert_eq!(node.top, px(root.y));
+}
+
+#[test]
+fn sync_token_cards_sets_sprite_alpha_from_activation_state() {
+    let mut app = App::new();
+    app.insert_resource(BattleRuntime(BattleState::viability_fixture()))
+        .add_systems(Update, sync_token_cards);
+    let card = app
+        .world_mut()
+        .spawn((TokenCard(UnitId(1)), ImageNode::default()))
+        .id();
+    app.update();
+    assert_eq!(
+        app.world().get::<ImageNode>(card).unwrap().color.alpha(),
+        1.0
+    );
+
+    let mut finished = BattleState::viability_fixture();
+    finished
+        .choose_reaction(UnitId(1), Reaction::Guard)
+        .unwrap();
+    finished.finish_activation(UnitId(1)).unwrap();
+    app.insert_resource(BattleRuntime(finished));
+    app.update();
+    assert_eq!(
+        app.world().get::<ImageNode>(card).unwrap().color.alpha(),
+        0.52
+    );
 }
 
 #[test]
@@ -390,7 +418,7 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
 }
 
 #[test]
-fn token_health_bar_clips_full_and_partial_fill_to_sixty_two_pixels() {
+fn token_health_bar_clips_full_and_partial_fill_to_seventy_two_pixels() {
     let mut full_app = App::new();
     full_app
         .insert_resource(BattleRuntime(mission_one(7)))
@@ -409,7 +437,7 @@ fn token_health_bar_clips_full_and_partial_fill_to_sixty_two_pixels() {
         (node.width, node.left, child.parent())
     };
     let full_parent_node = full_app.world().get::<Node>(full_parent).unwrap();
-    assert_eq!(full_parent_node.width, px(62.0));
+    assert_eq!(full_parent_node.width, px(72.0));
     assert_eq!(full_parent_node.overflow, Overflow::clip());
     assert_eq!(full_left, px(0.0));
     assert_eq!(full_width, percent(100.0));
@@ -443,7 +471,7 @@ fn token_health_bar_clips_full_and_partial_fill_to_sixty_two_pixels() {
         (node.width, node.left, child.parent())
     };
     let partial_parent_node = partial_app.world().get::<Node>(partial_parent).unwrap();
-    assert_eq!(partial_parent_node.width, px(62.0));
+    assert_eq!(partial_parent_node.width, px(72.0));
     assert_eq!(partial_parent_node.overflow, Overflow::clip());
     assert_eq!(partial_left, px(0.0));
     assert_eq!(partial_width, percent(75.0));

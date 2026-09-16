@@ -12,7 +12,8 @@ use super::{
     assets::UiAssets,
     interaction::StatusMessage,
     layout::{
-        STAGE_EFFECT_DEPTH, TOKEN_HEIGHT, TOKEN_WIDTH, battle_stage_rect, iso_center, token_depth,
+        MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, STAGE_EFFECT_DEPTH, battle_stage_rect, footprint_top_left,
+        iso_center, selection_top_left, token_depth, unit_root_top_left,
     },
     theme,
     ui::{HudRoot, format_event},
@@ -203,7 +204,7 @@ pub(crate) fn play_battle_events(
         let center = rendered_stage_center(&unit_queries.units, *target)
             .map(|stage_center| stage_center + battle_stage_rect().min)
             .unwrap_or_else(|| iso_center(unit.position));
-        let origin = center + Vec2::new(0.0, -TOKEN_HEIGHT - 10.0);
+        let origin = center + Vec2::new(0.0, -MAP_UNIT_HEIGHT - 10.0);
         spawn_damage_number(&mut commands, hud_root, &ui_assets.fonts, origin, *amount);
     }
     animate_unit_event(&event, 0.0, &mut unit_queries);
@@ -235,18 +236,15 @@ fn event_duration(event: &BattleEvent) -> Duration {
 }
 
 fn node_position(position: crate::domain::board::GridPos) -> Vec2 {
-    let center = stage_point(position);
-    Vec2::new(center.x - TOKEN_WIDTH * 0.5, center.y - TOKEN_HEIGHT - 4.0)
+    unit_root_top_left(position)
 }
 
 fn footprint_position(position: crate::domain::board::GridPos) -> Vec2 {
-    let center = stage_point(position);
-    Vec2::new(center.x - 56.0, center.y - 68.0)
+    footprint_top_left(position)
 }
 
 fn selection_position(position: crate::domain::board::GridPos) -> Vec2 {
-    let center = stage_point(position);
-    Vec2::new(center.x - 56.0, center.y - 28.0)
+    selection_top_left(position)
 }
 
 /// `IntentTargetVisual` markers sit on the same 112x56 diamond footprint as
@@ -281,8 +279,8 @@ fn rendered_stage_center(visuals: &UnitVisualQuery<'_, '_>, unit: UnitId) -> Opt
         }
         match (node.left, node.top) {
             (Val::Px(left), Val::Px(top)) => Some(Vec2::new(
-                left + TOKEN_WIDTH * 0.5,
-                top + TOKEN_HEIGHT + 4.0,
+                left + MAP_UNIT_WIDTH * 0.5,
+                top + MAP_UNIT_HEIGHT,
             )),
             _ => None,
         }
@@ -777,7 +775,7 @@ mod tests {
 
         app.update();
 
-        let origin = iso_center(rendered_cell) + Vec2::new(0.0, -TOKEN_HEIGHT - 10.0);
+        let origin = iso_center(rendered_cell) + Vec2::new(0.0, -MAP_UNIT_HEIGHT - 10.0);
         let mut numbers = app.world_mut().query::<(&DamageNumberEffect, &Node)>();
         let (number, node) = numbers.single(app.world()).unwrap();
         assert_eq!(number.origin, origin);
