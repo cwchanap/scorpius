@@ -1,3 +1,4 @@
+use crate::domain::model::UnitArchetype;
 use bevy::prelude::*;
 
 use super::theme;
@@ -7,6 +8,10 @@ pub const BRIEFING_ART_PATH: &str = "ui/briefing.png";
 pub const VANGUARD_ART_PATH: &str = "ui/vanguard.png";
 pub const GUNNER_ART_PATH: &str = "ui/gunner.png";
 pub const INTERCEPTOR_ART_PATH: &str = "ui/interceptor.png";
+pub const VANGUARD_MAP_PATH: &str = "ui/map/vanguard.png";
+pub const GUNNER_MAP_PATH: &str = "ui/map/gunner.png";
+pub const INTERCEPTOR_MAP_PATH: &str = "ui/map/interceptor.png";
+pub const ENEMY_MAP_PATH: &str = "ui/map/enemy.png";
 
 /// Handles for every asset used by the native campaign and battle UI.
 /// `AssetLoadStatus` is the single readiness/error gate for presentation.
@@ -17,6 +22,10 @@ pub struct UiAssets {
     pub vanguard_art: Handle<Image>,
     pub gunner_art: Handle<Image>,
     pub interceptor_art: Handle<Image>,
+    pub vanguard_map: Handle<Image>,
+    pub gunner_map: Handle<Image>,
+    pub interceptor_map: Handle<Image>,
+    pub enemy_map: Handle<Image>,
     pub icons: Handle<Image>,
     pub board: Handle<Image>,
     pub fonts: [Handle<Font>; 7],
@@ -31,6 +40,10 @@ impl FromWorld for UiAssets {
             vanguard_art: asset_server.load(VANGUARD_ART_PATH),
             gunner_art: asset_server.load(GUNNER_ART_PATH),
             interceptor_art: asset_server.load(INTERCEPTOR_ART_PATH),
+            vanguard_map: asset_server.load(VANGUARD_MAP_PATH),
+            gunner_map: asset_server.load(GUNNER_MAP_PATH),
+            interceptor_map: asset_server.load(INTERCEPTOR_MAP_PATH),
+            enemy_map: asset_server.load(ENEMY_MAP_PATH),
             icons: asset_server.load(theme::ICON_ATLAS_PATH),
             board: asset_server.load(theme::BOARD_ATLAS_PATH),
             fonts: [
@@ -47,13 +60,35 @@ impl FromWorld for UiAssets {
 }
 
 impl UiAssets {
-    fn images(&self) -> [(&'static str, &Handle<Image>); 7] {
+    /// Handle of the tactical-map sprite for `archetype`. Exhaustive by
+    /// design: a new archetype must decide its map art here.
+    pub fn map_sprite(&self, archetype: UnitArchetype) -> &Handle<Image> {
+        match archetype {
+            UnitArchetype::Vanguard => &self.vanguard_map,
+            UnitArchetype::Gunner => &self.gunner_map,
+            UnitArchetype::Interceptor => &self.interceptor_map,
+            UnitArchetype::Rifleman
+            | UnitArchetype::Striker
+            | UnitArchetype::Artillery
+            | UnitArchetype::Flanker
+            | UnitArchetype::Bulwark
+            | UnitArchetype::Controller
+            | UnitArchetype::Dreadnought
+            | UnitArchetype::Regent => &self.enemy_map,
+        }
+    }
+
+    fn images(&self) -> [(&'static str, &Handle<Image>); 11] {
         [
             (KEY_ART_PATH, &self.key_art),
             (BRIEFING_ART_PATH, &self.briefing_art),
             (VANGUARD_ART_PATH, &self.vanguard_art),
             (GUNNER_ART_PATH, &self.gunner_art),
             (INTERCEPTOR_ART_PATH, &self.interceptor_art),
+            (VANGUARD_MAP_PATH, &self.vanguard_map),
+            (GUNNER_MAP_PATH, &self.gunner_map),
+            (INTERCEPTOR_MAP_PATH, &self.interceptor_map),
+            (ENEMY_MAP_PATH, &self.enemy_map),
             (theme::ICON_ATLAS_PATH, &self.icons),
             (theme::BOARD_ATLAS_PATH, &self.board),
         ]
@@ -134,4 +169,63 @@ pub fn monitor_mission_assets(
 
 pub fn mission_assets_ready(status: &AssetLoadStatus) -> bool {
     matches!(*status, AssetLoadStatus::Ready)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::model::UnitArchetype;
+
+    fn catalog() -> UiAssets {
+        UiAssets {
+            key_art: Handle::default(),
+            briefing_art: Handle::default(),
+            vanguard_art: Handle::default(),
+            gunner_art: Handle::default(),
+            interceptor_art: Handle::default(),
+            vanguard_map: Handle::default(),
+            gunner_map: Handle::default(),
+            interceptor_map: Handle::default(),
+            enemy_map: Handle::default(),
+            icons: Handle::default(),
+            board: Handle::default(),
+            fonts: std::array::from_fn(|_| Handle::default()),
+        }
+    }
+
+    #[test]
+    fn map_sprite_covers_every_archetype_and_shares_one_enemy_handle() {
+        let assets = catalog();
+        let enemies = [
+            UnitArchetype::Rifleman,
+            UnitArchetype::Striker,
+            UnitArchetype::Artillery,
+            UnitArchetype::Flanker,
+            UnitArchetype::Bulwark,
+            UnitArchetype::Controller,
+            UnitArchetype::Dreadnought,
+            UnitArchetype::Regent,
+        ];
+        for archetype in enemies {
+            assert!(
+                std::ptr::eq(assets.map_sprite(archetype), &assets.enemy_map),
+                "{archetype:?} must return the shared enemy map handle"
+            );
+        }
+        assert_eq!(
+            assets.map_sprite(UnitArchetype::Vanguard),
+            &assets.vanguard_map
+        );
+        assert_eq!(assets.map_sprite(UnitArchetype::Gunner), &assets.gunner_map);
+        assert_eq!(
+            assets.map_sprite(UnitArchetype::Interceptor),
+            &assets.interceptor_map
+        );
+    }
+
+    #[test]
+    fn image_readiness_gate_covers_all_eleven_images() {
+        let assets = catalog();
+        assert_eq!(assets.images().len(), 11);
+    }
 }
