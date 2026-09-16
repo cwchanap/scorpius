@@ -142,6 +142,31 @@ pub const fn token_depth(pos: GridPos) -> i32 {
 /// feedback uses it so impact icons always overlay the stage stack.
 pub const STAGE_EFFECT_DEPTH: i32 = token_depth(GridPos::new(8, 8)) + 1;
 
+/// Authored size of one tactical unit's map-sprite root. The sprite feet
+/// land on the tile center; this is the single geometry for spawn, sync,
+/// playback, and token-hit conversion.
+pub const MAP_UNIT_WIDTH: f32 = 96.0;
+pub const MAP_UNIT_HEIGHT: f32 = 96.0;
+
+/// Stage-local top-left of a unit's 96x96 sprite root (bottom-center anchor).
+pub fn unit_root_top_left(pos: GridPos) -> Vec2 {
+    let center = iso_center(pos) - battle_stage_rect().min;
+    Vec2::new(center.x - MAP_UNIT_WIDTH * 0.5, center.y - MAP_UNIT_HEIGHT)
+}
+
+/// Stage-local top-left of the 112x96 packed footprint/shadow rect. The
+/// authored atlas centers its ellipse at `cy + 1`; do not "correct" this.
+pub fn footprint_top_left(pos: GridPos) -> Vec2 {
+    let center = iso_center(pos) - battle_stage_rect().min;
+    Vec2::new(center.x - TILE_WIDTH * 0.5, center.y - 68.0)
+}
+
+/// Stage-local top-left of the 112x56 selection diamond.
+pub fn selection_top_left(pos: GridPos) -> Vec2 {
+    let center = iso_center(pos) - battle_stage_rect().min;
+    Vec2::new(center.x - TILE_WIDTH * 0.5, center.y - TILE_HEIGHT * 0.5)
+}
+
 /// Maps a stage-local pixel point to one of the authored 9×9 diamonds.
 ///
 /// The inclusive edge check intentionally resolves a shared edge by the
@@ -169,4 +194,34 @@ pub fn grid_from_stage_point(local: Vec2) -> Option<GridPos> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authored_map_unit_geometry_pins_feet_to_the_tile_center() {
+        let pos = GridPos::new(4, 4);
+        let center = iso_center(pos) - battle_stage_rect().min;
+        let root = unit_root_top_left(pos);
+        assert_eq!(MAP_UNIT_WIDTH, 96.0);
+        assert_eq!(MAP_UNIT_HEIGHT, 96.0);
+        assert_eq!(root, Vec2::new(center.x - 48.0, center.y - 96.0));
+    }
+
+    #[test]
+    fn footprint_and_selection_helpers_reproduce_authored_offsets() {
+        let pos = GridPos::new(2, 6);
+        let center = iso_center(pos) - battle_stage_rect().min;
+        // The 112x96 shadow atlas rect keeps its ellipse centered at cy + 1.
+        assert_eq!(
+            footprint_top_left(pos),
+            Vec2::new(center.x - 56.0, center.y - 68.0)
+        );
+        assert_eq!(
+            selection_top_left(pos),
+            Vec2::new(center.x - 56.0, center.y - 28.0)
+        );
+    }
 }
