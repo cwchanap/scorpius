@@ -364,11 +364,11 @@ fn animate_unit_event(
                 ..
             } => {
                 if *attacker == visual.0 {
-                    transform.scale = Vec2::splat(attack_scale(progress));
+                    set_unit_scale(&mut transform, attack_scale(progress));
                 }
                 if *target == visual.0 && *hit {
                     let pulse = (progress * PI).sin();
-                    transform.scale = Vec2::splat(UNIT_SCALE * (1.0 + pulse * 0.16));
+                    set_unit_scale(&mut transform, UNIT_SCALE * (1.0 + pulse * 0.16));
                 }
             }
             BattleEvent::DamageApplied { target, .. } if *target == visual.0 => {
@@ -376,11 +376,11 @@ fn animate_unit_event(
             }
             BattleEvent::UnitKnockedOut { unit, .. } if *unit == visual.0 => {
                 *visibility = Visibility::Visible;
-                transform.scale = Vec2::splat(UNIT_SCALE * (1.0 - eased).max(0.02));
+                set_unit_scale(&mut transform, UNIT_SCALE * (1.0 - eased).max(0.02));
             }
             BattleEvent::CounterFired { defender, .. } if *defender == visual.0 => {
                 let pulse = (progress * PI).sin();
-                transform.scale = Vec2::splat(UNIT_SCALE * (1.0 + pulse * 0.12));
+                set_unit_scale(&mut transform, UNIT_SCALE * (1.0 + pulse * 0.12));
             }
             _ => {}
         }
@@ -404,6 +404,14 @@ fn animate_damage_numbers(progress: f32, damage_numbers: &mut DamageNumberQuery<
 fn attack_scale(progress: f32) -> f32 {
     let pulse = (progress * PI).sin();
     UNIT_SCALE * (1.0 + pulse * 0.10)
+}
+
+/// Scale a feet-anchored unit root. Bevy UI scales around the node center,
+/// so compensate the Y translation to keep the 96px bottom edge (the feet)
+/// planted on the shadow while the body pulses or shrinks.
+fn set_unit_scale(transform: &mut UiTransform, scale: f32) {
+    transform.scale = Vec2::splat(scale);
+    transform.translation.y = px((1.0 - scale) * MAP_UNIT_HEIGHT);
 }
 
 fn despawn_transient_effects(
@@ -802,6 +810,21 @@ mod tests {
         assert!(!app.world().resource::<BattleEventQueue>().0.is_empty());
         assert!(app.world().resource::<EventPlayback>().input_locked);
         assert!(!app.world().resource::<RestartRoundPending>().0);
+    }
+
+    #[test]
+    fn unit_scale_effects_keep_the_ninety_six_pixel_bottom_edge_fixed() {
+        for scale in [1.10, 1.16, 1.12, 0.02, 1.0] {
+            let mut transform = UiTransform::IDENTITY;
+            set_unit_scale(&mut transform, scale);
+            assert_eq!(transform.scale, Vec2::splat(scale));
+            assert_eq!(transform.translation.y, px((1.0 - scale) * MAP_UNIT_HEIGHT));
+            // bottom = top + height * scale + translation.y stays at cy for
+            // top = cy - MAP_UNIT_HEIGHT:
+            let bottom =
+                -MAP_UNIT_HEIGHT + MAP_UNIT_HEIGHT * scale + (1.0 - scale) * MAP_UNIT_HEIGHT;
+            assert!((bottom - 0.0).abs() < 1e-4, "scale {scale} lifts the feet");
+        }
     }
 
     #[test]
