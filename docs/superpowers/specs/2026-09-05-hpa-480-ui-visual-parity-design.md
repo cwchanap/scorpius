@@ -102,8 +102,8 @@ TILE_HEIGHT = 56
 BLOCK_HEIGHT = 26
 ISO_ORIGIN_X = 504
 ISO_ORIGIN_Y = 190
-TOKEN_WIDTH = 76
-TOKEN_HEIGHT = 64
+MAP_UNIT_WIDTH = 96
+MAP_UNIT_HEIGHT = 96
 ```
 
 The logical-to-stage projection is fixed:
@@ -140,7 +140,7 @@ Alternating tiles, move/attack highlights, telegraphs, selection, inspection, an
 
 Atlas rectangle mappings are **const Rust data in `theme.rs`**, not runtime JSON. The manifest records source/binary provenance and the final atlas hash only.
 
-Raised blockers use the source 26px vertical face. Upright unit tokens are 76×64, with a footprint/shadow beneath.
+Raised blockers use the source 26px vertical face. Tactical units are 96×96 SD map sprites, bottom-centered on their tile with the footprint/shadow beneath.
 
 Depth uses Bevy `ZIndex`. All depth-sorted stage visuals that need to interleave are siblings in one flat stage child list; do not nest a token/blocker inside per-cell containers that defeat sibling `ZIndex` ordering. Equivalent source layers are:
 
@@ -170,7 +170,7 @@ Input rules:
 - `Pointer<Move>` recomputes `InteractionState.hovered_cell` and attack preview on every movement inside the stage;
 - `Pointer<Out>` clears hover/preview;
 - `Pointer<Click>` routes the computed cell once;
-- upright token cards use ordinary UI observers and resolve current `unit.position` into the same `route_cell_click` path while targeting;
+- unit sprite roots use ordinary UI observers; Inspect clicks route by `UnitId`, targeting clicks convert the token-local hit to a stage point and resolve the underlying diamond through `route_cell_click`;
 - in Inspect mode token observers inspect the token's `UnitId` without changing activation authority;
 - noninteractive board visuals are unmarked/non-pickable under marker-required UI picking;
 - targeting has precedence over inspection exactly once per click.
@@ -291,7 +291,7 @@ The updated source's vector catalog must be re-exported from this bundle, not re
 | Title | Key art, wordmark/emblems, New Game/Continue, save pips/errors. |
 | Story | Source dialogue composition, portrait, pips, Next, pre-mission Skip. |
 | Briefing | Mission metadata/objectives/rewards/Deploy from typed snapshot. |
-| Battle | Updated 2.5D isometric stage, upright tokens, raised blockers, fixed left command area, inspector/log, right threat/preview column, header/Resolve. |
+| Battle | Updated 2.5D isometric stage, SD map sprites, raised blockers, fixed left command area, inspector/log, right threat/preview column, header/Resolve. |
 | Result | Updated source Battle overlay; real terminal/result persistence. |
 | Aftermath | Source dialogue layout + persisted receipt; no Skip. |
 | Hangar | Three mech columns/four tracks/typed purchase states. |
