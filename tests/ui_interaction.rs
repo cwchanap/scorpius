@@ -209,12 +209,24 @@ fn token_clicks_begin_ready_players_but_keep_enemy_and_finished_inspection_view_
     let mut ready_battle = mission_one(7);
     ready_battle.begin_round().unwrap();
     let mut ready_interaction = InteractionState::default();
-    route_token_click(&mut ready_battle, &mut ready_interaction, ids::VANGUARD).unwrap();
+    route_token_click(
+        &mut ready_battle,
+        &mut ready_interaction,
+        ids::VANGUARD,
+        None,
+    )
+    .unwrap();
     assert_eq!(ready_battle.active_unit(), Some(ids::VANGUARD));
     assert_eq!(ready_interaction.inspected_unit, Some(ids::VANGUARD));
     assert_eq!(ready_interaction.menu, MenuState::Root);
 
-    route_token_click(&mut ready_battle, &mut ready_interaction, ids::STRIKER).unwrap();
+    route_token_click(
+        &mut ready_battle,
+        &mut ready_interaction,
+        ids::STRIKER,
+        None,
+    )
+    .unwrap();
     assert_eq!(ready_battle.active_unit(), Some(ids::VANGUARD));
     assert_eq!(ready_interaction.inspected_unit, Some(ids::STRIKER));
     assert_eq!(ready_interaction.menu, MenuState::Root);
@@ -231,6 +243,7 @@ fn token_clicks_begin_ready_players_but_keep_enemy_and_finished_inspection_view_
         &mut finished_battle,
         &mut finished_interaction,
         ids::VANGUARD,
+        None,
     )
     .unwrap();
     assert_eq!(finished_battle.active_unit(), None);

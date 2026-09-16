@@ -19,7 +19,10 @@ use super::{
     RestartRoundPending, TokenCard,
     assets::{AssetLoadStatus, mission_assets_ready},
     campaign_ui::screen_transition_pending,
-    layout::{BATTLE_STAGE_SIZE, grid_from_stage_point},
+    layout::{
+        BATTLE_STAGE_SIZE, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, grid_from_stage_point,
+        unit_root_top_left,
+    },
 };
 
 pub use super::battle_menu::MenuState;
@@ -79,6 +82,16 @@ pub fn stage_point_from_hit(hit: &HitData) -> Option<Vec2> {
 /// Resolve a direct stage hit through the authored diamond projection.
 pub fn grid_from_hit(hit: &HitData) -> Option<GridPos> {
     grid_from_stage_point(stage_point_from_hit(hit)?)
+}
+
+/// Token-local hit position as px inside the authored 96x96 root. Mirrors
+/// [`stage_point_from_hit`] but scales by the unit root instead of the stage.
+pub fn token_root_point_from_hit(hit: &HitData) -> Option<Vec2> {
+    let normalized = hit.position?.truncate();
+    if !normalized.is_finite() {
+        return None;
+    }
+    Some((normalized + Vec2::splat(0.5)) * Vec2::new(MAP_UNIT_WIDTH, MAP_UNIT_HEIGHT))
 }
 
 fn set_inspected_unit(interaction: &mut InteractionState, unit: Option<UnitId>) {
@@ -144,20 +157,30 @@ pub fn route_cell_click(
     }
 }
 
-/// Inspect a token using its domain ID. This is intentionally separate from
-/// stage picking because a token's `HitData.position` is token-local.
+/// Inspect a token using its domain ID; in targeting modes convert the
+/// token-local hit to a stage point and route the diamond under the cursor
+/// so sprite overhang never blocks Move/Attack/Aegis targets.
 pub fn route_token_click(
     battle: &mut BattleState,
     interaction: &mut InteractionState,
     unit_id: UnitId,
+    root_local: Option<Vec2>,
 ) -> Result<Vec<BattleEvent>, BattleError> {
     let position = battle
         .unit(unit_id)
         .ok_or(BattleError::UnknownUnit(unit_id))?
         .position;
-    // Token-local picking stops propagation, but the cell route remains the
-    // single source of inspect/activation behavior for every board target.
-    route_cell_click(battle, interaction, position)
+    let underlying =
+        root_local.and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local));
+    match (interaction.mode, underlying) {
+        (InteractionMode::Inspect, _) | (_, None) => {
+            // Token-local picking stops propagation, but the cell route remains
+            // the single source of inspect/activation behavior for every board
+            // target.
+            route_cell_click(battle, interaction, position)
+        }
+        (_, Some(cell)) => route_cell_click(battle, interaction, cell),
+    }
 }
 
 pub fn update_hover_preview(
@@ -268,8 +291,9 @@ pub fn on_battlefield_stage_out(
     clear_hover_preview(&mut interaction, &mut preview_cells);
 }
 
-/// Token events stop at the token card. In targeting modes the current domain
-/// position is routed once; in Inspect mode the token is simply inspected.
+/// Token events stop at the token card. In targeting modes the token-local
+/// hit is converted to a stage point and the underlying diamond is routed;
+/// in Inspect mode the token is simply inspected.
 #[allow(clippy::too_many_arguments)]
 pub fn on_battlefield_token_click(
     mut click: On<Pointer<Click>>,
@@ -290,7 +314,12 @@ pub fn on_battlefield_token_click(
         return;
     };
     route_pointer_result(
-        route_token_click(&mut battle.0, &mut interaction, token.0),
+        route_token_click(
+            &mut battle.0,
+            &mut interaction,
+            token.0,
+            token_root_point_from_hit(&click.event.hit),
+        ),
         &interaction,
         &mut status,
         &mut event_queue,
@@ -318,26 +347,24 @@ pub fn on_battlefield_token_move(
     let Some(position) = battle.0.unit(token.0).map(|unit| unit.position) else {
         return;
     };
-    update_hover_preview(&battle.0, &mut interaction, position);
+    let cell = token_root_point_from_hit(&event.event.hit)
+        .and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local))
+        .unwrap_or(position);
+    update_hover_preview(&battle.0, &mut interaction, cell);
     copy_preview_cells(&interaction, &mut preview_cells);
 }
 
 pub fn on_battlefield_token_out(
     mut event: On<Pointer<Out>>,
-    tokens: Query<&TokenCard>,
-    battle: Res<BattleRuntime>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
 ) {
+    // Hover may now sit on a diamond that is not the token's own domain cell,
+    // so the old equality guard would leak stale previews: clear always.
     event.propagate(false);
-    let Ok(token) = tokens.get(event.entity) else {
-        return;
-    };
-    if interaction.hovered_cell == battle.0.unit(token.0).map(|unit| unit.position) {
-        interaction.hovered_cell = None;
-        interaction.preview = None;
-        preview_cells.0.clear();
-    }
+    interaction.hovered_cell = None;
+    interaction.preview = None;
+    preview_cells.0.clear();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -965,5 +992,55 @@ mod tests {
         let resolved = stage_point_from_hit(&hit).unwrap();
         assert!(resolved.distance(local) < 0.001);
         assert_eq!(grid_from_hit(&hit), Some(GridPos::new(4, 4)));
+    }
+
+    #[test]
+    fn targeting_token_hit_routes_the_underlying_diamond() {
+        let mut battle = BattleState::viability_fixture();
+        let mut interaction = InteractionState {
+            mode: InteractionMode::Move,
+            ..InteractionState::default()
+        };
+        // Unit at (1,1); a hit 32px above its center lands on diamond (0,0).
+        let events = route_token_click(
+            &mut battle,
+            &mut interaction,
+            UnitId(1),
+            Some(Vec2::new(48.0, 64.0)),
+        )
+        .expect("converted hit must route a legal move");
+        assert_eq!(battle.unit(UnitId(1)).unwrap().position, GridPos::new(0, 0));
+        assert_eq!(interaction.hovered_cell, Some(GridPos::new(0, 0)));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, crate::domain::model::BattleEvent::UnitMoved { .. }))
+        );
+    }
+
+    #[test]
+    fn inspect_token_hit_still_inspects_the_unit_itself() {
+        let mut battle = BattleState::viability_fixture();
+        let mut interaction = InteractionState::default();
+        route_token_click(
+            &mut battle,
+            &mut interaction,
+            UnitId(1),
+            Some(Vec2::new(48.0, 64.0)),
+        )
+        .unwrap();
+        assert_eq!(interaction.inspected_unit, Some(UnitId(1)));
+        assert_eq!(interaction.hovered_cell, Some(GridPos::new(1, 1)));
+    }
+
+    #[test]
+    fn nine_by_nine_overhang_conversion_matches_the_pr_example() {
+        // Striker stands at (4,4); a point 80px above its tile center must
+        // resolve through the authored diamond resolver to (3,3).
+        let root = unit_root_top_left(GridPos::new(4, 4));
+        assert_eq!(
+            grid_from_stage_point(root + Vec2::new(48.0, 16.0)),
+            Some(GridPos::new(3, 3))
+        );
     }
 }
