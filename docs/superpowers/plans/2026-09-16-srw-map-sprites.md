@@ -560,7 +560,7 @@ Update the doc comment on `stage_point_from_hit` only if it still reads stale af
 - Consumes: Task 2 `MAP_UNIT_HEIGHT`.
 - Produces: `fn set_unit_scale(transform: &mut UiTransform, scale: f32)` — private.
 
-**Ruling (controller):** the PR body sketches `translation.y = (1.0 - scale) * MAP_UNIT_HEIGHT * 0.5`, but Bevy UI scales around the node center, and the 0.5 factor pins the **center**, not the bottom: at scale 0.9 the feet would lift 4.8px and the knockout shrink would hover ~47px above the shadow. The PR's own acceptance criterion ("pulses and knockout shrink keep the feet grounded on the shadow", "bottom edge fixed") requires `(1.0 - scale) * MAP_UNIT_HEIGHT`. Implement with the full factor.
+**Ruling (controller, corrected post-review):** the PR body sketches `translation.y = (1.0 - scale) * MAP_UNIT_HEIGHT * 0.5`, which is correct. Bevy UI scales around the node center (node-local coordinates are center-based, per bevy_ui 0.19 `ui_layout_system`), so the bottom edge drifts by `-(1 - scale) * MAP_UNIT_HEIGHT * 0.5` — the half factor exactly cancels it and pins the feet. An earlier version of this ruling incorrectly argued for the full factor by applying top-left-pivot drift math; under the real center pivot the full factor lifts attack pulses ~7.7px and sinks the knockout shrink ~47px below the shadow. Implement with `* 0.5`.
 
 - [ ] **Step 1: Write failing tests** in `playback.rs` inline `mod tests`:
 
@@ -571,11 +571,14 @@ Update the doc comment on `stage_point_from_hit` only if it still reads stale af
             let mut transform = UiTransform::IDENTITY;
             set_unit_scale(&mut transform, scale);
             assert_eq!(transform.scale, Vec2::splat(scale));
-            assert_eq!(transform.translation.y, px((1.0 - scale) * MAP_UNIT_HEIGHT));
-            // bottom = top + height * scale + translation.y stays at cy for
-            // top = cy - MAP_UNIT_HEIGHT:
-            let bottom = -MAP_UNIT_HEIGHT + MAP_UNIT_HEIGHT * scale
-                + (1.0 - scale) * MAP_UNIT_HEIGHT;
+            assert_eq!(
+                transform.translation.y,
+                px((1.0 - scale) * MAP_UNIT_HEIGHT * 0.5)
+            );
+            // Center-pivot: bottom = top + H/2 + (H/2)*scale + translation.y
+            // stays at cy for top = cy - MAP_UNIT_HEIGHT:
+            let bottom = -MAP_UNIT_HEIGHT * 0.5 + MAP_UNIT_HEIGHT * 0.5 * scale
+                + (1.0 - scale) * MAP_UNIT_HEIGHT * 0.5;
             assert!((bottom - 0.0).abs() < 1e-4, "scale {scale} lifts the feet");
         }
     }
@@ -591,7 +594,7 @@ Update the doc comment on `stage_point_from_hit` only if it still reads stale af
 /// planted on the shadow while the body pulses or shrinks.
 fn set_unit_scale(transform: &mut UiTransform, scale: f32) {
     transform.scale = Vec2::splat(scale);
-    transform.translation.y = px((1.0 - scale) * MAP_UNIT_HEIGHT);
+    transform.translation.y = px((1.0 - scale) * MAP_UNIT_HEIGHT * 0.5);
 }
 ```
 

@@ -411,7 +411,7 @@ fn attack_scale(progress: f32) -> f32 {
 /// planted on the shadow while the body pulses or shrinks.
 fn set_unit_scale(transform: &mut UiTransform, scale: f32) {
     transform.scale = Vec2::splat(scale);
-    transform.translation.y = px((1.0 - scale) * MAP_UNIT_HEIGHT);
+    transform.translation.y = px((1.0 - scale) * MAP_UNIT_HEIGHT * 0.5);
 }
 
 fn despawn_transient_effects(
@@ -818,11 +818,15 @@ mod tests {
             let mut transform = UiTransform::IDENTITY;
             set_unit_scale(&mut transform, scale);
             assert_eq!(transform.scale, Vec2::splat(scale));
-            assert_eq!(transform.translation.y, px((1.0 - scale) * MAP_UNIT_HEIGHT));
-            // bottom = top + height * scale + translation.y stays at cy for
-            // top = cy - MAP_UNIT_HEIGHT:
-            let bottom =
-                -MAP_UNIT_HEIGHT + MAP_UNIT_HEIGHT * scale + (1.0 - scale) * MAP_UNIT_HEIGHT;
+            assert_eq!(
+                transform.translation.y,
+                px((1.0 - scale) * MAP_UNIT_HEIGHT * 0.5)
+            );
+            // Center-pivot: bottom = top + H/2 + (H/2)*scale + translation.y
+            // stays at cy for top = cy - MAP_UNIT_HEIGHT:
+            let bottom = -MAP_UNIT_HEIGHT * 0.5
+                + MAP_UNIT_HEIGHT * 0.5 * scale
+                + (1.0 - scale) * MAP_UNIT_HEIGHT * 0.5;
             assert!((bottom - 0.0).abs() < 1e-4, "scale {scale} lifts the feet");
         }
     }

@@ -125,16 +125,19 @@ widens the unit roots, shifts sprites off tile centers, or moves Gunner's
 authored cell can consume this clearance — re-check this margin when touching
 `MAP_UNIT_WIDTH`/placement or Mission 1 openings.
 
-## Task 5 scale-formula ruling (record of record)
+## Task 5 scale-formula ruling (record of record, corrected)
 
-`set_unit_scale` in `src/presentation/playback.rs` uses the full
-`(1.0 - scale) * MAP_UNIT_HEIGHT` vertical-offset factor, not the `* 0.5`
-factor sketched in the PR body. Bevy UI scales nodes around their center; the
-0.5 factor pins the token's center and lifts the feet (at scale 0.9 the feet
-lift 4.8px, and the knockout shrink would hover ~47px above the shadow). The
-PR body's own acceptance criteria — "pulses and knockout shrink keep the feet
-grounded on the shadow", "bottom edge fixed" — require the full factor, and
-the full factor is what shipped in `5ef1a32`
-(`unit_scale_effects_keep_the_ninety_six_pixel_bottom_edge_fixed`). If a
-future ruling prefers center-pinned scaling, the change is the single `0.5`
-multiplication in `set_unit_scale`.
+`set_unit_scale` in `src/presentation/playback.rs` uses the half
+`(1.0 - scale) * MAP_UNIT_HEIGHT * 0.5` vertical-offset factor — the same
+factor sketched in the PR body. Bevy UI scales nodes around their center
+(node-local space is center-based; see `ui_layout_system`'s `local_center`
+composition in bevy_ui 0.19), so the bottom edge drifts by half the height
+delta and the 0.5 factor exactly cancels it, keeping the feet planted. An
+earlier revision of this note recorded the opposite ruling — the full
+`(1.0 - scale) * MAP_UNIT_HEIGHT` factor — which was derived from
+top-left-pivot drift math and was wrong under the real center pivot: with it,
+the attack pulse lifted the feet ~7.7px and the knockout shrink sank ~47px
+below the shadow. PR review caught the error; the corrected factor and the
+center-origin test geometry in
+`unit_scale_effects_keep_the_ninety_six_pixel_bottom_edge_fixed` supersede the
+formula shipped in `5ef1a32`.
