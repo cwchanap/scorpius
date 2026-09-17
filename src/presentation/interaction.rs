@@ -159,7 +159,9 @@ pub fn route_cell_click(
 
 /// Inspect a token using its domain ID; in targeting modes convert the
 /// token-local hit to a stage point and route the diamond under the cursor
-/// so sprite overhang never blocks Move/Attack/Aegis targets.
+/// so sprite overhang never blocks Move/Attack/Aegis targets. A targeting
+/// hit that resolves no diamond — transparent sprite padding — routes
+/// nothing, matching the stage picker's miss behavior.
 pub fn route_token_click(
     battle: &mut BattleState,
     interaction: &mut InteractionState,
@@ -173,13 +175,14 @@ pub fn route_token_click(
     let underlying =
         root_local.and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local));
     match (interaction.mode, underlying) {
-        (InteractionMode::Inspect, _) | (_, None) => {
+        (InteractionMode::Inspect, _) => {
             // Token-local picking stops propagation, but the cell route remains
             // the single source of inspect/activation behavior for every board
             // target.
             route_cell_click(battle, interaction, position)
         }
         (_, Some(cell)) => route_cell_click(battle, interaction, cell),
+        (_, None) => Ok(Vec::new()),
     }
 }
 
@@ -347,9 +350,18 @@ pub fn on_battlefield_token_move(
     let Some(position) = battle.0.unit(token.0).map(|unit| unit.position) else {
         return;
     };
-    let cell = token_root_point_from_hit(&event.event.hit)
-        .and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local))
-        .unwrap_or(position);
+    // Inspect hover stays on the mech's own cell so the highlight/preview the
+    // user sees matches the unit a click would inspect; only targeting modes
+    // follow the diamond under the cursor.
+    let cell = match interaction.mode {
+        InteractionMode::Inspect => Some(position),
+        _ => token_root_point_from_hit(&event.event.hit)
+            .and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local)),
+    };
+    let Some(cell) = cell else {
+        clear_hover_preview(&mut interaction, &mut preview_cells);
+        return;
+    };
     update_hover_preview(&battle.0, &mut interaction, cell);
     copy_preview_cells(&interaction, &mut preview_cells);
 }
@@ -1014,6 +1026,44 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, crate::domain::model::BattleEvent::UnitMoved { .. }))
         );
+    }
+
+    #[test]
+    fn targeting_token_hit_on_transparent_padding_routes_nothing() {
+        let mut battle = BattleState::viability_fixture();
+        let mut interaction = InteractionState {
+            mode: InteractionMode::Move,
+            ..InteractionState::default()
+        };
+        // The root's top-left corner is transparent padding: it converts to a
+        // stage point with no diamond, so the click routes nothing rather than
+        // falling back to the token's own cell.
+        let events = route_token_click(
+            &mut battle,
+            &mut interaction,
+            UnitId(1),
+            Some(Vec2::new(0.0, 0.0)),
+        )
+        .expect("a transparent-padding click is a no-op, not an error");
+        assert!(events.is_empty());
+        assert_eq!(battle.unit(UnitId(1)).unwrap().position, GridPos::new(1, 1));
+        assert_eq!(interaction.mode, InteractionMode::Move);
+        assert_eq!(interaction.hovered_cell, None);
+    }
+
+    #[test]
+    fn inspect_token_hit_on_transparent_padding_still_inspects() {
+        let mut battle = BattleState::viability_fixture();
+        let mut interaction = InteractionState::default();
+        route_token_click(
+            &mut battle,
+            &mut interaction,
+            UnitId(1),
+            Some(Vec2::new(0.0, 0.0)),
+        )
+        .unwrap();
+        assert_eq!(interaction.inspected_unit, Some(UnitId(1)));
+        assert_eq!(interaction.hovered_cell, Some(GridPos::new(1, 1)));
     }
 
     #[test]

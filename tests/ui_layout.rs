@@ -537,22 +537,16 @@ fn production_stage_observers_route_blockers_tokens_and_targets_once() {
         "token move must stop before the stage observer"
     );
 
-    // Head-zone hover resolves the diamond behind the mech, not the mech cell.
-    let behind = striker_cell
-        .x
-        .checked_sub(1)
-        .zip(striker_cell.y.checked_sub(1))
-        .map(|(x, y)| GridPos::new(x, y));
-    if let Some(behind_cell) = behind {
-        let overhang = fit.offset + (iso_center(striker_cell) + Vec2::new(0.0, -80.0)) * fit.scale;
-        send_headless_pointer_move(&mut app, window, overhang);
-        app.update();
-        assert_eq!(
-            app.world().resource::<InteractionState>().hovered_cell,
-            Some(behind_cell),
-            "token overhang must hover the underlying diamond",
-        );
-    }
+    // Inspect-mode head-zone hover stays on the mech's own cell so the
+    // highlight matches the unit a click at the same point would inspect.
+    let overhang = fit.offset + (iso_center(striker_cell) + Vec2::new(0.0, -80.0)) * fit.scale;
+    send_headless_pointer_move(&mut app, window, overhang);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(striker_cell),
+        "inspect-mode token overhang must hover the mech itself",
+    );
 
     send_headless_pointer_action(
         &mut app,
@@ -582,6 +576,21 @@ fn production_stage_observers_route_blockers_tokens_and_targets_once() {
     {
         let mut interaction = app.world_mut().resource_mut::<InteractionState>();
         interaction.mode = InteractionMode::Attack(scorpius::mission::squad::ids::REPULSOR_RAM);
+    }
+    // Targeting-mode head-zone hover resolves the diamond behind the mech.
+    let behind = striker_cell
+        .x
+        .checked_sub(1)
+        .zip(striker_cell.y.checked_sub(1))
+        .map(|(x, y)| GridPos::new(x, y));
+    if let Some(behind_cell) = behind {
+        send_headless_pointer_move(&mut app, window, overhang);
+        app.update();
+        assert_eq!(
+            app.world().resource::<InteractionState>().hovered_cell,
+            Some(behind_cell),
+            "targeting-mode token overhang must hover the underlying diamond",
+        );
     }
     send_headless_pointer_move(&mut app, window, token_point);
     app.update();
