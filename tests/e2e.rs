@@ -44,16 +44,14 @@ fn critical_flow_boots_to_mission_one_and_moves_vanguard() -> Result<()> {
     let _remove_save_root = RemoveOnDrop(save_root);
 
     run(options, |game| {
-        // Title -> pre-mission VN -> briefing.
-        game.wait_for("campaign.new_game")?;
-        game.click("campaign.new_game")?;
-        game.wait_for("campaign.skip_dialogue")?;
-        game.click("campaign.skip_dialogue")?;
-        game.wait_for("campaign.start_mission")?;
-        game.click("campaign.start_mission")?;
+        // Title -> pre-mission VN -> briefing. Each hop re-clicks until the
+        // next screen's marker appears, so a click lost to the cold-boot
+        // layout race self-heals instead of timing out.
+        click_through(game, "campaign.new_game", "campaign.skip_dialogue")?;
+        click_through(game, "campaign.skip_dialogue", "campaign.start_mission")?;
+        click_through(game, "campaign.start_mission", "battle.hud")?;
 
-        // Battle: the HUD and the Vanguard token must exist before interacting.
-        game.wait_for("battle.hud")?;
+        // Battle: the Vanguard token must exist before interacting.
         game.wait_for("battle.unit.vanguard")?;
         let starting = vanguard_node_xy(game)?;
 
@@ -83,6 +81,29 @@ fn critical_flow_boots_to_mission_one_and_moves_vanguard() -> Result<()> {
              expected {MOVE_DELTA:?} for (4, 7) -> (4, 8)"
         );
         Ok(())
+    })
+}
+
+/// Click `target` until the `expect` marker appears.
+///
+/// `wait_for` only proves the entity exists — on a cold boot the first poll
+/// can land in the spawn frame, before `ui_layout` has computed the button's
+/// `UiGlobalTransform`, so a fire-once click computes its coordinates from
+/// the default transform and misses. Re-clicking until the next screen's
+/// marker appears makes the navigation self-healing, mirroring the battle
+/// loop's click-retry below.
+fn click_through(game: &Game, target: &str, expect: &str) -> Result<()> {
+    game.wait_for(target)?;
+    game.wait_until(Duration::from_secs(10), |game| {
+        if game.exists(expect)? {
+            return Ok(true);
+        }
+        // The target can despawn mid-poll once navigation lands; the expect
+        // marker then appears on a later pass.
+        if game.exists(target)? {
+            game.click(target)?;
+        }
+        Ok(false)
     })
 }
 

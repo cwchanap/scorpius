@@ -68,8 +68,15 @@ the normalized sprites installed, the real rendered E2E boots Title → New
 Game → skip VN → briefing → battle and drives the Vanguard move to (4, 8)
 through BRP-inspected node positions. One cold-boot race was observed once
 (the first run clicked `campaign.new_game` during startup and timed out
-waiting for the VN skip button; an immediate rerun passed) — rerun before
-investigating if this ever recurs.
+waiting for the VN skip button; `test_output/scorpius-30349-1/` holds that
+run's artifacts). Root cause: an existence-before-layout click miss —
+`wait_for` proves only entity existence, so a fire-once nav click can land
+in the spawn frame before `ui_layout` computes the button's
+`UiGlobalTransform` and then miss. Fixed in the e2e harness usage by the
+`click_through` self-heal (`test: self-heal e2e navigation clicks lost to
+the cold-boot layout race`), which re-clicks each nav hop until the next
+screen's marker appears; the battle section already used the same
+click-retry shape.
 
 ## Native captures — PASS (all three scenarios screenshot)
 
