@@ -8,6 +8,32 @@ one `.gitignore` line (`/test_output`).
 All steps were executed locally on macOS 26.6.2 / Apple M1 Pro with a real
 display and Metal GPU — nothing was skipped for lack of display.
 
+## Map-sprite art install (asset commit)
+
+The four corrupt `assets/ui/map/*.png` blobs (art commit `84a0318`) were
+replaced with the user-supplied, ChatGPT-generated SD anime mecha art,
+normalized with Python 3 + Pillow 12. Sources were already RGBA; each was
+trimmed to its alpha bbox, scaled to fit 256×256 preserving aspect (feet
+filled to the bottom edge), and pasted bottom-center onto a transparent
+256×256 RGBA canvas. `file(1)` confirms all four as
+`PNG image data, 256 x 256, 8-bit/color RGBA`; each was read back visually to
+confirm a transparent surround, feet on the bottom edge, and a legible mech.
+
+Classification (source → role, one line each):
+
+- `(1)` → `vanguard` — heroic white/blue mech with glowing energy sword and
+  shield; reads as the player melee leader.
+- `(2)` → `enemy` — dark grey mass-production palette with red mono-eye,
+  grunt rifle and shield; the clear hostile of the set.
+- `(3)` → `gunner` — bulky green/white mech with a giant gatling cannon and
+  shoulder missile pods; the heavy ranged support.
+- `(4)` → `interceptor` — slim red/white mech with energy claws and spiky
+  wings; the light fast skirmisher.
+
+Each source fit exactly one role; the closest call was `(2)` (it carries a
+rifle, but `(3)` is unmistakably the heavy gunner and `(2)`'s dark grunt
+palette is the enemy).
+
 ## Automated gates
 
 ```text
@@ -27,47 +53,27 @@ cargo build --release
 PASS (exit 0, 5m48s)
 ```
 
-## E2E suite — FAILED: renderer gate rejects corrupt map-sprite PNGs
+## E2E suite — PASS (was failing on the corrupt-asset gate)
 
 ```text
 cargo test --features e2e --test e2e -- --test-threads=1
-FAIL — critical_flow_boots_to_mission_one_and_moves_vanguard
-(wait_until timed out after 60s; total 75s)
+PASS — critical_flow_boots_to_mission_one_and_moves_vanguard (6.96s)
 ```
 
-The game boots and renders the full battle stage on Metal, but the production
+History: with the corrupt `84a0318` sprite bytes this suite failed because the
 asset readiness gate (`AssetLoadStatus::Failed` → "LOCKED / ASSET LOAD FAILED"
-banner) locks all input, so the movement flow can never be clicked through.
-Root cause, from the child stderr log:
+banner) locked all input — `Invalid PNG signature` was reported for all four
+map sprites (`test_output/scorpius-87386-1/` holds that run's artifacts). With
+the normalized sprites installed, the real rendered E2E boots Title → New
+Game → skip VN → briefing → battle and drives the Vanguard move to (4, 8)
+through BRP-inspected node positions. One cold-boot race was observed once
+(the first run clicked `campaign.new_game` during startup and timed out
+waiting for the VN skip button; an immediate rerun passed) — rerun before
+investigating if this ever recurs.
 
-```text
-Failed to load asset 'ui/map/vanguard.png' with asset loader
-'bevy_image::image_loader::ImageLoader': Could not load texture file: Error
-reading image file ui/map/vanguard.png: failed to load an image: Format error
-decoding Png: Invalid PNG signature.
-```
+## Native captures — PASS (all three scenarios screenshot)
 
-The same `Invalid PNG signature` error is reported for all four map sprites
-(`ui/map/vanguard.png`, `ui/map/gunner.png`, `ui/map/interceptor.png`,
-`ui/map/enemy.png`). The committed bytes in `assets/ui/map/` (art commit
-`84a0318`, which predates plan Task 1) do not begin with the PNG magic
-signature — none of the four files is decodable by `image` or identifiable by
-`file(1)`, and the git object store contains no earlier non-corrupt version of
-any of them. Every test in Tasks 1–5 is headless (fixture `Handle::default()`
-handles), so the corruption was invisible until a real renderer loaded the
-catalog. This is a pre-existing blocker on the branch, not a Task 6
-regression; it must be fixed by committing valid 96×96 sprite PNGs at those
-four paths before PR #8 can pass its capture/E2E evidence gates.
-
-Failure artifacts (local run, not committed): `test_output/scorpius-87386-1/`
-— `screenshot.png` shows the rendered stage with the
-`LOCKED / ASSET LOAD FAILED ui/map/vanguard.png` banner; `stderr.log` holds
-the loader errors quoted above.
-
-## Native captures — FAILED: same asset-gate root cause
-
-Renderer fixture attempted with a real window (display and GPU available, so
-this is a recorded failure, not SKIPPED-NO-DISPLAY):
+Renderer fixture run with a real window on Metal (display and GPU available):
 
 ```bash
 cargo build --features ui-capture --example ui_capture   # PASS
@@ -80,14 +86,24 @@ target/debug/examples/ui_capture --scenario battle-playback --size 1920x1080 \
   --seed 7 --time-ms 150 --output target/ui-capture/battle-playback.png
 ```
 
-All three scenarios exit 1 with `capture failed: UI asset ui/map/vanguard.png
-did not load` (the `AssetLoadStatus::Failed` path in `capture_assets_ready`
-aborts before any screenshot is written), so **no capture files exist** at
-`target/ui-capture/battle-idle.png`,
-`target/ui-capture/battle-active-vanguard.png`, or
-`target/ui-capture/battle-playback.png`. Per the no-faked-evidence rule the
-captures are left unattempted-with-placeholder art; they must be re-run after
-valid sprite PNGs land.
+All three exits 0 and wrote screenshots (previously the asset gate aborted
+with `capture failed: UI asset ui/map/vanguard.png did not load` before any
+screenshot was written). Visual verdicts from reading the captures:
+
+- `battle-idle` — PASS. The three player mechs are distinct at 96px (Gunner
+  with gatling cannon, Vanguard with sword + shield, Interceptor claws),
+  standing bottom-anchored on their cells; the four enemy grunts read clearly
+  with HP bars, archetype intent lines, and the `LOCKED 4` planning pill (the
+  normal enemy-planning input lock at `--time-ms 0`). No card chrome on the
+  battlefield.
+- `battle-active-vanguard` — PASS. Selection overlay (cyan move/attack tiles,
+  yellow origin), Vanguard sidebar menu and inspector readable, enemy intent
+  cards (Striker 83%, Artillery 90%) with archetype glyphs; overlays do not
+  obscure the sprites.
+- `battle-playback` — PASS. Event log (`LOCKED INTENT`/`MOVING`, "Resolving
+  committed events…") with Vanguard interpolated mid-move at 150 ms; feet
+  stay grounded on tile shadows and depth ordering against the dark props is
+  sane.
 
 ## E2E click geometry — ~8px horizontal clearance (future-geometry warning)
 
