@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::domain::model::{Faction, PrimaryObjective, Reaction};
 
 use super::{
-    AttackPreviewCells, BattleRuntime, BattleStage, CellInsetVisual, CellVisual, EventPlayback,
+    AttackPreviewCells, BattleMap, BattleRuntime, CellInsetVisual, CellVisual, EventPlayback,
     ExtractionVisual, IntentLineVisual, IntentTargetVisual, PresentationRoot, PropVisual,
     ReactionVisual, TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard,
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
@@ -22,7 +22,7 @@ fn stage_point(cell: crate::domain::board::GridPos) -> Vec2 {
 }
 
 fn marker_parent(
-    stage: &Query<Entity, With<BattleStage>>,
+    stage: &Query<Entity, With<BattleMap>>,
     roots: &Query<Entity, With<PresentationRoot>>,
 ) -> Option<Entity> {
     stage.iter().next().or_else(|| roots.iter().next())
@@ -235,7 +235,7 @@ pub fn reconcile_telegraph_markers(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &TelegraphVisual)>,
 ) {
@@ -301,7 +301,7 @@ pub fn reconcile_intent_guides(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing_targets: Query<(Entity, &IntentTargetVisual)>,
     existing_lines: Query<(Entity, &IntentLineVisual)>,
@@ -408,7 +408,7 @@ pub fn reconcile_extraction_marker(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &ExtractionVisual)>,
 ) {
@@ -458,7 +458,7 @@ pub fn reconcile_reaction_markers(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &ReactionVisual)>,
 ) {
@@ -591,6 +591,16 @@ pub fn sync_cell_highlights(
             (theme::BOARD_ATTACK, theme::BOARD_ATTACK_INSET)
         } else if reachable.contains(&cell) {
             (theme::BOARD_SELECTED, theme::BOARD_REACHABLE)
+        } else if battle.0.board().width() > 9 || battle.0.board().height() > 9 {
+            let terrain = battle.0.board().terrain_at(cell).unwrap();
+            (
+                theme::BOARD_STROKE,
+                if theme::terrain_art(terrain).is_some() {
+                    Color::WHITE
+                } else {
+                    super::map_view::terrain_color(terrain, cell)
+                },
+            )
         } else if (cell.x + cell.y).is_multiple_of(2) {
             (theme::BOARD_STROKE, theme::BOARD_LIGHT)
         } else {

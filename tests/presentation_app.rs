@@ -79,6 +79,7 @@ fn blank_ui_assets() -> UiAssets {
         enemy_map: Handle::default(),
         icons: Handle::default(),
         board: Handle::default(),
+        terrain: Handle::default(),
         fonts: std::array::from_fn(|_| Handle::default()),
     }
 }
@@ -179,7 +180,7 @@ fn move_highlight_does_not_mark_an_unreachable_hovered_cell() {
     );
     assert_eq!(
         app.world().get::<ImageNode>(inset).unwrap().color,
-        theme::BOARD_LIGHT
+        Color::WHITE
     );
 }
 
@@ -413,7 +414,15 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
     assert_eq!(inset.1.top, px(3.0));
     assert_eq!(inset.1.width, px(106.0));
     assert_eq!(inset.1.height, px(50.0));
-    assert_eq!(inset.2.color, theme::BOARD_LIGHT);
+    assert_eq!(inset.2.color, Color::WHITE);
+    assert_eq!(
+        inset.2.rect,
+        Some(
+            theme::terrain_art(scorpius::domain::board::Terrain::Plain)
+                .unwrap()
+                .0
+        )
+    );
     assert_eq!(inset.3, &Pickable::IGNORE);
 }
 

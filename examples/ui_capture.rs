@@ -719,6 +719,11 @@ fn apply_action(world: &mut World, action: &CaptureAction, seed: u64) {
             run.width = *width;
             run.height = *height;
         }
+        CaptureAction::FocusMap(cell, zoom_percent) => {
+            let mut view = world.resource_mut::<scorpius::presentation::map_view::MapView>();
+            view.zoom = f32::from(*zoom_percent) / 100.0;
+            view.focus(*cell);
+        }
         CaptureAction::SetBattle(setup) => install_battle_setup(world, *setup, seed),
         CaptureAction::SetAssetStatus(status) => {
             *world.resource_mut::<AssetLoadStatus>() = status.clone();

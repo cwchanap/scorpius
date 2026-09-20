@@ -4,6 +4,7 @@ pub mod battlefield;
 pub mod campaign_ui;
 pub mod interaction;
 pub mod layout;
+pub mod map_view;
 pub mod playback;
 pub mod screens;
 pub mod sync;
@@ -68,6 +69,10 @@ pub struct PresentationRoot;
 /// sibling visuals.
 #[derive(Component)]
 pub struct BattleStage;
+
+/// Panned/scaled content under the fixed, clipped BattleStage viewport.
+#[derive(Component)]
+pub struct BattleMap;
 
 /// Ownership marker for the active campaign screen's UI camera.
 #[derive(Component)]

@@ -498,6 +498,49 @@ fn production_picker_app() -> (App, Entity) {
 }
 
 #[test]
+fn production_picker_resolves_panned_zoomed_regional_cells_and_ignores_middle_click() {
+    use scorpius::presentation::map_view::MapView;
+    let (mut app, window) = production_picker_app();
+    // Keep this test's original token fixtures away from the center hit.
+    let mut view = MapView::new(app.world().resource::<BattleRuntime>().0.board());
+    view.focus(GridPos::new(120, 120));
+    view.zoom = 0.5;
+    app.insert_resource(view);
+    let point = battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5;
+    send_headless_pointer_move(&mut app, window, point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(GridPos::new(120, 120))
+    );
+    app.world_mut()
+        .resource_mut::<InteractionState>()
+        .hovered_cell = None;
+    for action in [
+        PointerAction::Press(PointerButton::Middle),
+        PointerAction::Release(PointerButton::Middle),
+    ] {
+        send_headless_pointer_action(&mut app, window, point, action);
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
+    );
+    for action in [
+        PointerAction::Press(PointerButton::Primary),
+        PointerAction::Release(PointerButton::Primary),
+    ] {
+        send_headless_pointer_action(&mut app, window, point, action);
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(GridPos::new(120, 120))
+    );
+}
+
+#[test]
 fn production_stage_observers_route_blockers_tokens_and_targets_once() {
     let (mut app, window) = production_picker_app();
     let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
