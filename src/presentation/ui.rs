@@ -3698,6 +3698,7 @@ mod tests {
             enemy_map: Handle::default(),
             icons: Handle::default(),
             board: Handle::default(),
+            terrain: Handle::default(),
             fonts: std::array::from_fn(|_| Handle::default()),
         }
     }

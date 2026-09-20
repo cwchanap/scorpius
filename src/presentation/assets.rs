@@ -28,6 +28,7 @@ pub struct UiAssets {
     pub enemy_map: Handle<Image>,
     pub icons: Handle<Image>,
     pub board: Handle<Image>,
+    pub terrain: Handle<Image>,
     pub fonts: [Handle<Font>; 7],
 }
 
@@ -46,6 +47,7 @@ impl FromWorld for UiAssets {
             enemy_map: asset_server.load(ENEMY_MAP_PATH),
             icons: asset_server.load(theme::ICON_ATLAS_PATH),
             board: asset_server.load(theme::BOARD_ATLAS_PATH),
+            terrain: asset_server.load(theme::TERRAIN_ATLAS_PATH),
             fonts: [
                 asset_server.load(theme::CHAKRA_PETCH_400_PATH),
                 asset_server.load(theme::CHAKRA_PETCH_500_PATH),
@@ -78,7 +80,7 @@ impl UiAssets {
         }
     }
 
-    fn images(&self) -> [(&'static str, &Handle<Image>); 11] {
+    fn images(&self) -> [(&'static str, &Handle<Image>); 12] {
         [
             (KEY_ART_PATH, &self.key_art),
             (BRIEFING_ART_PATH, &self.briefing_art),
@@ -91,6 +93,7 @@ impl UiAssets {
             (ENEMY_MAP_PATH, &self.enemy_map),
             (theme::ICON_ATLAS_PATH, &self.icons),
             (theme::BOARD_ATLAS_PATH, &self.board),
+            (theme::TERRAIN_ATLAS_PATH, &self.terrain),
         ]
     }
 
@@ -188,6 +191,7 @@ mod tests {
             enemy_map: Handle::default(),
             icons: Handle::default(),
             board: Handle::default(),
+            terrain: Handle::default(),
             fonts: std::array::from_fn(|_| Handle::default()),
         }
     }
@@ -232,8 +236,8 @@ mod tests {
     }
 
     #[test]
-    fn image_readiness_gate_covers_all_eleven_images() {
+    fn image_readiness_gate_covers_all_twelve_images() {
         let assets = catalog();
-        assert_eq!(assets.images().len(), 11);
+        assert_eq!(assets.images().len(), 12);
     }
 }

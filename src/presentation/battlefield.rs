@@ -1,9 +1,10 @@
 use bevy::prelude::*;
+use std::collections::BTreeSet;
 
 use crate::domain::{board::GridPos, model::Faction};
 
 use super::{
-    BattleCamera2d, BattleRuntime, BattleStage, CanvasRoot, CellInsetVisual, CellVisual,
+    BattleCamera2d, BattleMap, BattleRuntime, BattleStage, CanvasRoot, CellInsetVisual, CellVisual,
     PresentationNeedsRebuild, PresentationRoot, PropVisual, TokenAwaiting, TokenCard,
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
@@ -13,16 +14,15 @@ use super::{
         on_battlefield_token_click, on_battlefield_token_move, on_battlefield_token_out,
     },
     layout::{
-        BATTLE_GRID_HEIGHT, BATTLE_GRID_WIDTH, BATTLE_STAGE_SIZE, BLOCK_HEIGHT, MAP_UNIT_HEIGHT,
-        MAP_UNIT_WIDTH, TILE_HEIGHT, TILE_WIDTH, battle_stage_rect, depth_key, footprint_top_left,
-        iso_center, selection_top_left, token_depth, unit_root_top_left,
+        BATTLE_STAGE_SIZE, BLOCK_HEIGHT, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, TILE_HEIGHT, TILE_WIDTH,
+        battle_stage_rect, depth_key, footprint_top_left, iso_center, selection_top_left,
+        token_depth, unit_root_top_left,
     },
+    map_view::{MapView, spawn_map_controls, terrain_color},
     theme,
 };
 
 pub fn mission_grid_cells(width: u8, height: u8) -> Vec<GridPos> {
-    assert_eq!(width, BATTLE_GRID_WIDTH, "HPA-480 battle boards are 9x9");
-    assert_eq!(height, BATTLE_GRID_HEIGHT, "HPA-480 battle boards are 9x9");
     (0..height)
         .flat_map(|y| (0..width).map(move |x| GridPos::new(x, y)))
         .collect()
@@ -33,8 +33,8 @@ pub fn setup_mission_scene(
     battle: Res<BattleRuntime>,
     ui_assets: Res<UiAssets>,
     canvas_roots: Query<Entity, With<CanvasRoot>>,
+    mut images: Option<ResMut<Assets<Image>>>,
 ) {
-    assert_authored_board(&battle.0);
     let canvas = canvas_roots
         .iter()
         .next()
@@ -43,7 +43,13 @@ pub fn setup_mission_scene(
     commands.spawn((Camera2d, BattleCamera2d, UiPickingCamera));
 
     let root = spawn_presentation_root(&mut commands, canvas);
-    populate_mission_root(&mut commands, root, &ui_assets, &battle);
+    populate_mission_root(
+        &mut commands,
+        root,
+        &ui_assets,
+        &battle,
+        images.as_deref_mut(),
+    );
 }
 
 pub(crate) fn rebuild_mission_scene(
@@ -51,25 +57,18 @@ pub(crate) fn rebuild_mission_scene(
     battle: Res<BattleRuntime>,
     ui_assets: Res<UiAssets>,
     roots: Query<Entity, (With<PresentationRoot>, With<PresentationNeedsRebuild>)>,
+    mut images: Option<ResMut<Assets<Image>>>,
 ) {
-    assert_authored_board(&battle.0);
     for root in &roots {
-        populate_mission_root(&mut commands, root, &ui_assets, &battle);
+        populate_mission_root(
+            &mut commands,
+            root,
+            &ui_assets,
+            &battle,
+            images.as_deref_mut(),
+        );
         commands.entity(root).remove::<PresentationNeedsRebuild>();
     }
-}
-
-fn assert_authored_board(battle: &crate::domain::battle::BattleState) {
-    assert_eq!(
-        battle.board().width(),
-        BATTLE_GRID_WIDTH,
-        "HPA-480 battle boards are 9x9"
-    );
-    assert_eq!(
-        battle.board().height(),
-        BATTLE_GRID_HEIGHT,
-        "HPA-480 battle boards are 9x9"
-    );
 }
 
 fn spawn_presentation_root(commands: &mut Commands, canvas: Entity) -> Entity {
@@ -94,6 +93,7 @@ fn populate_mission_root(
     root: Entity,
     ui_assets: &UiAssets,
     battle: &BattleRuntime,
+    images: Option<&mut Assets<Image>>,
 ) {
     let stage = commands
         .spawn((
@@ -117,39 +117,33 @@ fn populate_mission_root(
         .observe(on_battlefield_stage_out)
         .id();
 
-    for cell in mission_grid_cells(BATTLE_GRID_WIDTH, BATTLE_GRID_HEIGHT) {
-        let fill = if (cell.x + cell.y) % 2 == 0 {
-            theme::BOARD_LIGHT
-        } else {
-            theme::BOARD_DARK
-        };
-        let outer = commands
-            .spawn((
-                Name::new(format!("Cell {},{}", cell.x, cell.y)),
-                cell_node(cell),
-                theme::board_node(
-                    ui_assets.board.clone(),
-                    theme::BOARD_DIAMOND_RECT,
-                    theme::BOARD_STROKE,
-                ),
-                CellVisual(cell),
-                ZIndex(0),
-                ChildOf(stage),
-            ))
-            .id();
-        e2e_id(
-            commands,
-            outer,
-            (cell == GridPos::new(4, 8)).then_some("battle.cell.4.8"),
-        );
-        commands.spawn((
-            cell_inset_node(),
-            theme::board_node(ui_assets.board.clone(), theme::BOARD_DIAMOND_RECT, fill),
-            CellInsetVisual(cell),
-            Pickable::IGNORE,
-            ChildOf(outer),
-        ));
+    let mut view = MapView::new(battle.0.board());
+    if view.is_regional() {
+        view.zoom = 0.7;
+        view.focus(GridPos::new(6, 6));
+        if let Some(images) = images {
+            spawn_map_controls(commands, stage, ui_assets, battle.0.board(), battle, images);
+        }
     }
+    let stage = commands
+        .spawn((
+            Name::new("Battle Map Content"),
+            BattleMap,
+            Node {
+                position_type: PositionType::Absolute,
+                width: px(BATTLE_STAGE_SIZE.x),
+                height: px(BATTLE_STAGE_SIZE.y),
+                ..default()
+            },
+            view.transform(),
+            Pickable::IGNORE,
+            ChildOf(stage),
+        ))
+        .id();
+    for cell in view.visible_cells() {
+        spawn_cell(commands, stage, ui_assets, battle, cell);
+    }
+    commands.insert_resource(view);
 
     for cell in battle.0.board().blocking_cells() {
         spawn_blocker(commands, stage, ui_assets, cell);
@@ -179,6 +173,100 @@ fn populate_mission_root(
     for unit in battle.0.units() {
         spawn_token(commands, stage, ui_assets, unit);
     }
+}
+
+pub fn reconcile_visible_cells(
+    mut commands: Commands,
+    view: Res<MapView>,
+    battle: Res<BattleRuntime>,
+    assets: Res<UiAssets>,
+    maps: Query<Entity, With<BattleMap>>,
+    existing: Query<(Entity, &CellVisual)>,
+    mut previous: Local<Option<MapView>>,
+) {
+    if *previous == Some(*view) && !existing.is_empty() {
+        return;
+    }
+    let Some(parent) = maps.iter().next() else {
+        return;
+    };
+    let visible: BTreeSet<_> = view.visible_cells().into_iter().collect();
+    let mut present = BTreeSet::new();
+    for (entity, cell) in &existing {
+        if visible.contains(&cell.0) {
+            present.insert(cell.0);
+        } else {
+            commands.entity(entity).despawn();
+        }
+    }
+    for cell in visible.difference(&present) {
+        spawn_cell(&mut commands, parent, &assets, &battle, *cell);
+    }
+    *previous = Some(*view);
+}
+
+fn spawn_cell(
+    commands: &mut Commands,
+    stage: Entity,
+    assets: &UiAssets,
+    battle: &BattleRuntime,
+    cell: GridPos,
+) {
+    let regional = battle.0.board().width() > 9 || battle.0.board().height() > 9;
+    let terrain = battle.0.board().terrain_at(cell).unwrap();
+    let fill = if regional {
+        terrain_color(terrain, cell)
+    } else if (cell.x + cell.y).is_multiple_of(2) {
+        theme::BOARD_LIGHT
+    } else {
+        theme::BOARD_DARK
+    };
+    let outer = commands
+        .spawn((
+            Name::new(format!("Cell {},{}", cell.x, cell.y)),
+            cell_node(cell),
+            theme::board_node(
+                assets.board.clone(),
+                theme::BOARD_DIAMOND_RECT,
+                theme::BOARD_STROKE,
+            ),
+            CellVisual(cell),
+            ZIndex(if regional {
+                i32::from(depth_key(cell)) - 256
+            } else {
+                0
+            }),
+            ChildOf(stage),
+        ))
+        .id();
+    e2e_id(
+        commands,
+        outer,
+        (cell == GridPos::new(4, 8)).then_some("battle.cell.4.8"),
+    );
+    let (node, image) =
+        if let Some((rect, height)) = regional.then(|| theme::terrain_art(terrain)).flatten() {
+            (
+                Node {
+                    top: px(53.0 - height),
+                    height: px(height),
+                    ..cell_inset_node()
+                },
+                theme::board_node(assets.terrain.clone(), rect, Color::WHITE),
+            )
+        } else {
+            (
+                cell_inset_node(),
+                theme::board_node(assets.board.clone(), theme::BOARD_DIAMOND_RECT, fill),
+            )
+        };
+    commands.spawn((
+        node,
+        image,
+        CellInsetVisual(cell),
+        Pickable::IGNORE,
+        ChildOf(outer),
+    ));
 }
 
 fn cell_node(cell: GridPos) -> Node {

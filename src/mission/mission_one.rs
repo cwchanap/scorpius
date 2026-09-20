@@ -1,7 +1,7 @@
 use crate::campaign::model::SquadUpgrades;
 use crate::domain::{
     battle::BattleState,
-    board::{BoardState, ExplosiveState, GridPos},
+    board::{BoardState, ExplosiveState, GridPos, Terrain},
     model::{
         EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
     },
@@ -76,8 +76,8 @@ pub fn mission_one_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleSt
 
 fn mission_one_board() -> BoardState {
     BoardState::new(
-        9,
-        9,
+        128,
+        128,
         [
             GridPos::new(2, 1),
             GridPos::new(6, 1),
@@ -93,6 +93,59 @@ fn mission_one_board() -> BoardState {
             exploded: false,
         }],
     )
+    .with_terrain(mission_one_terrain)
+}
+
+/// Relay Nine occupies the northwest landing site. Roads connect the coast,
+/// wooded interior and eastern mountain passes; no random terrain or islands.
+fn mission_one_terrain(cell: GridPos) -> Terrain {
+    let (x, y) = (i32::from(cell.x), i32::from(cell.y));
+    if x < 9 && y < 9 {
+        return Terrain::Plain;
+    }
+    let ellipse = |cx: i32, cy: i32, rx: i32, ry: i32| {
+        (x - cx).pow(2) * ry.pow(2) + (y - cy).pow(2) * rx.pow(2) <= rx.pow(2) * ry.pow(2)
+    };
+    // A sheltered northern bay widens into the western sea.
+    let coast = 13 + (y / 16 % 3) * 3 + (y % 16 - 8).abs() / 3;
+    if (y >= 12 && x < coast) || (y >= 118 && x < 48 + (y - 118) * 3) {
+        return Terrain::Sea;
+    }
+    let roads = [
+        (8, 7, 34, 9),
+        (32, 8, 34, 42),
+        (33, 40, 76, 42),
+        (74, 41, 76, 98),
+        (75, 96, 119, 98),
+        (117, 97, 119, 127),
+        (24, 41, 26, 108),
+        (25, 106, 75, 108),
+        (75, 22, 112, 24),
+        (74, 23, 76, 42),
+    ];
+    if roads.into_iter().any(|(left, top, right, bottom)| {
+        (left..=right).contains(&x) && (top..=bottom).contains(&y)
+    }) {
+        return Terrain::Road;
+    }
+    if ellipse(32, 0, 14, 5)
+        || ellipse(100, 18, 22, 13)
+        || ellipse(104, 48, 15, 22)
+        || ellipse(65, 86, 19, 9)
+        || ellipse(104, 116, 11, 17)
+    {
+        return Terrain::Mountain;
+    }
+    if ellipse(16, 6, 5, 5)
+        || ellipse(40, 24, 13, 12)
+        || ellipse(44, 63, 18, 16)
+        || ellipse(75, 57, 14, 10)
+        || ellipse(46, 106, 15, 9)
+        || ellipse(100, 88, 19, 15)
+    {
+        return Terrain::Forest;
+    }
+    Terrain::Plain
 }
 
 fn mission_one_enemy_units() -> Vec<UnitState> {
@@ -170,6 +223,53 @@ mod tests {
     use crate::mission::assert_opening_plan_is_legal;
 
     #[test]
+    fn regional_terrain_has_connected_land_and_a_legal_opening() {
+        use std::collections::{BTreeSet, VecDeque};
+        let mut battle = mission_one(7);
+        assert_eq!(
+            (battle.board().width(), battle.board().height()),
+            (128, 128)
+        );
+        assert_eq!(GridPos::new(0, 0).manhattan(GridPos::new(127, 127)), 254);
+        let board = battle.board();
+        assert_eq!(board.terrain_at(GridPos::new(0, 40)), Some(Terrain::Sea));
+        assert_eq!(
+            board.terrain_at(GridPos::new(40, 24)),
+            Some(Terrain::Forest)
+        );
+        assert_eq!(
+            board.terrain_at(GridPos::new(100, 18)),
+            Some(Terrain::Mountain)
+        );
+        assert_eq!(board.terrain_at(GridPos::new(75, 60)), Some(Terrain::Road));
+        assert_eq!(board.terrain_at(GridPos::new(128, 127)), None);
+        let start = GridPos::new(4, 7);
+        let mut reached = BTreeSet::from([start]);
+        let mut queue = VecDeque::from([start]);
+        while let Some(cell) = queue.pop_front() {
+            for next in cell.orthogonal_neighbors(128, 128) {
+                if !board.is_blocking(next) && reached.insert(next) {
+                    queue.push_back(next);
+                }
+            }
+        }
+        for y in 0..128 {
+            for x in 0..128 {
+                let cell = GridPos::new(x, y);
+                assert!(
+                    board.is_blocking(cell) || reached.contains(&cell),
+                    "isolated land at {cell:?}"
+                );
+            }
+        }
+        battle.begin_round().unwrap();
+        let committed = battle.intents().to_vec();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+        assert_eq!(battle.intents(), committed);
+    }
+
+    #[test]
     fn mission_one_constructors_start_with_default_pilot_skills() {
         assert_eq!(mission_one(7).pilot_skills(), PilotSkillState::default());
         assert_eq!(
@@ -219,8 +319,8 @@ mod tests {
             players.iter().map(|unit| unit.weapons.len()).sum::<usize>(),
             9
         );
-        assert_eq!(battle.board().width(), 9);
-        assert_eq!(battle.board().height(), 9);
+        assert_eq!(battle.board().width(), 128);
+        assert_eq!(battle.board().height(), 128);
         assert!(battle.board().is_blocking(GridPos::new(3, 5)));
         assert!(battle.board().is_hazard(GridPos::new(2, 6)));
         assert_eq!(

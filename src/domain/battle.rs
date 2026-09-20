@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BTreeSet, BinaryHeap},
+};
 
 use super::{
     board::{BoardState, GridPos},
@@ -200,20 +203,28 @@ impl BattleState {
             .position;
         let movement = self.movement_allowance(id)?;
         let mut reachable = BTreeSet::new();
-        let mut visited = BTreeSet::from([origin]);
-        let mut frontier = VecDeque::from([(origin, 0_u8)]);
+        let mut costs = BTreeMap::from([(origin, 0_u16)]);
+        let mut frontier = BinaryHeap::from([Reverse((0_u16, origin))]);
 
-        while let Some((position, distance)) = frontier.pop_front() {
-            if distance == movement {
+        while let Some(Reverse((distance, position))) = frontier.pop() {
+            if costs[&position] != distance {
                 continue;
             }
             for neighbor in position.orthogonal_neighbors(self.board.width(), self.board.height()) {
-                if visited.contains(&neighbor) || !self.is_open_for(id, neighbor) {
+                if !self.is_open_for(id, neighbor) {
                     continue;
                 }
-                visited.insert(neighbor);
+                let cost = distance + u16::from(self.board.movement_cost(neighbor).unwrap());
+                if cost > u16::from(movement)
+                    || costs
+                        .get(&neighbor)
+                        .is_some_and(|previous| *previous <= cost)
+                {
+                    continue;
+                }
+                costs.insert(neighbor, cost);
                 reachable.insert(neighbor);
-                frontier.push_back((neighbor, distance + 1));
+                frontier.push(Reverse((cost, neighbor)));
             }
         }
 
@@ -633,6 +644,26 @@ mod tests {
                 to: GridPos::new(1, 2),
             }]
         );
+    }
+
+    #[test]
+    fn terrain_movement_uses_the_cheapest_route_and_blocks_land_barriers() {
+        use super::super::board::Terrain;
+        let mut battle = BattleState::viability_fixture();
+        battle.board = BoardState::empty(8, 5).with_terrain(|cell| match (cell.x, cell.y) {
+            (2..=4, 1) => Terrain::Forest,
+            (1, 2) => Terrain::Sea,
+            (2, 2) => Terrain::Mountain,
+            _ => Terrain::Plain,
+        });
+        battle.units.get_mut(&UnitId(1)).unwrap().stats.movement = 6;
+        let reachable = battle.reachable_cells(UnitId(1)).unwrap();
+        // The four-step straight route costs seven, but the road detour costs six.
+        assert!(reachable.contains(&GridPos::new(5, 1)));
+        assert!(!reachable.contains(&GridPos::new(6, 1)));
+        assert!(!reachable.contains(&GridPos::new(1, 2)));
+        assert!(!reachable.contains(&GridPos::new(2, 2)));
+        battle.move_unit(UnitId(1), GridPos::new(5, 1)).unwrap();
     }
 
     #[test]

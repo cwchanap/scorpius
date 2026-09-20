@@ -23,8 +23,8 @@ fn new_game_and_mission_one_definition_are_locked() {
     assert_eq!(definition.aftermath.lines.len(), 2);
 
     let battle = (definition.build)(7, &SquadUpgrades::default());
-    assert_eq!(battle.board().width(), 9);
-    assert_eq!(battle.board().height(), 9);
+    assert_eq!(battle.board().width(), 128);
+    assert_eq!(battle.board().height(), 128);
     let two = mission_definition(MissionId::Two).unwrap();
     assert_eq!(two.unlocks, Some(MissionId::Three));
     assert_eq!(two.base_reward, 400);

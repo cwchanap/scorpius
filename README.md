@@ -14,9 +14,15 @@ cargo run
 
 The game starts at the **Title** screen.
 
-The current presentation is a fixed 2.5D battlefield with an icon-led native
-Bevy UI. The authored 1008×764 battle stage is fitted into a resizable canvas;
-the canvas scale is refreshed before UI picking after a resize.
+The 2.5D battlefield uses an icon-led native Bevy UI in a resizable canvas.
+Mission 1 has a **128×128 regional map** with a western sea, inland forests,
+mountain ridges and connecting roads. Its original opening fight remains at
+Relay Nine in the northwest. Plains and roads cost 1 movement point per cell;
+forests cost 2; sea and mountains block ground movement and pushes. Missions
+2–7 retain their authored 9×9 boards.
+
+The 1008×764 battle viewport clips a panned, zoomed map. Only nearby tiles are
+instantiated; the minimap shows the full region and can be clicked to navigate.
 
 - **NEW GAME** starts a fresh campaign at Mission 1 and immediately overwrites any existing pre-release progress.
 - **CONTINUE** loads the saved campaign. It is disabled when no save exists (and shows the same error shape for an unreadable/corrupted one). Progress at Mission 1 resumes at the pre-mission story; progress at Missions 2–7 resumes at the upgrade screen; a completed campaign resumes at the ending screen. It never replays a reward: mission completion is granted exactly once, and a repeated victory Continue fails the advancement guard instead of paying twice.
@@ -106,6 +112,9 @@ aftermath, or upgrade screens. These keys mirror the battle command buttons:
 | `Space` | Resolve committed attacks |
 | `Escape` | Cancel the current menu or targeting mode |
 | `R` | Restart Mission during an idle Player phase or after defeat (guarded during activation/loading/playback/planning/resolution/victory/pending transitions) |
+| Arrow keys / middle mouse drag | Pan Mission 1's regional map |
+| Mouse wheel / minimap `−` and `+` buttons | Zoom the regional map |
+| `Home` / minimap **Center** | Center the active or inspected unit |
 
 ### Native UI capture
 
@@ -124,6 +133,8 @@ Use `--time-ms 250` to capture playback after 250 ms, or
 `--size 1600x1000 --scenario letterbox-1600x1000` for the letterbox fixture.
 Captures use the production Bevy UI tree and an isolated temporary save; they
 never read or write the platform campaign save.
+Regional terrain fixtures: `battle-regional-coast`, `battle-regional-forest`,
+`battle-regional-mountains`, and `battle-regional-edge` (cell 127,127).
 
 ## Verify
 

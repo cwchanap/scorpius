@@ -1,0 +1,13 @@
+# Regional terrain art
+
+Generated with the built-in imagegen tool on 2026-09-20. `terrain.png` is the original 1254×1254 RGBA output; alpha is preserved. The runtime crops its grass, sea, forest and mountain tiles in `src/presentation/theme.rs`. Roads retain their existing sand-colored fill. Tiles are loaded through `UiAssets` and rendered only on regional boards; tactical highlighting still uses the existing cell image tint.
+
+## Generation prompt
+
+Create one production-ready raster terrain tile atlas for an isometric mecha strategy game (classic detailed hand-painted Japanese tactical RPG battlefield art). This is a GAME ASSET PNG WITH TRUE TRANSPARENT ALPHA, not a mockup or scene, no text or labels. Square 1024 x 1024 canvas, exactly 2 columns x 2 rows of 512 x 512 cells, no gutters. Each cell is an independent tile with the SAME precise 2:1 diamond ground footprint: vertices in local cell pixels (0,384), (256,256), (512,384), (256,512). The lower half of each cell contains the full diamond ground; upper half is transparent except objects standing on that ground. All four ground diamonds go exactly to their left, right and bottom cell boundaries. No chunky floating block, no exposed soil sides, no outlines, no backdrop, no checkerboard pattern painted in the image. Orthographic isometric view, consistent light from upper left.
+TOP LEFT: lush muted olive green grassland, fine painted grass texture and tiny tufts, mostly flat and unobstructed.
+TOP RIGHT: deep blue sea surface, fine turquoise wavelets and subtle white reflected glints, water completely fills the diamond, no shoreline, no rocks, flat surface.
+BOTTOM LEFT: forest tile, rich mossy green grassy diamond with a tight group of 5 detailed evergreen trees of varied heights, dimensional layered foliage, natural dark trunks, tree crowns extending into the upper half of the cell; trees stay within their cell. Shadows contained within diamond.
+BOTTOM RIGHT: mountain tile, grassy gray stony diamond with a dramatic craggy granite mountain ridge, natural irregular faceted rock faces, a little snow on highest peak, dark fissures and mossy foothills. Mountain rises into upper half, stays within cell. No conical icon or simple triangle.
+Detailed attractive hand-painted raster game art, readable silhouette at small tactical tile size, natural organic texture. Precisely aligned identical diamond bases so repeated tiles meet edge-to-edge in the game. Output only the atlas with transparency.
+

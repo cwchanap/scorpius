@@ -569,8 +569,21 @@ fn choose_target(
             .map(|player| player.id),
         _ => None,
     };
-    let mut choices: Vec<_> = (0..battle.board().height())
-        .flat_map(|y| (0..battle.board().width()).map(move |x| GridPos::new(x, y)))
+    // Only weapon-range cells can be candidates, even on a regional board.
+    let min_x = attacker.position.x.saturating_sub(weapon.max_range);
+    let max_x = attacker
+        .position
+        .x
+        .saturating_add(weapon.max_range)
+        .min(battle.board().width() - 1);
+    let min_y = attacker.position.y.saturating_sub(weapon.max_range);
+    let max_y = attacker
+        .position
+        .y
+        .saturating_add(weapon.max_range)
+        .min(battle.board().height() - 1);
+    let mut choices: Vec<_> = (min_y..=max_y)
+        .flat_map(|y| (min_x..=max_x).map(move |x| GridPos::new(x, y)))
         .filter(|target| weapon_reaches(weapon, attacker.position, *target))
         .map(|target| choice_for_center(battle, weapon.shape, target, preferred))
         .collect();

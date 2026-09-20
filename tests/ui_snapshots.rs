@@ -82,6 +82,7 @@ fn test_assets() -> UiAssets {
         enemy_map: Handle::default(),
         icons: Handle::default(),
         board: Handle::default(),
+        terrain: Handle::default(),
         fonts: std::array::from_fn(|_| Handle::default()),
     }
 }
@@ -1077,7 +1078,9 @@ fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
         battle
             .begin_round()
             .expect("source opening enters player phase");
-        for _ in 0..8 {
+        // Push to the authored terrain/board boundary, then exhaust HP.
+        let push_limit = usize::from(battle.board().height()) + 20;
+        for _ in 0..push_limit {
             battle
                 .resolve_push(ids::STRIKER, ids::VANGUARD)
                 .expect("source push path damages the pilot at the board edge");
@@ -1091,14 +1094,8 @@ fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
                 break;
             }
         }
-        for (id, destination, collisions) in [
-            (ids::GUNNER, scorpius::domain::board::GridPos::new(4, 7), 5),
-            (
-                ids::INTERCEPTOR,
-                scorpius::domain::board::GridPos::new(4, 7),
-                6,
-            ),
-        ] {
+        for id in [ids::GUNNER, ids::INTERCEPTOR] {
+            let destination = scorpius::domain::board::GridPos::new(4, 7);
             battle
                 .begin_activation(id)
                 .expect("remaining pilot activates");
@@ -1114,7 +1111,7 @@ fn terminal_battle(victory: bool) -> scorpius::domain::battle::BattleState {
             battle
                 .resolve_push(ids::STRIKER, id)
                 .expect("source push starts the edge collision sequence");
-            for _ in 0..collisions {
+            for _ in 0..push_limit {
                 if battle.unit(id).is_some_and(|unit| unit.is_knocked_out()) {
                     break;
                 }

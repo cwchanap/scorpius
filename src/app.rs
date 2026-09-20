@@ -13,7 +13,7 @@ use crate::{
         RestartRoundPending,
         assets::{AssetLoadStatus, UiAssets, monitor_mission_assets},
         battle_menu::update_battle_menu,
-        battlefield::{rebuild_mission_scene, setup_mission_scene},
+        battlefield::{rebuild_mission_scene, reconcile_visible_cells, setup_mission_scene},
         campaign_ui::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, update_campaign_status_text,
             update_dialogue_screen,
@@ -23,6 +23,7 @@ use crate::{
             reset_transient_battle_state,
         },
         layout::{setup_canvas, update_canvas_scale},
+        map_view::{navigate_map, sync_map_view},
         playback::{begin_restarted_round, play_battle_events},
         screens::{
             setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
@@ -135,6 +136,14 @@ impl Plugin for ScorpiusPlugin {
                     begin_restarted_round,
                 )
                     .chain()
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(
+                Update,
+                (navigate_map, reconcile_visible_cells, sync_map_view)
+                    .chain()
+                    .after(begin_restarted_round)
+                    .before(reconcile_telegraph_markers)
                     .run_if(in_state(GameScreen::Battle)),
             )
             .add_systems(

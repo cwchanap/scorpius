@@ -1,9 +1,10 @@
 use bevy::prelude::*;
 
-use crate::domain::model::UnitArchetype;
+use crate::domain::{board::Terrain, model::UnitArchetype};
 
 pub const ICON_ATLAS_PATH: &str = "ui/icons.png";
 pub const BOARD_ATLAS_PATH: &str = "ui/board.png";
+pub const TERRAIN_ATLAS_PATH: &str = "ui/terrain.png";
 
 pub const CHAKRA_PETCH_400_PATH: &str = "fonts/chakra-petch-400.ttf";
 pub const CHAKRA_PETCH_500_PATH: &str = "fonts/chakra-petch-500.ttf";
@@ -63,6 +64,18 @@ pub const BOARD_DIAMOND_RECT: Rect = Rect::new(0.0, 0.0, 112.0, 56.0);
 // crop the transparent atlas tail so the UI node keeps the source dimensions.
 pub const BOARD_BLOCKER_RECT: Rect = Rect::new(112.0, 0.0, 224.0, 82.0);
 pub const BOARD_TOKEN_SHADOW_RECT: Rect = Rect::new(224.0, 0.0, 336.0, 96.0);
+
+/// Crops measured from the generated 1254px atlas. Heights align every diamond
+/// to the same 106x50 ground footprint while preserving trees and mountain peaks.
+pub const fn terrain_art(terrain: Terrain) -> Option<(Rect, f32)> {
+    match terrain {
+        Terrain::Plain => Some((Rect::new(0.0, 239.0, 627.0, 608.0), 50.0)),
+        Terrain::Sea => Some((Rect::new(627.0, 239.0, 1254.0, 608.0), 50.0)),
+        Terrain::Forest => Some((Rect::new(0.0, 610.0, 627.0, 1135.0), 70.0)),
+        Terrain::Mountain => Some((Rect::new(627.0, 610.0, 1254.0, 1135.0), 70.0)),
+        Terrain::Road => None,
+    }
+}
 
 /// The source atlas is packed in 64px cells. Keeping this conversion const
 /// leaves the atlas mapping in Rust instead of making runtime geometry data.

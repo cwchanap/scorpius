@@ -249,12 +249,17 @@ pub fn on_battlefield_stage_click(
     mut playback: ResMut<EventPlayback>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     asset_status: Res<AssetLoadStatus>,
+    view: Option<Res<super::map_view::MapView>>,
 ) {
     let click = _click;
-    if !stage_event_ready(&asset_status, &playback) {
+    if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
         return;
     }
-    let Some(cell) = grid_from_hit(&click.event.hit) else {
+    let cell = match view {
+        Some(view) => stage_point_from_hit(&click.event.hit).and_then(|point| view.cell_at(point)),
+        None => grid_from_hit(&click.event.hit),
+    };
+    let Some(cell) = cell else {
         return;
     };
     route_pointer_result(
@@ -274,11 +279,16 @@ pub fn on_battlefield_stage_move(
     mut preview_cells: ResMut<AttackPreviewCells>,
     playback: Res<EventPlayback>,
     asset_status: Res<AssetLoadStatus>,
+    view: Option<Res<super::map_view::MapView>>,
 ) {
     if !stage_event_ready(&asset_status, &playback) {
         return;
     }
-    let Some(cell) = grid_from_hit(&event.event.hit) else {
+    let cell = match view {
+        Some(view) => stage_point_from_hit(&event.event.hit).and_then(|point| view.cell_at(point)),
+        None => grid_from_hit(&event.event.hit),
+    };
+    let Some(cell) = cell else {
         clear_hover_preview(&mut interaction, &mut preview_cells);
         return;
     };
@@ -310,7 +320,7 @@ pub fn on_battlefield_token_click(
     asset_status: Res<AssetLoadStatus>,
 ) {
     click.propagate(false);
-    if !stage_event_ready(&asset_status, &playback) {
+    if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
         return;
     }
     let Ok(token) = tokens.get(click.entity) else {

@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use crate::domain::model::{BattleEvent, UnitId};
 
 use super::{
-    BattleEventQueue, BattleRuntime, BattleStage, EventEffect, EventPlayback, IntentTargetVisual,
+    BattleEventQueue, BattleMap, BattleRuntime, EventEffect, EventPlayback, IntentTargetVisual,
     PresentationRoot, ReactionVisual, RecentBattleLog, RestartRoundPending, TokenFootprintVisual,
     TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
@@ -138,7 +138,7 @@ fn stage_point(cell: crate::domain::board::GridPos) -> Vec2 {
 }
 
 fn stage_parent(
-    stages: &Query<Entity, With<BattleStage>>,
+    stages: &Query<Entity, With<BattleMap>>,
     roots: &Query<Entity, With<PresentationRoot>>,
 ) -> Option<Entity> {
     stages.iter().next().or_else(|| roots.iter().next())
@@ -150,7 +150,7 @@ pub(crate) fn play_battle_events(
     time: Res<Time>,
     battle: Res<BattleRuntime>,
     ui_assets: Res<UiAssets>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     hud_roots: Query<Entity, With<HudRoot>>,
     mut queue: ResMut<BattleEventQueue>,
@@ -159,6 +159,7 @@ pub(crate) fn play_battle_events(
     mut unit_queries: UnitPlaybackQueries,
     mut effects: EventEffectQuery,
     mut damage_numbers: DamageNumberQuery,
+    view: Option<Res<super::map_view::MapView>>,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
         timer.tick(time.delta());
@@ -202,9 +203,11 @@ pub(crate) fn play_battle_events(
         && let Some(unit) = battle.0.unit(*target)
     {
         let center = rendered_stage_center(&unit_queries.units, *target)
-            .map(|stage_center| stage_center + battle_stage_rect().min)
-            .unwrap_or_else(|| iso_center(unit.position));
-        let origin = center + Vec2::new(0.0, -MAP_UNIT_HEIGHT - 10.0);
+            .unwrap_or_else(|| stage_point(unit.position));
+        let center =
+            view.as_ref().map_or(center, |view| view.to_stage(center)) + battle_stage_rect().min;
+        let zoom = view.as_ref().map_or(1.0, |view| view.zoom);
+        let origin = center + Vec2::new(0.0, (-MAP_UNIT_HEIGHT - 10.0) * zoom);
         spawn_damage_number(&mut commands, hud_root, &ui_assets.fonts, origin, *amount);
     }
     animate_unit_event(&event, 0.0, &mut unit_queries);
@@ -734,6 +737,7 @@ mod tests {
                 enemy_map: Handle::default(),
                 icons: Handle::default(),
                 board: Handle::default(),
+                terrain: Handle::default(),
                 fonts: std::array::from_fn(|_| Handle::default()),
             })
             .insert_resource(BattleEventQueue(std::collections::VecDeque::from([
@@ -756,7 +760,7 @@ mod tests {
             .init_resource::<EventPlayback>()
             .init_resource::<RecentBattleLog>()
             .add_systems(Update, play_battle_events);
-        app.world_mut().spawn(BattleStage);
+        app.world_mut().spawn(BattleMap);
         app.world_mut().spawn(HudRoot);
         let rendered = node_position(rendered_cell);
         app.world_mut().spawn((
@@ -848,6 +852,7 @@ mod tests {
                 enemy_map: Handle::default(),
                 icons: Handle::default(),
                 board: Handle::default(),
+                terrain: Handle::default(),
                 fonts: std::array::from_fn(|_| Handle::default()),
             })
             .insert_resource(BattleEventQueue(std::collections::VecDeque::from([

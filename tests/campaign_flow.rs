@@ -64,6 +64,7 @@ fn blank_ui_assets() -> UiAssets {
         enemy_map: Handle::default(),
         icons: Handle::default(),
         board: Handle::default(),
+        terrain: Handle::default(),
         fonts: std::array::from_fn(|_| Handle::default()),
     }
 }
@@ -809,6 +810,7 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
     assert_eq!(
         snapshot,
         BriefingSnapshot {
+            board_size: (128, 128),
             mission: MissionId::One,
             title: definition.title,
             bonus_title: "Turnabout",
