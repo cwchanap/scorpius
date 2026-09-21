@@ -10,4 +10,3 @@ TOP RIGHT: deep blue sea surface, fine turquoise wavelets and subtle white refle
 BOTTOM LEFT: forest tile, rich mossy green grassy diamond with a tight group of 5 detailed evergreen trees of varied heights, dimensional layered foliage, natural dark trunks, tree crowns extending into the upper half of the cell; trees stay within their cell. Shadows contained within diamond.
 BOTTOM RIGHT: mountain tile, grassy gray stony diamond with a dramatic craggy granite mountain ridge, natural irregular faceted rock faces, a little snow on highest peak, dark fissures and mossy foothills. Mountain rises into upper half, stays within cell. No conical icon or simple triangle.
 Detailed attractive hand-painted raster game art, readable silhouette at small tactical tile size, natural organic texture. Precisely aligned identical diamond bases so repeated tiles meet edge-to-edge in the game. Output only the atlas with transparency.
-
