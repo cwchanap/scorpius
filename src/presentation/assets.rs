@@ -240,4 +240,24 @@ mod tests {
         let assets = catalog();
         assert_eq!(assets.images().len(), 12);
     }
+
+    #[test]
+    fn from_world_loads_every_catalog_entry_through_the_asset_server() {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()));
+        app.init_asset::<Image>();
+        app.init_asset::<Font>();
+        app.world_mut().init_resource::<UiAssets>();
+        let assets = app.world().resource::<UiAssets>();
+        assert_eq!(assets.images().len(), 12);
+        for (path, handle) in assets.images() {
+            assert_eq!(
+                handle
+                    .path()
+                    .map(|asset_path| asset_path.path().to_string_lossy().into_owned()),
+                Some(path.to_owned()),
+                "{path} must round-trip through the asset server",
+            );
+        }
+    }
 }

@@ -660,4 +660,32 @@ mod tests {
     fn board_stage_fits_the_authored_design_rect() {
         assert_eq!(BATTLE_STAGE_SIZE, Vec2::new(1008.0, 764.0));
     }
+
+    #[test]
+    fn regional_road_cells_take_the_terrain_tint_instead_of_atlas_art() {
+        use crate::mission::mission_one::mission_one;
+
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(mission_one(7)))
+            .add_systems(Update, sync_cell_highlights);
+        // (20,8) sits on the authored northern road; roads have no atlas
+        // crop, so the inset falls back to the terrain palette.
+        let road = crate::domain::board::GridPos::new(20, 8);
+        let cell = app
+            .world_mut()
+            .spawn((CellVisual(road), ImageNode::default()))
+            .id();
+        let inset = app
+            .world_mut()
+            .spawn((CellInsetVisual(road), ImageNode::default()))
+            .id();
+        app.update();
+        let tint =
+            crate::presentation::map_view::terrain_color(crate::domain::board::Terrain::Road, road);
+        assert_eq!(
+            app.world().get::<ImageNode>(cell).unwrap().color,
+            theme::BOARD_STROKE
+        );
+        assert_eq!(app.world().get::<ImageNode>(inset).unwrap().color, tint);
+    }
 }

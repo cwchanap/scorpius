@@ -569,3 +569,85 @@ fn token_selection_node(position: GridPos) -> Node {
         ..default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::battle::BattleState;
+
+    fn blank_ui_assets() -> UiAssets {
+        UiAssets {
+            key_art: Handle::default(),
+            briefing_art: Handle::default(),
+            vanguard_art: Handle::default(),
+            gunner_art: Handle::default(),
+            interceptor_art: Handle::default(),
+            vanguard_map: Handle::default(),
+            gunner_map: Handle::default(),
+            interceptor_map: Handle::default(),
+            enemy_map: Handle::default(),
+            icons: Handle::default(),
+            board: Handle::default(),
+            terrain: Handle::default(),
+            fonts: std::array::from_fn(|_| Handle::default()),
+        }
+    }
+
+    #[test]
+    fn flat_board_scene_spawns_authored_diamonds_without_map_controls() {
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(BattleState::viability_fixture()))
+            .insert_resource(blank_ui_assets())
+            .add_systems(Update, setup_mission_scene);
+        app.update();
+
+        // The 3x3 fixture board spawns every authored cell and none of the
+        // regional chrome.
+        let mut cells = app.world_mut().query::<(&CellVisual, &ZIndex)>();
+        let cells: Vec<(GridPos, i32)> = cells
+            .iter(app.world())
+            .map(|(cell, z)| (cell.0, z.0))
+            .collect();
+        assert_eq!(cells.len(), 9);
+        assert!(cells.iter().all(|(_, z)| *z == 0));
+        let mut readouts = app
+            .world_mut()
+            .query::<&crate::presentation::map_view::MapReadout>();
+        assert_eq!(readouts.iter(app.world()).count(), 0);
+
+        // Non-regional insets take the authored checkerboard tint.
+        let mut insets = app.world_mut().query::<(&CellInsetVisual, &ImageNode)>();
+        let mut tint_for = |target: GridPos| {
+            insets
+                .iter(app.world())
+                .find(|(cell, _)| cell.0 == target)
+                .map(|(_, image)| image.color)
+                .expect("fixture cells spawn insets")
+        };
+        assert_eq!(tint_for(GridPos::new(0, 0)), theme::BOARD_LIGHT);
+        assert_eq!(tint_for(GridPos::new(1, 0)), theme::BOARD_DARK);
+    }
+
+    #[test]
+    fn rebuild_mission_scene_repaints_flagged_roots_and_clears_the_flag() {
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(BattleState::viability_fixture()))
+            .insert_resource(blank_ui_assets())
+            .add_systems(Update, rebuild_mission_scene);
+        let root = app
+            .world_mut()
+            .spawn((PresentationRoot, PresentationNeedsRebuild))
+            .id();
+        app.update();
+        assert!(app.world().get::<PresentationNeedsRebuild>(root).is_none());
+        let mut stages = app
+            .world_mut()
+            .query_filtered::<(Entity, &ChildOf), With<BattleStage>>();
+        let stage = stages
+            .iter(app.world())
+            .find(|(_, child)| child.parent() == root)
+            .map(|(entity, _)| entity)
+            .expect("rebuild spawns a battle stage under the flagged root");
+        assert!(app.world().get::<BattleStage>(stage).is_some());
+    }
+}
