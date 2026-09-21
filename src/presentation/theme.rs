@@ -424,4 +424,21 @@ mod tests {
             assert_ne!(style.glyph_rect, style.footprint_rect);
         }
     }
+
+    #[test]
+    fn terrain_art_crops_each_ground_tile_and_leaves_roads_untextured() {
+        for (terrain, rect, height) in [
+            (Terrain::Plain, Rect::new(0.0, 239.0, 627.0, 608.0), 50.0),
+            (Terrain::Sea, Rect::new(627.0, 239.0, 1254.0, 608.0), 50.0),
+            (Terrain::Forest, Rect::new(0.0, 610.0, 627.0, 1135.0), 70.0),
+            (
+                Terrain::Mountain,
+                Rect::new(627.0, 610.0, 1254.0, 1135.0),
+                70.0,
+            ),
+        ] {
+            assert_eq!(terrain_art(terrain), Some((rect, height)));
+        }
+        assert_eq!(terrain_art(Terrain::Road), None);
+    }
 }

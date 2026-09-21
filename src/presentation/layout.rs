@@ -245,4 +245,27 @@ mod tests {
             Vec2::new(center.x - 56.0, center.y - 28.0)
         );
     }
+
+    #[test]
+    fn map_point_inverse_rejects_non_finite_and_far_outside_points() {
+        assert_eq!(grid_from_map_point(Vec2::splat(f32::NAN), 128, 128), None);
+        assert_eq!(
+            grid_from_map_point(Vec2::splat(f32::INFINITY), 128, 128),
+            None
+        );
+        // Inside the stage rect but past the far corner of a 128x128 grid.
+        assert_eq!(
+            grid_from_map_point(BATTLE_STAGE_SIZE - Vec2::ONE, 9, 9),
+            None
+        );
+        // The regional board still resolves its own far corner.
+        assert_eq!(
+            grid_from_map_point(
+                iso_center(GridPos::new(127, 127)) - battle_stage_rect().min,
+                128,
+                128,
+            ),
+            Some(GridPos::new(127, 127))
+        );
+    }
 }

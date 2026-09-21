@@ -198,4 +198,37 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn terrain_names_and_movement_costs_match_the_authored_rules() {
+        for (terrain, name, cost) in [
+            (Terrain::Plain, "Plains", Some(1)),
+            (Terrain::Road, "Road", Some(1)),
+            (Terrain::Forest, "Forest", Some(2)),
+            (Terrain::Sea, "Sea", None),
+            (Terrain::Mountain, "Mountain", None),
+        ] {
+            assert_eq!(terrain.name(), name);
+            assert_eq!(terrain.movement_cost(), cost);
+        }
+    }
+
+    #[test]
+    fn movement_cost_combines_terrain_with_structural_obstacles() {
+        let board =
+            BoardState::new(4, 4, [GridPos::new(1, 1)], [], []).with_terrain(|cell| {
+                match (cell.x, cell.y) {
+                    (2, 2) => Terrain::Forest,
+                    (3, 3) => Terrain::Sea,
+                    _ => Terrain::Plain,
+                }
+            });
+        assert_eq!(board.movement_cost(GridPos::new(0, 0)), Some(1));
+        assert_eq!(board.movement_cost(GridPos::new(2, 2)), Some(2));
+        assert_eq!(board.movement_cost(GridPos::new(3, 3)), None);
+        assert_eq!(board.movement_cost(GridPos::new(1, 1)), None);
+        assert_eq!(board.movement_cost(GridPos::new(9, 9)), None);
+        assert!(board.is_blocking(GridPos::new(3, 3)));
+        assert!(!board.is_blocking(GridPos::new(2, 2)));
+    }
 }
