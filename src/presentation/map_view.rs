@@ -7,7 +7,7 @@ use bevy::{
 };
 
 use super::{
-    AttackPreviewCells, BattleMap, BattleRuntime,
+    AttackPreviewCells, BattleMap, BattleRuntime, EventPlayback,
     assets::UiAssets,
     interaction::InteractionState,
     layout::{
@@ -226,6 +226,7 @@ pub fn spawn_map_controls(
             },
             ImageNode::new(map_image),
             Pickable::default(),
+            InheritedVisibility::VISIBLE,
             ZIndex(2000),
             ChildOf(stage),
         ))
@@ -288,6 +289,8 @@ pub fn spawn_map_controls(
             .spawn((
                 Button,
                 action,
+                Pickable::default(),
+                InheritedVisibility::VISIBLE,
                 Text::new(label),
                 theme::ibm_plex_mono(&assets.fonts, 16.0, FontWeight(500)),
                 TextColor(theme::TEXT),
@@ -357,9 +360,10 @@ fn on_minimap_click(
     mut view: ResMut<MapView>,
     mut interaction: ResMut<InteractionState>,
     mut preview: ResMut<AttackPreviewCells>,
+    playback: Res<EventPlayback>,
 ) {
     click.propagate(false);
-    if click.button != PointerButton::Primary {
+    if click.button != PointerButton::Primary || playback.input_locked {
         return;
     }
     let Some(hit) = click.hit.position else {
@@ -388,9 +392,10 @@ fn on_map_action(
     battle: Res<BattleRuntime>,
     mut interaction: ResMut<InteractionState>,
     mut preview: ResMut<AttackPreviewCells>,
+    playback: Res<EventPlayback>,
 ) {
     click.propagate(false);
-    if click.button != PointerButton::Primary {
+    if click.button != PointerButton::Primary || playback.input_locked {
         return;
     }
     match buttons.get(click.entity) {
@@ -416,9 +421,14 @@ pub fn navigate_map(
     time: Res<Time>,
     mut last_cursor: Local<Option<Vec2>>,
     mut preview: ResMut<AttackPreviewCells>,
+    playback: Res<EventPlayback>,
 ) {
-    if !view.is_regional() {
+    // Damage numbers and other playback effects hold one-time screen-space
+    // origins, so the view must not move while events animate. Wheel input is
+    // drained rather than replayed on unlock.
+    if playback.input_locked || !view.is_regional() {
         wheel.clear();
+        *last_cursor = None;
         return;
     }
     let before = *view;
@@ -578,7 +588,7 @@ mod tests {
         input::{mouse::MouseScrollUnit, touch::TouchPhase},
         picking::{
             backend::HitData,
-            events::Click,
+            events::{Click, Move},
             pointer::{Location, PointerId},
         },
     };
@@ -588,7 +598,8 @@ mod tests {
         domain::{battle::BattleState, combat::DamageSource},
         mission::mission_one::{ids, mission_one},
         presentation::{
-            CellVisual,
+            CellVisual, EventPlayback,
+            assets::AssetLoadStatus,
             battlefield::{reconcile_visible_cells, setup_mission_scene},
         },
     };
@@ -618,6 +629,7 @@ mod tests {
             .init_resource::<Assets<Image>>()
             .init_resource::<InteractionState>()
             .init_resource::<AttackPreviewCells>()
+            .init_resource::<EventPlayback>()
             .add_systems(Startup, setup_mission_scene);
         app.update();
         app
@@ -662,6 +674,13 @@ mod tests {
         assert_eq!(edges.iter(app.world()).count(), 4);
         let mut actions = app.world_mut().query::<&MapAction>();
         assert_eq!(actions.iter(app.world()).count(), 3);
+        let mut pickables = app.world_mut().query::<(&MapAction, &Pickable)>();
+        assert!(
+            pickables
+                .iter(app.world())
+                .all(|(_, pickable)| pickable.is_hoverable && pickable.should_block_lower),
+            "map buttons must intercept picking instead of leaking clicks to the stage",
+        );
         let mut readouts = app.world_mut().query::<&MapReadout>();
         assert_eq!(readouts.iter(app.world()).count(), 1);
         let mut maps = app.world_mut().query::<(&BattleMap, &UiTransform)>();
@@ -839,6 +858,7 @@ mod tests {
             .init_resource::<Assets<Image>>()
             .init_resource::<InteractionState>()
             .init_resource::<AttackPreviewCells>()
+            .init_resource::<EventPlayback>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Time>()
@@ -968,6 +988,7 @@ mod tests {
             .insert_resource(MapView::new(BattleState::viability_fixture().board()))
             .init_resource::<InteractionState>()
             .init_resource::<AttackPreviewCells>()
+            .init_resource::<EventPlayback>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Time>()
@@ -995,6 +1016,184 @@ mod tests {
             *flat.world().resource::<MapView>(),
             MapView::new(BattleState::viability_fixture().board()),
             "flat boards keep the authored view",
+        );
+    }
+
+    #[test]
+    fn bubbled_chrome_pointer_move_cannot_paint_stage_hover() {
+        let mut app = scene_app(mission_one(7));
+        app.insert_resource(AssetLoadStatus::Ready);
+
+        let minimap = {
+            let mut edges = app.world_mut().query::<(&MinimapEdge, &ChildOf)>();
+            edges
+                .iter(app.world())
+                .next()
+                .map(|(_, child)| child.parent())
+                .expect("minimap edge parent is the minimap")
+        };
+        let stage = app.world().get::<ChildOf>(minimap).unwrap().parent();
+
+        // A move bubbling up from the minimap carries minimap-local HitData;
+        // the stage must ignore it instead of painting a bogus cell.
+        app.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            click_location(),
+            Move {
+                hit: HitData::new(minimap, 0.0, Some(Vec3::ZERO), None),
+                delta: Vec2::ZERO,
+            },
+            minimap,
+        ));
+        assert_eq!(
+            app.world().resource::<InteractionState>().hovered_cell,
+            None,
+        );
+
+        // A direct stage hit still resolves the diamond under the cursor.
+        app.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            click_location(),
+            Move {
+                hit: HitData::new(stage, 0.0, Some(Vec3::ZERO), None),
+                delta: Vec2::ZERO,
+            },
+            stage,
+        ));
+        assert_eq!(
+            app.world().resource::<InteractionState>().hovered_cell,
+            Some(GridPos::new(6, 6)),
+        );
+    }
+
+    #[test]
+    fn input_locked_playback_freezes_map_navigation() {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(battle))
+            .insert_resource(blank_ui_assets())
+            .init_resource::<Assets<Image>>()
+            .init_resource::<InteractionState>()
+            .init_resource::<AttackPreviewCells>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Time>()
+            .insert_resource(EventPlayback {
+                input_locked: true,
+                ..default()
+            })
+            .add_message::<MouseWheel>()
+            .add_systems(Startup, setup_mission_scene)
+            .add_systems(Update, navigate_map);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: (1920, 1080).into(),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        app.update();
+
+        let locked = *app.world().resource::<MapView>();
+        let stage_center = battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5;
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(Some(stage_center));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ArrowRight);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Middle);
+        app.world_mut().write_message(MouseWheel {
+            unit: MouseScrollUnit::Line,
+            x: 0.0,
+            y: 1.0,
+            window,
+            phase: TouchPhase::Moved,
+        });
+        app.update();
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(Some(stage_center + Vec2::new(40.0, 20.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Home);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<MapView>(),
+            locked,
+            "locked playback freezes arrows, middle-drag, wheel, and Home",
+        );
+
+        // Map chrome clicks navigate too, so the lock must cover them as well.
+        let minimap = {
+            let mut edges = app.world_mut().query::<(&MinimapEdge, &ChildOf)>();
+            edges
+                .iter(app.world())
+                .next()
+                .map(|(_, child)| child.parent())
+                .expect("minimap edge parent is the minimap")
+        };
+        trigger_click(
+            &mut app,
+            minimap,
+            PointerButton::Primary,
+            Some(Vec3::new(0.25, -0.25, 0.0)),
+        );
+        let zoom_in = {
+            let mut actions = app.world_mut().query::<(Entity, &MapAction)>();
+            actions
+                .iter(app.world())
+                .find(|(_, action)| matches!(action, MapAction::ZoomIn))
+                .map(|(entity, _)| entity)
+                .expect("zoom-in button exists")
+        };
+        trigger_click(&mut app, zoom_in, PointerButton::Primary, Some(Vec3::ZERO));
+        assert_eq!(*app.world().resource::<MapView>(), locked);
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ArrowRight);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::Home);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Middle);
+        // Without InputPlugin, just_pressed/just_released are never cleared;
+        // emulate the frame boundary so a stale Home press can't re-focus.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+        app.world_mut().resource_mut::<EventPlayback>().input_locked = false;
+        app.update();
+        assert_eq!(
+            *app.world().resource::<MapView>(),
+            locked,
+            "wheel input during the lock is drained, not replayed",
+        );
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(16));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ArrowRight);
+        app.update();
+        assert_ne!(
+            *app.world().resource::<MapView>(),
+            locked,
+            "navigation resumes once playback unlocks input",
         );
     }
 
