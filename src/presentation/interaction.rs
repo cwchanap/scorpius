@@ -248,8 +248,8 @@ fn route_pointer_result(
     copy_preview_cells(interaction, preview_cells);
 }
 
-/// The only stage click route. Board decorations are not pickable, so this
-/// observer receives a direct stage-local hit and routes exactly one cell.
+/// The only stage click route. Hits that bubble up from pickable chrome carry
+/// child-local `HitData`, so this observer only routes a direct stage-local hit.
 #[allow(clippy::too_many_arguments)]
 pub fn on_battlefield_stage_click(
     _click: On<Pointer<Click>>,
@@ -263,6 +263,9 @@ pub fn on_battlefield_stage_click(
     view: Option<Res<super::map_view::MapView>>,
 ) {
     let click = _click;
+    if click.original_event_target() != click.entity {
+        return;
+    }
     if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
         return;
     }
@@ -292,6 +295,11 @@ pub fn on_battlefield_stage_move(
     asset_status: Res<AssetLoadStatus>,
     view: Option<Res<super::map_view::MapView>>,
 ) {
+    // Bubbled moves carry the hovered child's local HitData; only a direct
+    // stage hit is stage-local.
+    if event.original_event_target() != event.entity {
+        return;
+    }
     if !stage_event_ready(&asset_status, &playback) {
         return;
     }
@@ -308,10 +316,15 @@ pub fn on_battlefield_stage_move(
 }
 
 pub fn on_battlefield_stage_out(
-    _event: On<Pointer<Out>>,
+    event: On<Pointer<Out>>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
 ) {
+    // A child's Out bubbles up too; only the pointer actually leaving the
+    // stage clears hover.
+    if event.original_event_target() != event.entity {
+        return;
+    }
     clear_hover_preview(&mut interaction, &mut preview_cells);
 }
 
