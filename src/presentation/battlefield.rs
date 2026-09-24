@@ -236,6 +236,7 @@ fn spawn_cell(
             } else {
                 0
             }),
+            Pickable::IGNORE,
             ChildOf(stage),
         ))
         .id();
@@ -603,13 +604,20 @@ mod tests {
 
         // The 3x3 fixture board spawns every authored cell and none of the
         // regional chrome.
-        let mut cells = app.world_mut().query::<(&CellVisual, &ZIndex)>();
-        let cells: Vec<(GridPos, i32)> = cells
+        let mut cells = app.world_mut().query::<(&CellVisual, &ZIndex, &Pickable)>();
+        let cells: Vec<(GridPos, i32, Pickable)> = cells
             .iter(app.world())
-            .map(|(cell, z)| (cell.0, z.0))
+            .map(|(cell, z, pickable)| (cell.0, z.0, *pickable))
             .collect();
         assert_eq!(cells.len(), 9);
-        assert!(cells.iter().all(|(_, z)| *z == 0));
+        assert!(cells.iter().all(|(_, z, _)| *z == 0));
+        // Cell outers must stay transparent to picking: a pickable cell would
+        // shadow the stage hit and the stage observers would drop the event.
+        assert!(
+            cells
+                .iter()
+                .all(|(_, _, pickable)| !pickable.is_hoverable && !pickable.should_block_lower)
+        );
         let mut readouts = app
             .world_mut()
             .query::<&crate::presentation::map_view::MapReadout>();
