@@ -393,7 +393,7 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
 
     let mut cells = app
         .world_mut()
-        .query::<(&CellVisual, &Node, &ImageNode, Option<&Pickable>)>();
+        .query::<(&CellVisual, &Node, &ImageNode, &Pickable)>();
     let cell = cells
         .iter(app.world())
         .find(|(visual, ..)| visual.0 == GridPos::new(0, 0))
@@ -401,7 +401,7 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
     assert_eq!(cell.1.width, px(112.0));
     assert_eq!(cell.1.height, px(56.0));
     assert_eq!(cell.2.color, theme::BOARD_STROKE);
-    assert!(cell.3.is_none(), "outer stroke must not be pickable");
+    assert_eq!(cell.3, &Pickable::IGNORE);
 
     let mut insets = app
         .world_mut()
