@@ -458,6 +458,9 @@ fn setup_production_picker_scene(mut commands: Commands, battle: Res<BattleRunti
         Pickable::IGNORE,
         ChildOf(stage),
     ));
+    // Production always installs a MapView; the identity view keeps this
+    // fixture's raw stage-local spawns resolving through the same projection.
+    commands.insert_resource(MapView::new(battle.0.board()));
 }
 
 fn setup_production_map_controls_scene(
@@ -1003,6 +1006,38 @@ fn production_map_chrome_never_leaks_moves_or_clicks_into_cell_routing() {
         0,
         "button clicks must not fall through to the stage",
     );
+
+    // The help panel and the terrain readout are pickable chrome too: clicks
+    // on them must never route to the diamond hidden underneath.
+    let chrome_point = |design: Vec2| fit.offset + design * fit.scale;
+    for (label, point) in [
+        (
+            "help panel",
+            battle_stage_rect().min + Vec2::new(BATTLE_STAGE_SIZE.x - 16.0 - 70.0, 246.0 + 22.0),
+        ),
+        (
+            "terrain readout",
+            battle_stage_rect().min + Vec2::new(12.0 + 60.0, BATTLE_STAGE_SIZE.y - 12.0 - 16.0),
+        ),
+    ] {
+        for action in [
+            PointerAction::Press(PointerButton::Primary),
+            PointerAction::Release(PointerButton::Primary),
+        ] {
+            send_headless_pointer_action(&mut app, window, chrome_point(point), action);
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<StagePointerCounts>().clicks,
+            0,
+            "{label} clicks must not fall through to the stage",
+        );
+        assert_eq!(
+            app.world().resource::<InteractionState>().hovered_cell,
+            None,
+            "{label} clicks must not route a stage cell",
+        );
+    }
     assert_eq!(
         app.world().resource::<InteractionState>().hovered_cell,
         None

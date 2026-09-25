@@ -12,11 +12,11 @@ use super::{
     assets::UiAssets,
     interaction::StatusMessage,
     layout::{
-        MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, STAGE_EFFECT_DEPTH, battle_stage_rect, footprint_top_left,
-        iso_center, selection_top_left, token_depth, unit_root_top_left,
+        MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, battle_stage_rect, footprint_top_left, iso_center,
+        selection_top_left, stage_effect_depth, token_depth, unit_root_top_left,
     },
     theme,
-    ui::{HudRoot, format_event},
+    ui::format_event,
 };
 
 const UNIT_SCALE: f32 = 1.0;
@@ -152,14 +152,12 @@ pub(crate) fn play_battle_events(
     ui_assets: Res<UiAssets>,
     stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
-    hud_roots: Query<Entity, With<HudRoot>>,
     mut queue: ResMut<BattleEventQueue>,
     mut playback: ResMut<EventPlayback>,
     mut recent_log: ResMut<RecentBattleLog>,
     mut unit_queries: UnitPlaybackQueries,
     mut effects: EventEffectQuery,
     mut damage_numbers: DamageNumberQuery,
-    view: Option<Res<super::map_view::MapView>>,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
         timer.tick(time.delta());
@@ -198,17 +196,24 @@ pub(crate) fn play_battle_events(
             &ui_assets,
         );
     }
+    // Damage numbers live under the BattleMap like the impact icons: they
+    // pan, zoom, and clip with the stage instead of holding a one-time
+    // screen-space origin.
     if let BattleEvent::DamageApplied { target, amount, .. } = &event
-        && let Some(hud_root) = hud_roots.iter().next()
+        && let Some(parent) = stage_parent(&stages, &roots)
         && let Some(unit) = battle.0.unit(*target)
     {
         let center = rendered_stage_center(&unit_queries.units, *target)
             .unwrap_or_else(|| stage_point(unit.position));
-        let center =
-            view.as_ref().map_or(center, |view| view.to_stage(center)) + battle_stage_rect().min;
-        let zoom = view.as_ref().map_or(1.0, |view| view.zoom);
-        let origin = center + Vec2::new(0.0, (-MAP_UNIT_HEIGHT - 10.0) * zoom);
-        spawn_damage_number(&mut commands, hud_root, &ui_assets.fonts, origin, *amount);
+        let origin = center + Vec2::new(0.0, -(MAP_UNIT_HEIGHT + 10.0));
+        spawn_damage_number(
+            &mut commands,
+            parent,
+            &ui_assets.fonts,
+            origin,
+            *amount,
+            stage_effect_depth(battle.0.board().width(), battle.0.board().height()),
+        );
     }
     animate_unit_event(&event, 0.0, &mut unit_queries);
     playback.current = Some((
@@ -432,10 +437,11 @@ fn despawn_transient_effects(
 
 fn spawn_damage_number(
     commands: &mut Commands,
-    hud_root: Entity,
+    map_parent: Entity,
     fonts: &super::theme::FontHandles,
     origin: Vec2,
     amount: i16,
+    depth: i32,
 ) {
     commands.spawn((
         Text::new(format!("-{amount}")),
@@ -447,9 +453,10 @@ fn spawn_damage_number(
             top: px(origin.y),
             ..default()
         },
+        ZIndex(depth),
         DamageNumberEffect { origin },
         Pickable::IGNORE,
-        ChildOf(hud_root),
+        ChildOf(map_parent),
     ));
 }
 
@@ -505,7 +512,10 @@ fn spawn_event_effect(
             },
             UiTransform::IDENTITY,
             EventEffect,
-            ZIndex(STAGE_EFFECT_DEPTH),
+            ZIndex(stage_effect_depth(
+                battle.0.board().width(),
+                battle.0.board().height(),
+            )),
             Pickable::IGNORE,
             ChildOf(parent),
         ))
@@ -560,10 +570,17 @@ mod tests {
     #[test]
     fn damage_number_lifecycle_spawns_animates_and_despawns() {
         let mut app = App::new();
-        let hud_root = app.world_mut().spawn(HudRoot).id();
+        let map_parent = app.world_mut().spawn_empty().id();
         let fonts = std::array::from_fn(|_| Handle::default());
         let mut commands = app.world_mut().commands();
-        spawn_damage_number(&mut commands, hud_root, &fonts, Vec2::new(320.0, 240.0), 7);
+        spawn_damage_number(
+            &mut commands,
+            map_parent,
+            &fonts,
+            Vec2::new(320.0, 240.0),
+            7,
+            stage_effect_depth(9, 9),
+        );
         app.world_mut().flush();
 
         let mut query = app
@@ -761,7 +778,6 @@ mod tests {
             .init_resource::<RecentBattleLog>()
             .add_systems(Update, play_battle_events);
         app.world_mut().spawn(BattleMap);
-        app.world_mut().spawn(HudRoot);
         let rendered = node_position(rendered_cell);
         app.world_mut().spawn((
             UnitVisual(ids::VANGUARD),
@@ -783,16 +799,19 @@ mod tests {
         let (effect_node, effect_depth) = effects.single(app.world()).unwrap();
         assert_eq!(effect_node.left, px(center.x - 32.0));
         assert_eq!(effect_node.top, px(center.y - 32.0));
-        assert_eq!(*effect_depth, ZIndex(STAGE_EFFECT_DEPTH));
+        assert_eq!(*effect_depth, ZIndex(stage_effect_depth(128, 128)));
 
         app.update();
 
-        let origin = iso_center(rendered_cell) + Vec2::new(0.0, -MAP_UNIT_HEIGHT - 10.0);
-        let mut numbers = app.world_mut().query::<(&DamageNumberEffect, &Node)>();
-        let (number, node) = numbers.single(app.world()).unwrap();
+        let origin = stage_point(rendered_cell) + Vec2::new(0.0, -(MAP_UNIT_HEIGHT + 10.0));
+        let mut numbers = app
+            .world_mut()
+            .query::<(&DamageNumberEffect, &Node, &ZIndex)>();
+        let (number, node, depth) = numbers.single(app.world()).unwrap();
         assert_eq!(number.origin, origin);
         assert_eq!(node.left, px(origin.x));
         assert_eq!(node.top, px(origin.y));
+        assert_eq!(*depth, ZIndex(stage_effect_depth(128, 128)));
         let (effect_node, _) = effects.single(app.world()).unwrap();
         assert_eq!(effect_node.left, px(center.x - 32.0));
         assert_eq!(effect_node.top, px(center.y - 32.0));
