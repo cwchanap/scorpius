@@ -79,6 +79,7 @@ fn blank_ui_assets() -> UiAssets {
         enemy_map: Handle::default(),
         icons: Handle::default(),
         board: Handle::default(),
+        terrain: Handle::default(),
         fonts: std::array::from_fn(|_| Handle::default()),
     }
 }
@@ -179,7 +180,7 @@ fn move_highlight_does_not_mark_an_unreachable_hovered_cell() {
     );
     assert_eq!(
         app.world().get::<ImageNode>(inset).unwrap().color,
-        theme::BOARD_LIGHT
+        Color::WHITE
     );
 }
 
@@ -392,7 +393,7 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
 
     let mut cells = app
         .world_mut()
-        .query::<(&CellVisual, &Node, &ImageNode, Option<&Pickable>)>();
+        .query::<(&CellVisual, &Node, &ImageNode, &Pickable)>();
     let cell = cells
         .iter(app.world())
         .find(|(visual, ..)| visual.0 == GridPos::new(0, 0))
@@ -400,7 +401,7 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
     assert_eq!(cell.1.width, px(112.0));
     assert_eq!(cell.1.height, px(56.0));
     assert_eq!(cell.2.color, theme::BOARD_STROKE);
-    assert!(cell.3.is_none(), "outer stroke must not be pickable");
+    assert_eq!(cell.3, &Pickable::IGNORE);
 
     let mut insets = app
         .world_mut()
@@ -413,7 +414,15 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
     assert_eq!(inset.1.top, px(3.0));
     assert_eq!(inset.1.width, px(106.0));
     assert_eq!(inset.1.height, px(50.0));
-    assert_eq!(inset.2.color, theme::BOARD_LIGHT);
+    assert_eq!(inset.2.color, Color::WHITE);
+    assert_eq!(
+        inset.2.rect,
+        Some(
+            theme::terrain_art(scorpius::domain::board::Terrain::Plain)
+                .unwrap()
+                .0
+        )
+    );
     assert_eq!(inset.3, &Pickable::IGNORE);
 }
 
@@ -528,9 +537,10 @@ fn inspecting_enemy_keeps_active_unit_commands_and_preview_authority() {
         theme::BOARD_SELECTED,
         "Move highlights must follow the active ally after inspecting an enemy"
     );
+    // Regional boards keep the terrain art untinted under the highlight rim.
     assert_eq!(
         highlight_app.world().get::<ImageNode>(inset).unwrap().color,
-        theme::BOARD_REACHABLE,
+        scorpius::presentation::map_view::cell_base_fill(battle.board(), reachable_cell),
     );
 
     route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 8)).unwrap();

@@ -40,10 +40,41 @@ pub struct ExplosiveState {
     pub exploded: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Terrain {
+    #[default]
+    Plain,
+    Road,
+    Forest,
+    Sea,
+    Mountain,
+}
+
+impl Terrain {
+    pub const fn movement_cost(self) -> Option<u8> {
+        match self {
+            Self::Plain | Self::Road => Some(1),
+            Self::Forest => Some(2),
+            Self::Sea | Self::Mountain => None,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Plain => "Plains",
+            Self::Road => "Road",
+            Self::Forest => "Forest",
+            Self::Sea => "Sea",
+            Self::Mountain => "Mountain",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoardState {
     width: u8,
     height: u8,
+    terrain: Vec<Terrain>,
     blocking: BTreeSet<GridPos>,
     hazards: BTreeSet<GridPos>,
     explosives: BTreeMap<GridPos, ExplosiveState>,
@@ -60,6 +91,7 @@ impl BoardState {
         Self {
             width,
             height,
+            terrain: vec![Terrain::Plain; usize::from(width) * usize::from(height)],
             blocking: blocking.into_iter().collect(),
             hazards: hazards.into_iter().collect(),
             explosives: explosives
@@ -71,6 +103,30 @@ impl BoardState {
 
     pub(crate) fn empty(width: u8, height: u8) -> Self {
         Self::new(width, height, [], [], [])
+    }
+
+    pub(crate) fn with_terrain(mut self, terrain: impl Fn(GridPos) -> Terrain) -> Self {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self.terrain[usize::from(y) * usize::from(self.width) + usize::from(x)] =
+                    terrain(GridPos::new(x, y));
+            }
+        }
+        self
+    }
+
+    pub fn terrain_at(&self, position: GridPos) -> Option<Terrain> {
+        self.contains(position).then(|| {
+            self.terrain
+                [usize::from(position.y) * usize::from(self.width) + usize::from(position.x)]
+        })
+    }
+
+    pub fn movement_cost(&self, position: GridPos) -> Option<u8> {
+        if self.blocking.contains(&position) {
+            return None;
+        }
+        self.terrain_at(position)?.movement_cost()
     }
 
     pub const fn width(&self) -> u8 {
@@ -86,7 +142,7 @@ impl BoardState {
     }
 
     pub fn is_blocking(&self, position: GridPos) -> bool {
-        self.blocking.contains(&position)
+        self.movement_cost(position).is_none()
     }
 
     pub fn is_hazard(&self, position: GridPos) -> bool {
@@ -106,6 +162,7 @@ impl BoardState {
             .is_some_and(|explosive| explosive.hp > 0 && !explosive.exploded)
     }
 
+    /// Structural obstacles; natural barriers are exposed through `terrain_at`.
     pub fn blocking_cells(&self) -> impl Iterator<Item = GridPos> + '_ {
         let mut cells: Vec<_> = self.blocking.iter().copied().collect();
         cells.sort_by_key(|position| (position.y, position.x));
@@ -140,5 +197,38 @@ mod tests {
                 GridPos::new(2, 4),
             ]
         );
+    }
+
+    #[test]
+    fn terrain_names_and_movement_costs_match_the_authored_rules() {
+        for (terrain, name, cost) in [
+            (Terrain::Plain, "Plains", Some(1)),
+            (Terrain::Road, "Road", Some(1)),
+            (Terrain::Forest, "Forest", Some(2)),
+            (Terrain::Sea, "Sea", None),
+            (Terrain::Mountain, "Mountain", None),
+        ] {
+            assert_eq!(terrain.name(), name);
+            assert_eq!(terrain.movement_cost(), cost);
+        }
+    }
+
+    #[test]
+    fn movement_cost_combines_terrain_with_structural_obstacles() {
+        let board =
+            BoardState::new(4, 4, [GridPos::new(1, 1)], [], []).with_terrain(|cell| {
+                match (cell.x, cell.y) {
+                    (2, 2) => Terrain::Forest,
+                    (3, 3) => Terrain::Sea,
+                    _ => Terrain::Plain,
+                }
+            });
+        assert_eq!(board.movement_cost(GridPos::new(0, 0)), Some(1));
+        assert_eq!(board.movement_cost(GridPos::new(2, 2)), Some(2));
+        assert_eq!(board.movement_cost(GridPos::new(3, 3)), None);
+        assert_eq!(board.movement_cost(GridPos::new(1, 1)), None);
+        assert_eq!(board.movement_cost(GridPos::new(9, 9)), None);
+        assert!(board.is_blocking(GridPos::new(3, 3)));
+        assert!(!board.is_blocking(GridPos::new(2, 2)));
     }
 }

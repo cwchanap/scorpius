@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::domain::model::{Faction, PrimaryObjective, Reaction};
 
 use super::{
-    AttackPreviewCells, BattleRuntime, BattleStage, CellInsetVisual, CellVisual, EventPlayback,
+    AttackPreviewCells, BattleMap, BattleRuntime, CellInsetVisual, CellVisual, EventPlayback,
     ExtractionVisual, IntentLineVisual, IntentTargetVisual, PresentationRoot, PropVisual,
     ReactionVisual, TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard,
     TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
@@ -22,7 +22,7 @@ fn stage_point(cell: crate::domain::board::GridPos) -> Vec2 {
 }
 
 fn marker_parent(
-    stage: &Query<Entity, With<BattleStage>>,
+    stage: &Query<Entity, With<BattleMap>>,
     roots: &Query<Entity, With<PresentationRoot>>,
 ) -> Option<Entity> {
     stage.iter().next().or_else(|| roots.iter().next())
@@ -235,7 +235,7 @@ pub fn reconcile_telegraph_markers(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &TelegraphVisual)>,
 ) {
@@ -301,7 +301,7 @@ pub fn reconcile_intent_guides(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing_targets: Query<(Entity, &IntentTargetVisual)>,
     existing_lines: Query<(Entity, &IntentLineVisual)>,
@@ -408,7 +408,7 @@ pub fn reconcile_extraction_marker(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &ExtractionVisual)>,
 ) {
@@ -458,7 +458,7 @@ pub fn reconcile_reaction_markers(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     ui_assets: Option<Res<UiAssets>>,
-    stages: Query<Entity, With<BattleStage>>,
+    stages: Query<Entity, With<BattleMap>>,
     roots: Query<Entity, With<PresentationRoot>>,
     existing: Query<(Entity, &ReactionVisual)>,
 ) {
@@ -583,25 +583,50 @@ pub fn sync_cell_highlights(
     let reachable = selected_unit
         .and_then(|unit| battle.0.reachable_cells(unit).ok())
         .unwrap_or_default();
+    let board = battle.0.board();
+    let regional = super::map_view::is_regional(board.width(), board.height());
     let tint_for = |cell: crate::domain::board::GridPos| {
+        // Regional tiles keep their painted fill under a highlight: a node's
+        // own tint can only multiply the art down or blend the dark board
+        // through, so the bright outer rim alone carries the highlight. Flat
+        // boards keep the authored filled-diamond look.
+        let base = super::map_view::cell_base_fill(board, cell);
         if attack_preview
             .as_ref()
             .is_some_and(|preview| preview.0.contains(&cell))
         {
-            (theme::BOARD_ATTACK, theme::BOARD_ATTACK_INSET)
+            (
+                theme::BOARD_ATTACK,
+                if regional {
+                    base
+                } else {
+                    theme::BOARD_ATTACK_INSET
+                },
+            )
         } else if reachable.contains(&cell) {
-            (theme::BOARD_SELECTED, theme::BOARD_REACHABLE)
-        } else if (cell.x + cell.y).is_multiple_of(2) {
-            (theme::BOARD_STROKE, theme::BOARD_LIGHT)
+            (
+                theme::BOARD_SELECTED,
+                if regional {
+                    base
+                } else {
+                    theme::BOARD_REACHABLE
+                },
+            )
         } else {
-            (theme::BOARD_STROKE, theme::BOARD_DARK)
+            (theme::BOARD_STROKE, base)
         }
     };
     for (cell, mut image) in &mut cells {
-        image.color = tint_for(cell.0).0;
+        let tint = tint_for(cell.0).0;
+        if image.color != tint {
+            image.color = tint;
+        }
     }
     for (cell, mut image) in &mut insets {
-        image.color = tint_for(cell.0).1;
+        let tint = tint_for(cell.0).1;
+        if image.color != tint {
+            image.color = tint;
+        }
     }
 }
 
@@ -649,5 +674,101 @@ mod tests {
     #[test]
     fn board_stage_fits_the_authored_design_rect() {
         assert_eq!(BATTLE_STAGE_SIZE, Vec2::new(1008.0, 764.0));
+    }
+
+    #[test]
+    fn regional_road_cells_take_the_terrain_tint_instead_of_atlas_art() {
+        use crate::mission::mission_one::mission_one;
+
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(mission_one(7)))
+            .add_systems(Update, sync_cell_highlights);
+        // (20,8) sits on the authored northern road; roads have no atlas
+        // crop, so the inset falls back to the terrain palette.
+        let road = crate::domain::board::GridPos::new(20, 8);
+        let cell = app
+            .world_mut()
+            .spawn((CellVisual(road), ImageNode::default()))
+            .id();
+        let inset = app
+            .world_mut()
+            .spawn((CellInsetVisual(road), ImageNode::default()))
+            .id();
+        app.update();
+        let tint =
+            crate::presentation::map_view::terrain_color(crate::domain::board::Terrain::Road, road);
+        assert_eq!(
+            app.world().get::<ImageNode>(cell).unwrap().color,
+            theme::BOARD_STROKE
+        );
+        assert_eq!(app.world().get::<ImageNode>(inset).unwrap().color, tint);
+    }
+
+    #[test]
+    fn regional_highlights_are_rim_only_and_never_darken_terrain_art() {
+        use crate::domain::board::GridPos;
+        use crate::mission::mission_one::{ids, mission_one};
+
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(battle))
+            .insert_resource(InteractionState {
+                mode: InteractionMode::Move,
+                ..InteractionState::default()
+            })
+            .insert_resource(AttackPreviewCells::default())
+            .add_systems(Update, sync_cell_highlights);
+
+        let reachable_cell = GridPos::new(4, 8);
+        assert!(
+            app.world()
+                .resource::<BattleRuntime>()
+                .0
+                .reachable_cells(ids::VANGUARD)
+                .unwrap()
+                .contains(&reachable_cell)
+        );
+        let preview_cell = GridPos::new(5, 7);
+        app.world_mut()
+            .resource_mut::<AttackPreviewCells>()
+            .0
+            .insert(preview_cell);
+        // A far Plain tile: same atlas art, no highlight.
+        let idle_cell = GridPos::new(30, 12);
+        for cell in [reachable_cell, preview_cell, idle_cell] {
+            app.world_mut()
+                .spawn((CellVisual(cell), ImageNode::default()));
+            app.world_mut()
+                .spawn((CellInsetVisual(cell), ImageNode::default()));
+        }
+        app.update();
+
+        let mut tint_of = |marker: &str, cell: GridPos| {
+            let mut outer = app.world_mut().query::<(&CellVisual, &ImageNode)>();
+            let mut insets = app.world_mut().query::<(&CellInsetVisual, &ImageNode)>();
+            match marker {
+                "outer" => outer
+                    .iter(app.world())
+                    .find(|(visual, _)| visual.0 == cell)
+                    .map(|(_, image)| image.color)
+                    .unwrap(),
+                _ => insets
+                    .iter(app.world())
+                    .find(|(visual, _)| visual.0 == cell)
+                    .map(|(_, image)| image.color)
+                    .unwrap(),
+            }
+        };
+        // The bright rim carries the highlight; the tinted art underneath is
+        // never darkened (the old BOARD_REACHABLE fill multiplied Plain art
+        // down to near-black).
+        assert_eq!(tint_of("outer", reachable_cell), theme::BOARD_SELECTED);
+        assert_eq!(tint_of("inset", reachable_cell), Color::WHITE);
+        assert_eq!(tint_of("outer", preview_cell), theme::BOARD_ATTACK);
+        assert_eq!(tint_of("inset", preview_cell), Color::WHITE);
+        assert_eq!(tint_of("outer", idle_cell), theme::BOARD_STROKE);
+        assert_eq!(tint_of("inset", idle_cell), Color::WHITE);
     }
 }

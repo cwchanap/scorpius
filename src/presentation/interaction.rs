@@ -6,7 +6,7 @@ use crate::app::GameScreen;
 use crate::campaign::session::complete_current_mission;
 use crate::domain::{
     battle::BattleState,
-    board::GridPos,
+    board::{BoardState, GridPos},
     combat::AttackPreview,
     model::{
         BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype, UnitId, WeaponId,
@@ -20,9 +20,10 @@ use super::{
     assets::{AssetLoadStatus, mission_assets_ready},
     campaign_ui::screen_transition_pending,
     layout::{
-        BATTLE_STAGE_SIZE, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, grid_from_stage_point,
-        unit_root_top_left,
+        BATTLE_STAGE_SIZE, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, grid_from_map_point,
+        grid_from_stage_point, unit_root_top_left,
     },
+    map_view::MapView,
 };
 
 pub use super::battle_menu::MenuState;
@@ -79,7 +80,9 @@ pub fn stage_point_from_hit(hit: &HitData) -> Option<Vec2> {
     Some((normalized + Vec2::splat(0.5)) * BATTLE_STAGE_SIZE)
 }
 
-/// Resolve a direct stage hit through the authored diamond projection.
+/// Resolve a hit against the fixed 9×9 stage window's authored diamond grid.
+/// Regional stage clicks route through `MapView::cell_at`, which unprojects
+/// pan and zoom; this helper covers the authored stage projection only.
 pub fn grid_from_hit(hit: &HitData) -> Option<GridPos> {
     grid_from_stage_point(stage_point_from_hit(hit)?)
 }
@@ -92,6 +95,17 @@ pub fn token_root_point_from_hit(hit: &HitData) -> Option<Vec2> {
         return None;
     }
     Some((normalized + Vec2::splat(0.5)) * Vec2::new(MAP_UNIT_WIDTH, MAP_UNIT_HEIGHT))
+}
+
+/// Token roots are positioned in map space inside the panning board node, so a
+/// token-local hit resolves against the active board's grid — not the fixed
+/// 9×9 window [`grid_from_stage_point`] resolves for the authored stage.
+fn grid_from_token_point(board: &BoardState, position: GridPos, local: Vec2) -> Option<GridPos> {
+    grid_from_map_point(
+        unit_root_top_left(position) + local,
+        board.width(),
+        board.height(),
+    )
 }
 
 fn set_inspected_unit(interaction: &mut InteractionState, unit: Option<UnitId>) {
@@ -158,7 +172,7 @@ pub fn route_cell_click(
 }
 
 /// Inspect a token using its domain ID; in targeting modes convert the
-/// token-local hit to a stage point and route the diamond under the cursor
+/// token-local hit to a map point and route the diamond under the cursor
 /// so sprite overhang never blocks Move/Attack/Aegis targets. A targeting
 /// hit that resolves no diamond — transparent sprite padding — routes
 /// nothing, matching the stage picker's miss behavior.
@@ -172,8 +186,8 @@ pub fn route_token_click(
         .unit(unit_id)
         .ok_or(BattleError::UnknownUnit(unit_id))?
         .position;
-    let underlying =
-        root_local.and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local));
+    let board = battle.board();
+    let underlying = root_local.and_then(|local| grid_from_token_point(board, position, local));
     match (interaction.mode, underlying) {
         (InteractionMode::Inspect, _) => {
             // Token-local picking stops propagation, but the cell route remains
@@ -207,7 +221,10 @@ fn copy_preview_cells(interaction: &InteractionState, cells: &mut AttackPreviewC
     }
 }
 
-fn clear_hover_preview(interaction: &mut InteractionState, preview_cells: &mut AttackPreviewCells) {
+pub(crate) fn clear_hover_preview(
+    interaction: &mut InteractionState,
+    preview_cells: &mut AttackPreviewCells,
+) {
     interaction.hovered_cell = None;
     interaction.preview = None;
     preview_cells.0.clear();
@@ -237,8 +254,8 @@ fn route_pointer_result(
     copy_preview_cells(interaction, preview_cells);
 }
 
-/// The only stage click route. Board decorations are not pickable, so this
-/// observer receives a direct stage-local hit and routes exactly one cell.
+/// The only stage click route. Hits that bubble up from pickable chrome carry
+/// child-local `HitData`, so this observer only routes a direct stage-local hit.
 #[allow(clippy::too_many_arguments)]
 pub fn on_battlefield_stage_click(
     _click: On<Pointer<Click>>,
@@ -249,12 +266,17 @@ pub fn on_battlefield_stage_click(
     mut playback: ResMut<EventPlayback>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     asset_status: Res<AssetLoadStatus>,
+    view: Res<MapView>,
 ) {
     let click = _click;
-    if !stage_event_ready(&asset_status, &playback) {
+    if click.original_event_target() != click.entity {
         return;
     }
-    let Some(cell) = grid_from_hit(&click.event.hit) else {
+    if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
+        return;
+    }
+    let Some(cell) = stage_point_from_hit(&click.event.hit).and_then(|point| view.cell_at(point))
+    else {
         return;
     };
     route_pointer_result(
@@ -274,11 +296,18 @@ pub fn on_battlefield_stage_move(
     mut preview_cells: ResMut<AttackPreviewCells>,
     playback: Res<EventPlayback>,
     asset_status: Res<AssetLoadStatus>,
+    view: Res<MapView>,
 ) {
+    // Bubbled moves carry the hovered child's local HitData; only a direct
+    // stage hit is stage-local.
+    if event.original_event_target() != event.entity {
+        return;
+    }
     if !stage_event_ready(&asset_status, &playback) {
         return;
     }
-    let Some(cell) = grid_from_hit(&event.event.hit) else {
+    let Some(cell) = stage_point_from_hit(&event.event.hit).and_then(|point| view.cell_at(point))
+    else {
         clear_hover_preview(&mut interaction, &mut preview_cells);
         return;
     };
@@ -287,15 +316,20 @@ pub fn on_battlefield_stage_move(
 }
 
 pub fn on_battlefield_stage_out(
-    _event: On<Pointer<Out>>,
+    event: On<Pointer<Out>>,
     mut interaction: ResMut<InteractionState>,
     mut preview_cells: ResMut<AttackPreviewCells>,
 ) {
+    // A child's Out bubbles up too; only the pointer actually leaving the
+    // stage clears hover.
+    if event.original_event_target() != event.entity {
+        return;
+    }
     clear_hover_preview(&mut interaction, &mut preview_cells);
 }
 
 /// Token events stop at the token card. In targeting modes the token-local
-/// hit is converted to a stage point and the underlying diamond is routed;
+/// hit is converted to a map point and the underlying diamond is routed;
 /// in Inspect mode the token is simply inspected.
 #[allow(clippy::too_many_arguments)]
 pub fn on_battlefield_token_click(
@@ -310,7 +344,7 @@ pub fn on_battlefield_token_click(
     asset_status: Res<AssetLoadStatus>,
 ) {
     click.propagate(false);
-    if !stage_event_ready(&asset_status, &playback) {
+    if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
         return;
     }
     let Ok(token) = tokens.get(click.entity) else {
@@ -356,7 +390,7 @@ pub fn on_battlefield_token_move(
     let cell = match interaction.mode {
         InteractionMode::Inspect => Some(position),
         _ => token_root_point_from_hit(&event.event.hit)
-            .and_then(|local| grid_from_stage_point(unit_root_top_left(position) + local)),
+            .and_then(|local| grid_from_token_point(battle.0.board(), position, local)),
     };
     let Some(cell) = cell else {
         clear_hover_preview(&mut interaction, &mut preview_cells);
@@ -887,6 +921,10 @@ mod tests {
     use crate::campaign::model::CampaignState;
     use crate::campaign::save::SaveFile;
     use crate::campaign::session::CampaignSession;
+    use crate::domain::model::{
+        ActivationState, MissionRules, OptionalObjective, PrimaryObjective, UnitState, UnitStats,
+    };
+    use crate::mission::enemies;
     use crate::mission::mission_one::{ids, mission_one};
     use crate::mission::{MissionId, mission_definition};
 
@@ -1089,6 +1127,67 @@ mod tests {
         assert_eq!(
             grid_from_stage_point(root + Vec2::new(48.0, 16.0)),
             Some(GridPos::new(3, 3))
+        );
+    }
+
+    #[test]
+    fn regional_token_hit_routes_beyond_the_stage_grid() {
+        let stats = UnitStats {
+            max_hp: 20,
+            armor: 3,
+            movement: 3,
+            accuracy: 78,
+            evasion: 5,
+            max_en: 7,
+        };
+        let mut battle = BattleState::new(
+            BoardState::empty(128, 128),
+            [
+                UnitState {
+                    id: UnitId(1),
+                    name: "Vanguard",
+                    archetype: UnitArchetype::Vanguard,
+                    faction: Faction::Player,
+                    stats,
+                    hp: stats.max_hp,
+                    en: stats.max_en,
+                    position: GridPos::new(10, 6),
+                    weapons: Vec::new(),
+                    activation: ActivationState::default(),
+                    reaction: None,
+                },
+                enemies::rifleman(UnitId(2), "Rifleman", GridPos::new(120, 120)),
+            ],
+            [enemies::service_rifle()],
+            MissionRules {
+                primary: PrimaryObjective::EliminateAllEnemies,
+                optional: OptionalObjective::Turnabout,
+                opening_plan: &[],
+            },
+            0,
+        );
+        battle.begin_round().unwrap();
+        battle.begin_activation(UnitId(1)).unwrap();
+        let mut interaction = InteractionState {
+            mode: InteractionMode::Move,
+            ..InteractionState::default()
+        };
+        // Unit at (10,6); the same hit 32px above its tile center that lands on
+        // (0,0) for a (1,1) token lands on (9,5) — the 9x9 stage resolver
+        // dropped it outright.
+        let events = route_token_click(
+            &mut battle,
+            &mut interaction,
+            UnitId(1),
+            Some(Vec2::new(48.0, 64.0)),
+        )
+        .expect("regional token hit must route a legal move");
+        assert_eq!(battle.unit(UnitId(1)).unwrap().position, GridPos::new(9, 5));
+        assert_eq!(interaction.hovered_cell, Some(GridPos::new(9, 5)));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, crate::domain::model::BattleEvent::UnitMoved { .. }))
         );
     }
 }

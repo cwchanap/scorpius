@@ -1,8 +1,8 @@
 use bevy::{
     app::{Startup, TaskPoolPlugin},
-    asset::AssetPlugin,
+    asset::{AssetPlugin, Assets},
     camera::{Camera2d, RenderTarget, RenderTargetInfo, Viewport},
-    image::{ImagePlugin, TextureAtlasPlugin},
+    image::{Image, ImagePlugin, TextureAtlasPlugin},
     input::InputPlugin,
     picking::{
         PickingSystems,
@@ -12,9 +12,9 @@ use bevy::{
         prelude::{InteractionPlugin, Pickable, PickingPlugin},
     },
     prelude::{
-        App, ChildOf, Commands, Component, Entity, InheritedVisibility, IntoScheduleConfigs, Node,
-        On, Query, Rect, Res, ResMut, Resource, TransformPlugin, UiPickingSettings, UiScale, Val,
-        Vec2, Visibility, Window, With,
+        App, Button, ChildOf, Commands, Component, Entity, Handle, InheritedVisibility,
+        IntoScheduleConfigs, Node, On, Query, Rect, Res, ResMut, Resource, Text, TransformPlugin,
+        UiGlobalTransform, UiPickingSettings, UiScale, Val, Vec2, Visibility, Window, With,
     },
     text::TextPlugin,
     time::TimePlugin,
@@ -32,14 +32,33 @@ use scorpius::{
     presentation::{
         AttackPreviewCells, BattleEventQueue, BattleRuntime, BattleStage, CanvasRoot,
         EventPlayback, TokenCard, ViewportRoot,
-        assets::AssetLoadStatus,
+        assets::{AssetLoadStatus, UiAssets},
         interaction::{
             InteractionMode, InteractionState, StatusMessage, on_battlefield_stage_click,
             on_battlefield_stage_move, on_battlefield_stage_out, on_battlefield_token_click,
             on_battlefield_token_move, on_battlefield_token_out,
         },
+        map_view::{MapView, spawn_map_controls},
     },
 };
+
+fn blank_ui_assets() -> UiAssets {
+    UiAssets {
+        key_art: Handle::default(),
+        briefing_art: Handle::default(),
+        vanguard_art: Handle::default(),
+        gunner_art: Handle::default(),
+        interceptor_art: Handle::default(),
+        vanguard_map: Handle::default(),
+        gunner_map: Handle::default(),
+        interceptor_map: Handle::default(),
+        enemy_map: Handle::default(),
+        icons: Handle::default(),
+        board: Handle::default(),
+        terrain: Handle::default(),
+        fonts: std::array::from_fn(|_| Handle::default()),
+    }
+}
 
 #[test]
 fn all_screens_share_one_letterbox_transform() {
@@ -439,9 +458,59 @@ fn setup_production_picker_scene(mut commands: Commands, battle: Res<BattleRunti
         Pickable::IGNORE,
         ChildOf(stage),
     ));
+    // Production always installs a MapView; the identity view keeps this
+    // fixture's raw stage-local spawns resolving through the same projection.
+    commands.insert_resource(MapView::new(battle.0.board()));
 }
 
-fn production_picker_app() -> (App, Entity) {
+fn setup_production_map_controls_scene(
+    mut commands: Commands,
+    battle: Res<BattleRuntime>,
+    assets: Res<UiAssets>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let canvas = scorpius::presentation::layout::spawn_canvas_root(&mut commands);
+    let stage = commands
+        .spawn((
+            BattleStage,
+            Pickable::default(),
+            InheritedVisibility::VISIBLE,
+            Node {
+                width: Val::Px(BATTLE_STAGE_SIZE.x),
+                height: Val::Px(BATTLE_STAGE_SIZE.y),
+                position_type: bevy::prelude::PositionType::Absolute,
+                left: Val::Px(battle_stage_rect().min.x),
+                top: Val::Px(battle_stage_rect().min.y),
+                ..Default::default()
+            },
+            ChildOf(canvas),
+        ))
+        .observe(on_battlefield_stage_click)
+        .observe(on_battlefield_stage_move)
+        .observe(on_battlefield_stage_out)
+        .observe(count_stage_click)
+        .observe(count_stage_move)
+        .id();
+
+    // Mirror populate_mission_root: regional boards install the map chrome and
+    // a zoomed-out MapView resource.
+    let mut view = MapView::new(battle.0.board());
+    if view.is_regional() {
+        view.zoom = 0.7;
+        view.focus(GridPos::new(6, 6));
+        spawn_map_controls(
+            &mut commands,
+            stage,
+            &assets,
+            battle.0.board(),
+            &battle,
+            &mut images,
+        );
+    }
+    commands.insert_resource(view);
+}
+
+fn production_app_base() -> App {
     let mut battle = mission_one(7);
     battle.begin_round().unwrap();
     let mut app = App::new();
@@ -459,6 +528,8 @@ fn production_picker_app() -> (App, Entity) {
         InteractionPlugin,
     ))
     .insert_resource(BattleRuntime(battle))
+    .insert_resource(blank_ui_assets())
+    .init_resource::<Assets<Image>>()
     .init_resource::<InteractionState>()
     .init_resource::<StatusMessage>()
     .init_resource::<BattleEventQueue>()
@@ -479,8 +550,11 @@ fn production_picker_app() -> (App, Entity) {
     .add_systems(
         bevy::app::PreUpdate,
         update_canvas_scale.before(PickingSystems::Backend),
-    )
-    .add_systems(Startup, setup_production_picker_scene);
+    );
+    app
+}
+
+fn production_windowed_app(mut app: App) -> (App, Entity) {
     let window = app
         .world_mut()
         .spawn((
@@ -495,6 +569,60 @@ fn production_picker_app() -> (App, Entity) {
     app.world_mut().spawn(PointerId::Mouse);
     app.update();
     (app, window)
+}
+
+fn production_picker_app() -> (App, Entity) {
+    let mut app = production_app_base();
+    app.add_systems(Startup, setup_production_picker_scene);
+    production_windowed_app(app)
+}
+
+fn production_map_controls_app() -> (App, Entity) {
+    let mut app = production_app_base();
+    app.add_systems(Startup, setup_production_map_controls_scene);
+    production_windowed_app(app)
+}
+
+#[test]
+fn production_picker_resolves_panned_zoomed_regional_cells_and_ignores_middle_click() {
+    let (mut app, window) = production_picker_app();
+    // Keep this test's original token fixtures away from the center hit.
+    let mut view = MapView::new(app.world().resource::<BattleRuntime>().0.board());
+    view.focus(GridPos::new(120, 120));
+    view.zoom = 0.5;
+    app.insert_resource(view);
+    let point = battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5;
+    send_headless_pointer_move(&mut app, window, point);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(GridPos::new(120, 120))
+    );
+    app.world_mut()
+        .resource_mut::<InteractionState>()
+        .hovered_cell = None;
+    for action in [
+        PointerAction::Press(PointerButton::Middle),
+        PointerAction::Release(PointerButton::Middle),
+    ] {
+        send_headless_pointer_action(&mut app, window, point, action);
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
+    );
+    for action in [
+        PointerAction::Press(PointerButton::Primary),
+        PointerAction::Release(PointerButton::Primary),
+    ] {
+        send_headless_pointer_action(&mut app, window, point, action);
+        app.update();
+    }
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        Some(GridPos::new(120, 120))
+    );
 }
 
 #[test]
@@ -802,5 +930,116 @@ fn production_stage_move_to_blank_inside_rectangle_clears_preview_without_changi
     assert_eq!(
         app.world().resource::<BattleRuntime>().0.active_unit(),
         Some(ids::GUNNER)
+    );
+}
+
+#[test]
+fn production_map_chrome_never_leaks_moves_or_clicks_into_cell_routing() {
+    let (mut app, window) = production_map_controls_app();
+    let fit = CanvasLayout::fit(Vec2::new(1920.0, 1080.0));
+    let to_window = |design: Vec2| fit.offset + design * fit.scale;
+
+    // The minimap covers the stage's top-right corner.
+    let minimap_center =
+        battle_stage_rect().min + Vec2::new(BATTLE_STAGE_SIZE.x - 16.0 - 88.0, 16.0 + 88.0);
+    send_headless_pointer_move(&mut app, window, to_window(minimap_center));
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None,
+        "a bubbled minimap-local move must not paint a stage cell",
+    );
+
+    // Clicking the minimap navigates without ever reaching the stage.
+    let before = *app.world().resource::<MapView>();
+    for action in [
+        PointerAction::Press(PointerButton::Primary),
+        PointerAction::Release(PointerButton::Primary),
+    ] {
+        send_headless_pointer_action(&mut app, window, to_window(minimap_center), action);
+        app.update();
+    }
+    assert_ne!(
+        *app.world().resource::<MapView>(),
+        before,
+        "a minimap click recenters the regional view",
+    );
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 0);
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
+    );
+
+    // Zoom buttons are pickable chrome: pointer moves and clicks on them must
+    // never fall through to the stage.
+    let button_center = {
+        let mut buttons = app
+            .world_mut()
+            .query_filtered::<(&Text, &UiGlobalTransform), With<Button>>();
+        buttons
+            .iter(app.world())
+            .find(|(text, _)| text.0 == "+")
+            .map(|(_, transform)| transform.affine().transform_point2(Vec2::ZERO))
+            .expect("zoom-in button exists")
+    };
+    send_headless_pointer_move(&mut app, window, button_center);
+    app.update();
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None,
+        "a bubbled button-local move must not paint a stage cell",
+    );
+    assert_eq!(app.world().resource::<MapView>().zoom, 0.7);
+    for action in [
+        PointerAction::Press(PointerButton::Primary),
+        PointerAction::Release(PointerButton::Primary),
+    ] {
+        send_headless_pointer_action(&mut app, window, button_center, action);
+        app.update();
+    }
+    assert!(
+        (app.world().resource::<MapView>().zoom - 0.7 * 1.25).abs() < 0.001,
+        "the zoom button applies its map action",
+    );
+    assert_eq!(
+        app.world().resource::<StagePointerCounts>().clicks,
+        0,
+        "button clicks must not fall through to the stage",
+    );
+
+    // The help panel and the terrain readout are pickable chrome too: clicks
+    // on them must never route to the diamond hidden underneath.
+    let chrome_point = |design: Vec2| fit.offset + design * fit.scale;
+    for (label, point) in [
+        (
+            "help panel",
+            battle_stage_rect().min + Vec2::new(BATTLE_STAGE_SIZE.x - 16.0 - 70.0, 246.0 + 22.0),
+        ),
+        (
+            "terrain readout",
+            battle_stage_rect().min + Vec2::new(12.0 + 60.0, BATTLE_STAGE_SIZE.y - 12.0 - 16.0),
+        ),
+    ] {
+        for action in [
+            PointerAction::Press(PointerButton::Primary),
+            PointerAction::Release(PointerButton::Primary),
+        ] {
+            send_headless_pointer_action(&mut app, window, chrome_point(point), action);
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<StagePointerCounts>().clicks,
+            0,
+            "{label} clicks must not fall through to the stage",
+        );
+        assert_eq!(
+            app.world().resource::<InteractionState>().hovered_cell,
+            None,
+            "{label} clicks must not route a stage cell",
+        );
+    }
+    assert_eq!(
+        app.world().resource::<InteractionState>().hovered_cell,
+        None
     );
 }

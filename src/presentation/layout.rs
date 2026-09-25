@@ -136,9 +136,12 @@ pub const fn token_depth(pos: GridPos) -> i32 {
     11 + (depth_key(pos) as i32) * 3
 }
 
-/// Foreground layer above the deepest blocker/token slice; transient combat
-/// feedback uses it so impact icons always overlay the stage stack.
-pub const STAGE_EFFECT_DEPTH: i32 = token_depth(GridPos::new(8, 8)) + 1;
+/// Foreground layer above the deepest token slice of a board this size;
+/// transient combat feedback (impact icons, damage numbers) uses it so it
+/// always overlays the stage stack, whatever the board dimensions.
+pub fn stage_effect_depth(width: u8, height: u8) -> i32 {
+    token_depth(GridPos::new(width - 1, height - 1)) + 1
+}
 
 /// Authored size of one tactical unit's map-sprite root. The sprite feet
 /// land on the tile center; this is the single geometry for spawn, sync,
@@ -179,10 +182,25 @@ pub fn grid_from_stage_point(local: Vec2) -> Option<GridPos> {
         return None;
     }
 
+    grid_from_map_point(local, BATTLE_GRID_WIDTH, BATTLE_GRID_HEIGHT)
+}
+
+/// Inverse projection checks at most nine diamonds, independent of board size.
+/// Neighbors preserve the original y-then-x tie break on shared edges.
+pub fn grid_from_map_point(local: Vec2, width: u8, height: u8) -> Option<GridPos> {
+    if !local.is_finite() {
+        return None;
+    }
     let absolute = battle_stage_rect().min + local;
-    for y in 0..BATTLE_GRID_HEIGHT {
-        for x in 0..BATTLE_GRID_WIDTH {
-            let cell = GridPos::new(x, y);
+    let grid = fractional_grid(local);
+    if grid.x < -1.0 || grid.y < -1.0 || grid.x > f32::from(width) || grid.y > f32::from(height) {
+        return None;
+    }
+    let cx = grid.x.round() as i32;
+    let cy = grid.y.round() as i32;
+    for y in (cy - 1).max(0)..=(cy + 1).min(i32::from(height) - 1) {
+        for x in (cx - 1).max(0)..=(cx + 1).min(i32::from(width) - 1) {
+            let cell = GridPos::new(x as u8, y as u8);
             let delta = absolute - iso_center(cell);
             let diamond_distance =
                 delta.x.abs() / (TILE_WIDTH * 0.5) + delta.y.abs() / (TILE_HEIGHT * 0.5);
@@ -192,6 +210,14 @@ pub fn grid_from_stage_point(local: Vec2) -> Option<GridPos> {
         }
     }
     None
+}
+
+pub fn fractional_grid(local: Vec2) -> Vec2 {
+    let delta = local - ISO_ORIGIN_STAGE;
+    Vec2::new(
+        delta.x / TILE_WIDTH + delta.y / TILE_HEIGHT,
+        delta.y / TILE_HEIGHT - delta.x / TILE_WIDTH,
+    )
 }
 
 #[cfg(test)]
@@ -220,6 +246,29 @@ mod tests {
         assert_eq!(
             selection_top_left(pos),
             Vec2::new(center.x - 56.0, center.y - 28.0)
+        );
+    }
+
+    #[test]
+    fn map_point_inverse_rejects_non_finite_and_far_outside_points() {
+        assert_eq!(grid_from_map_point(Vec2::splat(f32::NAN), 128, 128), None);
+        assert_eq!(
+            grid_from_map_point(Vec2::splat(f32::INFINITY), 128, 128),
+            None
+        );
+        // Inside the stage rect but past the far corner of a 128x128 grid.
+        assert_eq!(
+            grid_from_map_point(BATTLE_STAGE_SIZE - Vec2::ONE, 9, 9),
+            None
+        );
+        // The regional board still resolves its own far corner.
+        assert_eq!(
+            grid_from_map_point(
+                iso_center(GridPos::new(127, 127)) - battle_stage_rect().min,
+                128,
+                128,
+            ),
+            Some(GridPos::new(127, 127))
         );
     }
 }

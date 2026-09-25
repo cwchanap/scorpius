@@ -105,6 +105,7 @@ pub enum CaptureAction {
     Menu(MenuAction),
     ClickCell(GridPos),
     HoverCell(GridPos),
+    FocusMap(GridPos, u16),
     SetWindow(u32, u32),
     SetBattle(BattleSetup),
     SetAssetStatus(AssetLoadStatus),
@@ -452,6 +453,30 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         profile: battle_profile(MissionId::One),
         actions: &[CaptureAction::Inspect(m1::VANGUARD)],
         expect: BATTLE_VANGUARD_EXPECT,
+    },
+    CaptureFixture {
+        id: "battle-regional-coast",
+        profile: battle_profile(MissionId::One),
+        actions: &[CaptureAction::FocusMap(GridPos::new(17, 24), 55)],
+        expect: &[ExpectedFact::Screen(GameScreen::Battle)],
+    },
+    CaptureFixture {
+        id: "battle-regional-forest",
+        profile: battle_profile(MissionId::One),
+        actions: &[CaptureAction::FocusMap(GridPos::new(40, 30), 70)],
+        expect: &[ExpectedFact::Screen(GameScreen::Battle)],
+    },
+    CaptureFixture {
+        id: "battle-regional-mountains",
+        profile: battle_profile(MissionId::One),
+        actions: &[CaptureAction::FocusMap(GridPos::new(98, 24), 55)],
+        expect: &[ExpectedFact::Screen(GameScreen::Battle)],
+    },
+    CaptureFixture {
+        id: "battle-regional-edge",
+        profile: battle_profile(MissionId::One),
+        actions: &[CaptureAction::FocusMap(GridPos::new(127, 127), 70)],
+        expect: &[ExpectedFact::Screen(GameScreen::Battle)],
     },
     CaptureFixture {
         id: "battle-inspect-enemy",

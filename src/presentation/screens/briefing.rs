@@ -232,7 +232,7 @@ fn spawn_briefing_art(
         assets,
         theme::BRIEFING_GRID_RECT,
         theme::MUTED,
-        "9×9",
+        &format!("{}×{}", snapshot.board_size.0, snapshot.board_size.1),
     );
     spawn_badge(
         commands,
