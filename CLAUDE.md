@@ -116,6 +116,14 @@ an idle Player phase or after defeat; it remains guarded during activation/loadi
 resolution/victory/pending transitions. Victory exposes Continue. The campaign **SKIP** button is created only for
 `GameScreen::PreMissionStory`. Keep these bindings in the existing command/action types.
 
+Regional boards (larger than 9×9) add camera controls: **arrow keys**, **middle-drag**, and the
+**minimap** pan; **wheel** and the **−/+/Center** buttons zoom and re-center (`Home` re-centers on
+the active or first living player). The icon buttons carry the typed `MapAction` component (a
+sibling of `CommandAction` and `MenuAction` in `map_view.rs`); continuous pan/zoom is polled in
+`navigate_map` because it is camera input, not a battle command. Map navigation stays live while
+event playback locks battle input — playback effects (damage numbers, impact icons) live under
+`BattleMap` in map space, so they pan and clip with the stage.
+
 The opt-in native renderer fixture is built with:
 
 ```bash

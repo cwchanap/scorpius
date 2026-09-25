@@ -537,9 +537,10 @@ fn inspecting_enemy_keeps_active_unit_commands_and_preview_authority() {
         theme::BOARD_SELECTED,
         "Move highlights must follow the active ally after inspecting an enemy"
     );
+    // Regional boards keep the terrain art untinted under the highlight rim.
     assert_eq!(
         highlight_app.world().get::<ImageNode>(inset).unwrap().color,
-        theme::BOARD_REACHABLE,
+        scorpius::presentation::map_view::cell_base_fill(battle.board(), reachable_cell),
     );
 
     route_cell_click(&mut battle, &mut interaction, GridPos::new(4, 8)).unwrap();

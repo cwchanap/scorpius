@@ -136,9 +136,12 @@ pub const fn token_depth(pos: GridPos) -> i32 {
     11 + (depth_key(pos) as i32) * 3
 }
 
-/// Foreground layer above the deepest blocker/token slice; transient combat
-/// feedback uses it so impact icons always overlay the stage stack.
-pub const STAGE_EFFECT_DEPTH: i32 = token_depth(GridPos::new(127, 127)) + 1;
+/// Foreground layer above the deepest token slice of a board this size;
+/// transient combat feedback (impact icons, damage numbers) uses it so it
+/// always overlays the stage stack, whatever the board dimensions.
+pub fn stage_effect_depth(width: u8, height: u8) -> i32 {
+    token_depth(GridPos::new(width - 1, height - 1)) + 1
+}
 
 /// Authored size of one tactical unit's map-sprite root. The sprite feet
 /// land on the tile center; this is the single geometry for spawn, sync,

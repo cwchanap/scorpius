@@ -214,7 +214,13 @@ impl BattleState {
                 if !self.is_open_for(id, neighbor) {
                     continue;
                 }
-                let cost = distance + u16::from(self.board.movement_cost(neighbor).unwrap());
+                // `is_open_for` rejects blocking cells today, but terrain can
+                // add passable-but-costed or impassable tiles independently;
+                // skip rather than unwrap so a relaxed guard cannot panic.
+                let Some(step) = self.board.movement_cost(neighbor) else {
+                    continue;
+                };
+                let cost = distance + u16::from(step);
                 if cost > u16::from(movement)
                     || costs
                         .get(&neighbor)

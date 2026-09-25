@@ -18,7 +18,7 @@ use super::{
         battle_stage_rect, depth_key, footprint_top_left, iso_center, selection_top_left,
         token_depth, unit_root_top_left,
     },
-    map_view::{MapView, spawn_map_controls, terrain_color},
+    map_view::{MapView, spawn_map_controls},
     theme,
 };
 
@@ -120,7 +120,14 @@ fn populate_mission_root(
     let mut view = MapView::new(battle.0.board());
     if view.is_regional() {
         view.zoom = 0.7;
-        view.focus(GridPos::new(6, 6));
+        // Focus the squad, not a hard-wired cell: deployments differ per
+        // mission and the camera should open on the action.
+        let focus = battle
+            .0
+            .units()
+            .find(|unit| unit.faction == Faction::Player && !unit.is_knocked_out())
+            .map_or(GridPos::new(0, 0), |unit| unit.position);
+        view.focus(focus);
         if let Some(images) = images {
             spawn_map_controls(commands, stage, ui_assets, battle.0.board(), battle, images);
         }
@@ -212,14 +219,25 @@ fn spawn_cell(
     battle: &BattleRuntime,
     cell: GridPos,
 ) {
-    let regional = battle.0.board().width() > 9 || battle.0.board().height() > 9;
-    let terrain = battle.0.board().terrain_at(cell).unwrap();
-    let fill = if regional {
-        terrain_color(terrain, cell)
-    } else if (cell.x + cell.y).is_multiple_of(2) {
-        theme::BOARD_LIGHT
+    let board = battle.0.board();
+    let regional = super::map_view::is_regional(board.width(), board.height());
+    let terrain = board.terrain_at(cell).unwrap();
+    let fill = super::map_view::cell_base_fill(board, cell);
+    let art = regional.then(|| theme::terrain_art(terrain)).flatten();
+    // Flat cells stay below every stage marker; tall terrain (art rising past
+    // the diamond's authored 53px baseline, e.g. Forest/Mountain at 70) must
+    // occlude tokens behind it, so it sorts just under the token slice the
+    // way blockers already do.
+    let z = if art.is_some_and(|(_, height)| height > 53.0) {
+        token_depth(cell) - 2
+    } else if regional {
+        let max_depth = i32::from(depth_key(GridPos::new(
+            board.width() - 1,
+            board.height() - 1,
+        )));
+        i32::from(depth_key(cell)) - (max_depth + 2)
     } else {
-        theme::BOARD_DARK
+        0
     };
     let outer = commands
         .spawn((
@@ -231,11 +249,7 @@ fn spawn_cell(
                 theme::BOARD_STROKE,
             ),
             CellVisual(cell),
-            ZIndex(if regional {
-                i32::from(depth_key(cell)) - 256
-            } else {
-                0
-            }),
+            ZIndex(z),
             Pickable::IGNORE,
             ChildOf(stage),
         ))
@@ -245,22 +259,21 @@ fn spawn_cell(
         outer,
         (cell == GridPos::new(4, 8)).then_some("battle.cell.4.8"),
     );
-    let (node, image) =
-        if let Some((rect, height)) = regional.then(|| theme::terrain_art(terrain)).flatten() {
-            (
-                Node {
-                    top: px(53.0 - height),
-                    height: px(height),
-                    ..cell_inset_node()
-                },
-                theme::board_node(assets.terrain.clone(), rect, Color::WHITE),
-            )
-        } else {
-            (
-                cell_inset_node(),
-                theme::board_node(assets.board.clone(), theme::BOARD_DIAMOND_RECT, fill),
-            )
-        };
+    let (node, image) = if let Some((rect, height)) = art {
+        (
+            Node {
+                top: px(53.0 - height),
+                height: px(height),
+                ..cell_inset_node()
+            },
+            theme::board_node(assets.terrain.clone(), rect, Color::WHITE),
+        )
+    } else {
+        (
+            cell_inset_node(),
+            theme::board_node(assets.board.clone(), theme::BOARD_DIAMOND_RECT, fill),
+        )
+    };
     commands.spawn((
         node,
         image,

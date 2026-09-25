@@ -74,6 +74,26 @@ pub fn mission_one_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleSt
     BattleState::new(mission_one_board(), units, weapons, MISSION_ONE_RULES, seed)
 }
 
+/// The east and south rim of the original 9×9 arena. Blocking these cells
+/// restores the authored tuning the regional canvas removed: a push east
+/// from x=8 or south from y=8 collides for 3 damage instead of sliding into
+/// the open region, which is one of Mission 1's Turnabout routes.
+const MISSION_ONE_ARENA_WALL: [GridPos; 19] = arena_wall();
+
+const fn arena_wall() -> [GridPos; 19] {
+    let mut cells = [GridPos::new(0, 0); 19];
+    let mut i = 0;
+    while i <= 9 {
+        cells[i] = GridPos::new(9, i as u8);
+        i += 1;
+    }
+    while i < 19 {
+        cells[i] = GridPos::new((i - 10) as u8, 9);
+        i += 1;
+    }
+    cells
+}
+
 fn mission_one_board() -> BoardState {
     BoardState::new(
         128,
@@ -85,7 +105,9 @@ fn mission_one_board() -> BoardState {
             GridPos::new(7, 4),
             GridPos::new(3, 5),
             GridPos::new(5, 5),
-        ],
+        ]
+        .into_iter()
+        .chain(MISSION_ONE_ARENA_WALL),
         [GridPos::new(2, 6)],
         [ExplosiveState {
             position: GridPos::new(6, 6),
@@ -253,8 +275,11 @@ mod tests {
                 }
             }
         }
-        for y in 0..128 {
-            for x in 0..128 {
+        // The arena wall pins the fight to the authored 9×9 landing site; the
+        // regional canvas beyond it is scenery, so connectivity is asserted
+        // inside the arena only.
+        for y in 0..=8 {
+            for x in 0..=8 {
                 let cell = GridPos::new(x, y);
                 assert!(
                     board.is_blocking(cell) || reached.contains(&cell),
@@ -534,20 +559,53 @@ mod tests {
     #[test]
     fn board_layout_matches_the_approved_coordinates() {
         let battle = mission_one(7);
-        assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
-            vec![
-                GridPos::new(2, 1),
-                GridPos::new(6, 1),
-                GridPos::new(1, 4),
-                GridPos::new(7, 4),
-                GridPos::new(3, 5),
-                GridPos::new(5, 5),
-            ]
-        );
+        let blocking: Vec<_> = battle.board().blocking_cells().collect();
+        for cell in [
+            GridPos::new(2, 1),
+            GridPos::new(6, 1),
+            GridPos::new(1, 4),
+            GridPos::new(7, 4),
+            GridPos::new(3, 5),
+            GridPos::new(5, 5),
+        ] {
+            assert!(
+                blocking.contains(&cell),
+                "authored blocker {cell:?} missing"
+            );
+        }
         assert_eq!(
             battle.board().hazard_cells().collect::<Vec<_>>(),
             vec![GridPos::new(2, 6)]
         );
+    }
+
+    #[test]
+    fn arena_wall_restores_the_push_edges_the_regional_board_removed() {
+        let battle = mission_one(7);
+        let board = battle.board();
+        for y in 0..=9 {
+            assert!(
+                board.is_blocking(GridPos::new(9, y)),
+                "east wall at (9,{y})"
+            );
+        }
+        for x in 0..=8 {
+            assert!(
+                board.is_blocking(GridPos::new(x, 9)),
+                "south wall at ({x},9)"
+            );
+        }
+        // The original 9×9 interior keeps every open cell open.
+        for y in 0..=8 {
+            for x in 0..=8 {
+                let authored =
+                    matches!((x, y), (2, 1) | (6, 1) | (1, 4) | (7, 4) | (3, 5) | (5, 5));
+                assert_eq!(
+                    board.is_blocking(GridPos::new(x, y)),
+                    authored,
+                    "interior cell ({x},{y}) must keep its authored blocking state"
+                );
+            }
+        }
     }
 }

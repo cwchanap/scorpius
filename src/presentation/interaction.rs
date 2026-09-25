@@ -23,6 +23,7 @@ use super::{
         BATTLE_STAGE_SIZE, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, grid_from_map_point,
         grid_from_stage_point, unit_root_top_left,
     },
+    map_view::MapView,
 };
 
 pub use super::battle_menu::MenuState;
@@ -218,7 +219,10 @@ fn copy_preview_cells(interaction: &InteractionState, cells: &mut AttackPreviewC
     }
 }
 
-fn clear_hover_preview(interaction: &mut InteractionState, preview_cells: &mut AttackPreviewCells) {
+pub(crate) fn clear_hover_preview(
+    interaction: &mut InteractionState,
+    preview_cells: &mut AttackPreviewCells,
+) {
     interaction.hovered_cell = None;
     interaction.preview = None;
     preview_cells.0.clear();
@@ -260,7 +264,7 @@ pub fn on_battlefield_stage_click(
     mut playback: ResMut<EventPlayback>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     asset_status: Res<AssetLoadStatus>,
-    view: Option<Res<super::map_view::MapView>>,
+    view: Res<MapView>,
 ) {
     let click = _click;
     if click.original_event_target() != click.entity {
@@ -269,11 +273,8 @@ pub fn on_battlefield_stage_click(
     if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
         return;
     }
-    let cell = match view {
-        Some(view) => stage_point_from_hit(&click.event.hit).and_then(|point| view.cell_at(point)),
-        None => grid_from_hit(&click.event.hit),
-    };
-    let Some(cell) = cell else {
+    let Some(cell) = stage_point_from_hit(&click.event.hit).and_then(|point| view.cell_at(point))
+    else {
         return;
     };
     route_pointer_result(
@@ -293,7 +294,7 @@ pub fn on_battlefield_stage_move(
     mut preview_cells: ResMut<AttackPreviewCells>,
     playback: Res<EventPlayback>,
     asset_status: Res<AssetLoadStatus>,
-    view: Option<Res<super::map_view::MapView>>,
+    view: Res<MapView>,
 ) {
     // Bubbled moves carry the hovered child's local HitData; only a direct
     // stage hit is stage-local.
@@ -303,11 +304,8 @@ pub fn on_battlefield_stage_move(
     if !stage_event_ready(&asset_status, &playback) {
         return;
     }
-    let cell = match view {
-        Some(view) => stage_point_from_hit(&event.event.hit).and_then(|point| view.cell_at(point)),
-        None => grid_from_hit(&event.event.hit),
-    };
-    let Some(cell) = cell else {
+    let Some(cell) = stage_point_from_hit(&event.event.hit).and_then(|point| view.cell_at(point))
+    else {
         clear_hover_preview(&mut interaction, &mut preview_cells);
         return;
     };
@@ -916,15 +914,6 @@ pub fn handle_viability_cell_click(
 mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
-
-    use bevy::{
-        camera::NormalizedRenderTarget,
-        picking::{
-            events::Click,
-            pointer::{Location, PointerId},
-        },
-    };
 
     use super::*;
     use crate::campaign::model::CampaignState;
@@ -1198,45 +1187,5 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, crate::domain::model::BattleEvent::UnitMoved { .. }))
         );
-    }
-
-    #[test]
-    fn stage_click_without_a_map_view_uses_the_authored_grid() {
-        let mut app = App::new();
-        app.insert_resource(BattleRuntime(BattleState::viability_fixture()))
-            .insert_resource(AssetLoadStatus::Ready)
-            .init_resource::<InteractionState>()
-            .init_resource::<StatusMessage>()
-            .init_resource::<BattleEventQueue>()
-            .init_resource::<EventPlayback>()
-            .init_resource::<AttackPreviewCells>();
-        let stage = app
-            .world_mut()
-            .spawn_empty()
-            .observe(on_battlefield_stage_click)
-            .id();
-        let local = crate::presentation::layout::iso_center(GridPos::new(1, 1))
-            - crate::presentation::layout::battle_stage_rect().min;
-        let normalized = local / BATTLE_STAGE_SIZE - Vec2::splat(0.5);
-        app.world_mut().trigger(Pointer::new(
-            PointerId::Mouse,
-            Location {
-                target: NormalizedRenderTarget::None {
-                    width: 1920,
-                    height: 1080,
-                },
-                position: Vec2::ZERO,
-            },
-            Click {
-                button: PointerButton::Primary,
-                hit: HitData::new(Entity::PLACEHOLDER, 0.0, Some(normalized.extend(0.0)), None),
-                duration: Duration::ZERO,
-                count: 1,
-            },
-            stage,
-        ));
-        let interaction = app.world().resource::<InteractionState>();
-        assert_eq!(interaction.hovered_cell, Some(GridPos::new(1, 1)));
-        assert_eq!(interaction.inspected_unit, Some(UnitId(1)));
     }
 }
