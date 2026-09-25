@@ -662,9 +662,17 @@ mod tests {
             (2, 2) => Terrain::Mountain,
             _ => Terrain::Plain,
         });
+        battle.units.get_mut(&UnitId(1)).unwrap().stats.movement = 2;
+        let short = battle.reachable_cells(UnitId(1)).unwrap();
+        // Two points buy the adjacent forest at exactly its cost, but not the
+        // forest behind it (4) or a plain three steps out (3).
+        assert!(short.contains(&GridPos::new(2, 1)));
+        assert!(!short.contains(&GridPos::new(3, 1)));
+        assert!(!short.contains(&GridPos::new(3, 0)));
         battle.units.get_mut(&UnitId(1)).unwrap().stats.movement = 6;
         let reachable = battle.reachable_cells(UnitId(1)).unwrap();
-        // The four-step straight route costs seven, but the road detour costs six.
+        // The four-step straight route costs seven, but the plains detour
+        // along row 0 costs six.
         assert!(reachable.contains(&GridPos::new(5, 1)));
         assert!(!reachable.contains(&GridPos::new(6, 1)));
         assert!(!reachable.contains(&GridPos::new(1, 2)));

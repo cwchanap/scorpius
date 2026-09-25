@@ -114,7 +114,7 @@ aftermath, or upgrade screens. These keys mirror the battle command buttons:
 | `R` | Restart Mission during an idle Player phase or after defeat (guarded during activation/loading/playback/planning/resolution/victory/pending transitions) |
 | Arrow keys / middle mouse drag | Pan Mission 1's regional map |
 | Mouse wheel / minimap `−` and `+` buttons | Zoom the regional map |
-| `Home` / minimap **Center** | Center the active or inspected unit |
+| `Home` / minimap **Center** | Center the active, inspected, or first living unit |
 
 ### Native UI capture
 

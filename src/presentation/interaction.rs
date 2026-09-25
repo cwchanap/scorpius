@@ -80,7 +80,9 @@ pub fn stage_point_from_hit(hit: &HitData) -> Option<Vec2> {
     Some((normalized + Vec2::splat(0.5)) * BATTLE_STAGE_SIZE)
 }
 
-/// Resolve a direct stage hit through the authored diamond projection.
+/// Resolve a hit against the fixed 9×9 stage window's authored diamond grid.
+/// Regional stage clicks route through `MapView::cell_at`, which unprojects
+/// pan and zoom; this helper covers the authored stage projection only.
 pub fn grid_from_hit(hit: &HitData) -> Option<GridPos> {
     grid_from_stage_point(stage_point_from_hit(hit)?)
 }
@@ -97,7 +99,7 @@ pub fn token_root_point_from_hit(hit: &HitData) -> Option<Vec2> {
 
 /// Token roots are positioned in map space inside the panning board node, so a
 /// token-local hit resolves against the active board's grid — not the fixed
-/// stage window [`grid_from_stage_point`] applies to direct stage hits.
+/// 9×9 window [`grid_from_stage_point`] resolves for the authored stage.
 fn grid_from_token_point(board: &BoardState, position: GridPos, local: Vec2) -> Option<GridPos> {
     grid_from_map_point(
         unit_root_top_left(position) + local,
