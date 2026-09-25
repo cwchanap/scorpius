@@ -225,7 +225,8 @@ fn spawn_cell(
     let fill = super::map_view::cell_base_fill(board, cell);
     let art = regional.then(|| theme::terrain_art(terrain)).flatten();
     // Flat cells stay below every stage marker; tall terrain (art rising past
-    // the diamond's authored 53px baseline, e.g. Forest/Mountain at 70) must
+    // the diamond's 53px ground-bottom line — the full cell is 56px tall —
+    // e.g. Forest/Mountain at 70) must
     // occlude tokens behind it, so it sorts just under the token slice the
     // way blockers already do.
     let z = if art.is_some_and(|(_, height)| height > 53.0) {
