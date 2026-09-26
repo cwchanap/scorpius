@@ -77,18 +77,21 @@ pub fn mission_one_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleSt
 /// The east and south rim of the original 9×9 arena. Blocking these cells
 /// restores the authored tuning the regional canvas removed: a push east
 /// from x=8 or south from y=8 collides for 3 damage instead of sliding into
-/// the open region, which is one of Mission 1's Turnabout routes.
-const MISSION_ONE_ARENA_WALL: [GridPos; 19] = arena_wall();
+/// the open region, which is one of Mission 1's Turnabout routes. The rim
+/// opens where the authored road meets it — (9, 7..=9) stays unblocked so
+/// the squad can fight its way out onto the region; pushes east on those
+/// lanes slide onto the road instead of colliding.
+const MISSION_ONE_ARENA_WALL: [GridPos; 16] = arena_wall();
 
-const fn arena_wall() -> [GridPos; 19] {
-    let mut cells = [GridPos::new(0, 0); 19];
+const fn arena_wall() -> [GridPos; 16] {
+    let mut cells = [GridPos::new(0, 0); 16];
     let mut i = 0;
-    while i <= 9 {
+    while i <= 6 {
         cells[i] = GridPos::new(9, i as u8);
         i += 1;
     }
-    while i < 19 {
-        cells[i] = GridPos::new((i - 10) as u8, 9);
+    while i < 16 {
+        cells[i] = GridPos::new((i - 7) as u8, 9);
         i += 1;
     }
     cells
@@ -241,7 +244,7 @@ pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
 mod tests {
     use super::*;
     use crate::campaign::model::UpgradeLevels;
-    use crate::domain::model::{Faction, PilotSkillState, WeaponShape};
+    use crate::domain::model::{BattleEvent, Faction, PilotSkillState, WeaponShape};
     use crate::mission::assert_opening_plan_is_legal;
 
     #[test]
@@ -275,11 +278,15 @@ mod tests {
                 }
             }
         }
-        // The arena wall pins the fight to the authored 9×9 landing site; the
-        // regional canvas beyond it is scenery, so connectivity is asserted
-        // inside the arena only.
-        for y in 0..=8 {
-            for x in 0..=8 {
+        // The arena wall keeps the authored 9×9 push edges except where the
+        // road leaves the landing site at (9, 7..=9); through that gate every
+        // passable regional cell must stay reachable from the deployment.
+        assert!(
+            reached.contains(&GridPos::new(9, 8)),
+            "the road gate at (9,8) must connect the arena to the region"
+        );
+        for y in 0..128 {
+            for x in 0..128 {
                 let cell = GridPos::new(x, y);
                 assert!(
                     board.is_blocking(cell) || reached.contains(&cell),
@@ -583,12 +590,25 @@ mod tests {
     fn arena_wall_restores_the_push_edges_the_regional_board_removed() {
         let battle = mission_one(7);
         let board = battle.board();
-        for y in 0..=9 {
+        // The east rim stays walled north of the road gate.
+        for y in 0..=6 {
             assert!(
                 board.is_blocking(GridPos::new(9, y)),
                 "east wall at (9,{y})"
             );
         }
+        // The gate lets the authored road out of the arena.
+        for y in 7..=9 {
+            assert!(
+                !board.is_blocking(GridPos::new(9, y)),
+                "road gate at (9,{y})"
+            );
+        }
+        assert_eq!(
+            board.terrain_at(GridPos::new(9, 8)),
+            Some(Terrain::Road),
+            "the gate sits on the authored road east"
+        );
         for x in 0..=8 {
             assert!(
                 board.is_blocking(GridPos::new(x, 9)),
@@ -607,5 +627,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn pushes_slide_through_the_road_gate_but_still_collide_with_the_rim() {
+        let mut battle = mission_one(7);
+        // Gate lane: an east push at y=7 slides out onto the road.
+        battle.move_unit_direct_for_test(ids::INTERCEPTOR, GridPos::new(6, 7));
+        battle.move_unit_direct_for_test(ids::RIFLEMAN_LEFT, GridPos::new(8, 7));
+        let events = battle
+            .resolve_push(ids::INTERCEPTOR, ids::RIFLEMAN_LEFT)
+            .unwrap();
+        assert_eq!(
+            battle.unit(ids::RIFLEMAN_LEFT).unwrap().position,
+            GridPos::new(9, 7)
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::UnitPushed { to, .. } if *to == GridPos::new(9, 7)
+        )));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::CollisionOccurred { .. }))
+        );
+        assert_eq!(battle.unit(ids::RIFLEMAN_LEFT).unwrap().hp, 9);
+
+        // Walled lane: an east push at y=5 still collides for 3 damage.
+        battle.move_unit_direct_for_test(ids::INTERCEPTOR, GridPos::new(6, 5));
+        battle.move_unit_direct_for_test(ids::RIFLEMAN_LEFT, GridPos::new(8, 5));
+        let events = battle
+            .resolve_push(ids::INTERCEPTOR, ids::RIFLEMAN_LEFT)
+            .unwrap();
+        assert_eq!(
+            battle.unit(ids::RIFLEMAN_LEFT).unwrap().position,
+            GridPos::new(8, 5)
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            BattleEvent::CollisionOccurred { blocked_at, .. } if *blocked_at == GridPos::new(9, 5)
+        )));
+        assert_eq!(battle.unit(ids::RIFLEMAN_LEFT).unwrap().hp, 6);
     }
 }
