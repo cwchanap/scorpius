@@ -447,11 +447,13 @@ pub fn navigate_map(
     windows: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
     mut last_cursor: Local<Option<Vec2>>,
+    mut middle_was_held: Local<bool>,
     mut preview: ResMut<AttackPreviewCells>,
 ) {
     if !view.is_regional() {
         wheel.clear();
         *last_cursor = None;
+        *middle_was_held = false;
         return;
     }
     let before = *view;
@@ -487,7 +489,10 @@ pub fn navigate_map(
             && point.y < BATTLE_STAGE_SIZE.y
     });
     if let Some(point) = inside {
+        // The frame Middle goes down only establishes the drag anchor:
+        // cursor motion since the previous update must not pan the map.
         if mouse.pressed(MouseButton::Middle)
+            && *middle_was_held
             && let Some(last) = *last_cursor
         {
             let zoom = view.zoom;
@@ -507,6 +512,7 @@ pub fn navigate_map(
         wheel.clear();
     }
     *last_cursor = inside;
+    *middle_was_held = mouse.pressed(MouseButton::Middle);
     // Epsilon, not equality: clamping is a float round-trip, so an edge-hold
     // can jitter the center by an ulp without moving anything on screen.
     if view.zoom != before.zoom || view.center.distance(before.center) > 0.01 {
@@ -947,14 +953,27 @@ mod tests {
             .get_mut::<Window>(window)
             .unwrap()
             .set_cursor_position(Some(stage_center));
-        app.world_mut()
-            .resource_mut::<ButtonInput<MouseButton>>()
-            .press(MouseButton::Middle);
         app.update();
+        // Pressing Middle on a frame that also moves the cursor must anchor
+        // the drag, not pan by the pre-press motion.
+        let before_press = *app.world().resource::<MapView>();
         app.world_mut()
             .get_mut::<Window>(window)
             .unwrap()
             .set_cursor_position(Some(stage_center + Vec2::new(40.0, 20.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Middle);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<MapView>(),
+            before_press,
+            "the press frame anchors the drag without panning",
+        );
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(Some(stage_center + Vec2::new(80.0, 40.0)));
         let dragged_from = *app.world().resource::<MapView>();
         app.update();
         let after_drag = *app.world().resource::<MapView>();
