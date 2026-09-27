@@ -11,14 +11,33 @@ use super::{
     assets::UiAssets,
     interaction::{InteractionMode, InteractionState},
     layout::{
-        battle_stage_rect, footprint_top_left, iso_center, selection_top_left, token_depth,
-        unit_root_top_left,
+        battle_stage_rect, footprint_top_left, iso_center, selection_top_left, stage_effect_depth,
+        token_depth, unit_root_top_left,
     },
     theme,
 };
 
 fn stage_point(cell: crate::domain::board::GridPos) -> Vec2 {
     iso_center(cell) - battle_stage_rect().min
+}
+
+/// Tall forest/mountain cells sort just under the token slice so the art
+/// occludes tokens behind it; a telegraph on such a cell rides one step
+/// above the art — the committed footprint stays visible while the token
+/// standing on the cell still draws on top.
+fn telegraph_depth(
+    battle: &crate::domain::battle::BattleState,
+    cell: crate::domain::board::GridPos,
+) -> i32 {
+    if battle
+        .board()
+        .terrain_at(cell)
+        .is_some_and(theme::terrain_occludes)
+    {
+        token_depth(cell) - 1
+    } else {
+        5
+    }
 }
 
 fn marker_parent(
@@ -278,7 +297,7 @@ pub fn reconcile_telegraph_markers(
                 TelegraphGlyphVisual(shape),
                 marker_node(stage_point(cell), 112.0, 56.0, 0.0),
                 UiTransform::IDENTITY,
-                ZIndex(5),
+                ZIndex(telegraph_depth(&battle.0, cell)),
                 Pickable::IGNORE,
             ))
             .id();
@@ -355,6 +374,15 @@ pub fn reconcile_intent_guides(
         }
     }
     let parent = marker_parent(&stages, &roots);
+    // Regional tall terrain would bury a flat-9 guide under trees and peaks;
+    // there the guides ride the foreground layer above the whole stage stack.
+    // Flat boards keep the authored layering under the tokens.
+    let board = battle.0.board();
+    let line_depth = if super::map_view::is_regional(board.width(), board.height()) {
+        stage_effect_depth(board.width(), board.height())
+    } else {
+        9
+    };
     for (attacker, target) in expected_targets {
         if present_targets.contains(&(attacker, target)) {
             continue;
@@ -390,7 +418,7 @@ pub fn reconcile_intent_guides(
                 line,
                 intent_line_node(line.origin, line.center),
                 BackgroundColor(theme::ENEMY),
-                ZIndex(9),
+                ZIndex(line_depth),
                 Pickable::IGNORE,
             ))
             .id();
@@ -659,7 +687,101 @@ fn intent_line_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::presentation::battlefield::setup_mission_scene;
     use crate::presentation::layout::BATTLE_STAGE_SIZE;
+
+    fn blank_ui_assets() -> UiAssets {
+        UiAssets {
+            key_art: Handle::default(),
+            briefing_art: Handle::default(),
+            vanguard_art: Handle::default(),
+            gunner_art: Handle::default(),
+            interceptor_art: Handle::default(),
+            vanguard_map: Handle::default(),
+            gunner_map: Handle::default(),
+            interceptor_map: Handle::default(),
+            enemy_map: Handle::default(),
+            icons: Handle::default(),
+            board: Handle::default(),
+            terrain: Handle::default(),
+            fonts: std::array::from_fn(|_| Handle::default()),
+        }
+    }
+
+    #[test]
+    fn tall_terrain_does_not_bury_telegraphs_or_intent_lines() {
+        use crate::domain::board::GridPos;
+        use crate::mission::mission_one::{ids, mission_one};
+
+        // The Vanguard stands in forest at (11,6); the striker and a rifleman
+        // are committed onto it, so the telegraph diamond and the guide lines
+        // must sort above the 70px tree art on that cell.
+        let mut battle = mission_one(7);
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(11, 6));
+        battle.move_unit_direct_for_test(ids::RIFLEMAN_LEFT, GridPos::new(11, 5));
+        battle.move_unit_direct_for_test(ids::STRIKER, GridPos::new(11, 7));
+        battle.set_round_for_test(1);
+        battle.begin_round().unwrap();
+
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(battle))
+            .insert_resource(blank_ui_assets())
+            .add_systems(
+                Update,
+                (
+                    setup_mission_scene,
+                    reconcile_telegraph_markers,
+                    reconcile_intent_guides,
+                )
+                    .chain(),
+            );
+        app.update();
+
+        let forest = GridPos::new(11, 6);
+        let mut cells = app.world_mut().query::<(&CellVisual, &ZIndex)>();
+        let forest_z = cells
+            .iter(app.world())
+            .find(|(cell, _)| cell.0 == forest)
+            .map(|(_, z)| z.0)
+            .expect("the forest cell spawns with tall art");
+        assert_eq!(
+            forest_z,
+            token_depth(forest) - 2,
+            "forest art sorts just under the token slice"
+        );
+
+        let mut telegraphs = app.world_mut().query::<(&TelegraphVisual, &ZIndex)>();
+        let telegraph_z = telegraphs
+            .iter(app.world())
+            .find(|(marker, _)| marker.cell == forest)
+            .map(|(_, z)| z.0)
+            .expect("the committed footprint marks the forest cell");
+        assert!(
+            telegraph_z > forest_z,
+            "telegraph clears the tree art: {telegraph_z} vs {forest_z}"
+        );
+        assert!(
+            telegraph_z < token_depth(forest),
+            "telegraph stays under the token standing on the cell"
+        );
+
+        // Regional guide lines ride above the whole stage stack so no tree
+        // or peak along the shot can bury a committed threat.
+        let mut lines = app.world_mut().query::<(&IntentLineVisual, &ZIndex)>();
+        assert!(
+            lines.iter(app.world()).count() > 0,
+            "committed intents spawn guide lines"
+        );
+        for (line, z) in lines.iter(app.world()) {
+            assert_eq!(
+                z.0,
+                crate::presentation::layout::stage_effect_depth(128, 128),
+                "line from ({},{}): regional guides overlay the stage stack",
+                line.origin.x,
+                line.origin.y
+            );
+        }
+    }
 
     #[test]
     fn intent_line_is_a_flat_ui_sibling() {

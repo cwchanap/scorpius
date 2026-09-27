@@ -346,12 +346,8 @@ fn choose_enemy_destination(battle: &BattleState, id: UnitId) -> Result<GridPos,
             }) {
                 return Ok(unit.position);
             }
-            let lane: Vec<_> = candidates
-                .iter()
-                .copied()
-                .filter(|position| position.x == 4)
-                .collect();
-            let candidates = if lane.is_empty() { &candidates } else { &lane };
+            // Walk toward the nearest player like the pursuit archetypes; a
+            // fixed lane dead-ends into walls and seas on regional boards.
             Ok(*candidates
                 .iter()
                 .min_by_key(|position| {
@@ -716,7 +712,7 @@ mod tests {
     use crate::{
         domain::{
             battle::BattleState,
-            board::{BoardState, GridPos},
+            board::{BoardState, GridPos, Terrain},
             combat::{DamageSource, weapon_reaches},
             model::{
                 BattleError, BattleEvent, BattlePhase, EnemyOpening, Faction, MissionRules,
@@ -1229,6 +1225,61 @@ mod tests {
         advance_a_later_round(&mut battle);
 
         assert_eq!(battle.unit(BULWARK).unwrap().position, GridPos::new(4, 5));
+    }
+
+    #[test]
+    fn artillery_pursues_east_when_the_arena_lane_is_a_dead_end() {
+        // Players retreat east along the regional road, far past the Siege
+        // Mortar's band. The old x=4 lane dead-ends at the south arena wall,
+        // so the artillery must leave the lane and step toward the players.
+        let mut battle = mission_one(7);
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(20, 8));
+        battle.move_unit_direct_for_test(ids::GUNNER, GridPos::new(21, 8));
+        battle.move_unit_direct_for_test(ids::INTERCEPTOR, GridPos::new(22, 8));
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle.unit(ids::ARTILLERY).unwrap().position,
+            GridPos::new(5, 0)
+        );
+    }
+
+    #[test]
+    fn one_mp_enemy_holds_rather_than_step_into_forest_or_sea() {
+        // Forest at (5,0) costs 2 MP and the sea at (4,1) is blocking; a
+        // cost-blind candidate list would step to (5,0) (distance 1 to the
+        // player at (6,0)). Terrain-aware movement keeps only the origin and
+        // (3,0), so the closest candidate is holding at (4,0).
+        let board = BoardState::new(9, 9, [], [], []).with_terrain(|cell| match cell {
+            GridPos { x: 5, y: 0 } => Terrain::Forest,
+            GridPos { x: 4, y: 1 } => Terrain::Sea,
+            _ => Terrain::Plain,
+        });
+        let units = vec![
+            enemies::artillery(UnitId(13), "Artillery", GridPos::new(4, 0)),
+            squad::unit(
+                PROTECTED,
+                "Player",
+                UnitArchetype::Vanguard,
+                Faction::Player,
+                squad::stats(20, 3, 3, 78, 5, 7),
+                GridPos::new(6, 0),
+                vec![],
+            ),
+        ];
+        let mut battle = BattleState::new(
+            board,
+            units,
+            vec![enemies::siege_mortar()],
+            eliminate_rules(),
+            7,
+        );
+        advance_a_later_round(&mut battle);
+
+        assert_eq!(
+            battle.unit(UnitId(13)).unwrap().position,
+            GridPos::new(4, 0)
+        );
     }
 
     #[test]

@@ -214,9 +214,10 @@ impl BattleState {
                 if !self.is_open_for(id, neighbor) {
                     continue;
                 }
-                // `is_open_for` rejects blocking cells today, but terrain can
-                // add passable-but-costed or impassable tiles independently;
-                // skip rather than unwrap so a relaxed guard cannot panic.
+                // `movement_cost` returns None exactly when `is_blocking`
+                // rejects the cell, so this arm cannot fire while
+                // `is_open_for` keeps checking the blocking set; skip rather
+                // than unwrap so a relaxed guard cannot panic.
                 let Some(step) = self.board.movement_cost(neighbor) else {
                     continue;
                 };

@@ -77,6 +77,15 @@ pub const fn terrain_art(terrain: Terrain) -> Option<(Rect, f32)> {
     }
 }
 
+/// Art taller than the diamond's 53px ground-bottom line (the full cell is
+/// 56px tall) rises past the cell and occludes whatever sits behind it.
+pub const fn terrain_occludes(terrain: Terrain) -> bool {
+    match terrain_art(terrain) {
+        Some((_, height)) => height > 53.0,
+        None => false,
+    }
+}
+
 /// The source atlas is packed in 64px cells. Keeping this conversion const
 /// leaves the atlas mapping in Rust instead of making runtime geometry data.
 pub const fn icon_rect(slot: u32) -> Rect {

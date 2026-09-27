@@ -1,6 +1,6 @@
 # Regional terrain art
 
-Generated with the built-in imagegen tool on 2026-09-20. `terrain.png` is the original 1254×1254 RGBA output; alpha is preserved. The runtime crops its grass, sea, forest and mountain tiles in `src/presentation/theme.rs`. Roads retain their existing sand-colored fill. Tiles are loaded through `UiAssets` and rendered only on regional boards; tactical highlighting rides the outer cell rim (`BOARD_SELECTED` / `BOARD_ATTACK` in `sync.rs`) while the terrain inset keeps its painted fill.
+Generated with the built-in imagegen tool on 2026-09-20. `terrain.png` is the original 1254×1254 RGBA output (the generator returned 1254px despite the 1024px prompt below; all crops in `theme.rs` are measured against the shipped file); alpha is preserved. The runtime crops its grass, sea, forest and mountain tiles in `src/presentation/theme.rs`. Roads retain their existing sand-colored fill. Tiles are loaded through `UiAssets` and rendered only on regional boards; tactical highlighting rides the outer cell rim (`BOARD_SELECTED` / `BOARD_ATTACK` in `sync.rs`) while the terrain inset keeps its painted fill.
 
 ## Generation prompt
 
