@@ -229,7 +229,7 @@ fn spawn_cell(
     // e.g. Forest/Mountain at 70) must
     // occlude tokens behind it, so it sorts just under the token slice the
     // way blockers already do.
-    let z = if art.is_some_and(|(_, height)| height > 53.0) {
+    let z = if theme::terrain_occludes(terrain) {
         token_depth(cell) - 2
     } else if regional {
         let max_depth = i32::from(depth_key(GridPos::new(

@@ -256,7 +256,7 @@ mod tests {
             grid_from_map_point(Vec2::splat(f32::INFINITY), 128, 128),
             None
         );
-        // Inside the stage rect but past the far corner of a 128x128 grid.
+        // Inside the stage rect but past the far corner of the 9x9 grid.
         assert_eq!(
             grid_from_map_point(BATTLE_STAGE_SIZE - Vec2::ONE, 9, 9),
             None

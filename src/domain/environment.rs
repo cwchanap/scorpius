@@ -209,6 +209,33 @@ mod tests {
     }
 
     #[test]
+    fn blocked_push_into_impassable_terrain_deals_collision_only() {
+        // Sea west of the coast at y=12: pushing (14,12) west lands in water.
+        let mut battle = mission_one(7);
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(15, 12));
+        battle.move_unit_direct_for_test(ids::STRIKER, GridPos::new(14, 12));
+        battle.resolve_push(ids::VANGUARD, ids::STRIKER).unwrap();
+
+        assert_eq!(
+            battle.unit(ids::STRIKER).unwrap().position,
+            GridPos::new(14, 12)
+        );
+        assert_eq!(battle.unit(ids::STRIKER).unwrap().hp, 9);
+
+        // Mountain east of (18,1): pushing east lands on a peak.
+        let mut battle = mission_one(7);
+        battle.move_unit_direct_for_test(ids::VANGUARD, GridPos::new(17, 1));
+        battle.move_unit_direct_for_test(ids::STRIKER, GridPos::new(18, 1));
+        battle.resolve_push(ids::VANGUARD, ids::STRIKER).unwrap();
+
+        assert_eq!(
+            battle.unit(ids::STRIKER).unwrap().position,
+            GridPos::new(18, 1)
+        );
+        assert_eq!(battle.unit(ids::STRIKER).unwrap().hp, 9);
+    }
+
+    #[test]
     fn explosive_applies_one_cross_event_and_cannot_repeat() {
         let mut battle = explosive_fixture();
         let first = battle
