@@ -23,6 +23,8 @@ policies:
 | Tactician | Reader, plus it values pushing enemies into other enemies' locked fire and into explosive blasts: the "turn their plan against them" hook. |
 
 The bots score options from attack previews and committed intents only, never from the battle RNG.
+They mirror the preview math so they can score cells they have not moved to yet, and a second
+test pins that mirror to the game's own previews on every mission's opening.
 A campaign retries a lost mission (at most 12 tries) and then buys upgrades cheapest-first in a
 fixed order. Seeds are fixed, so every number below can be reproduced exactly.
 
