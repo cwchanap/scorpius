@@ -405,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn mortar_hits_deal_exactly_five_through_armor_one_for_each_battery() {
+    fn mortar_hits_deal_exactly_seven_through_armor_one_for_each_battery() {
         for battery in [ids::ARTILLERY_A, ids::ARTILLERY_B] {
             // Bounded sweep for one deterministic seed where the battery lands
             // a non-critical hit (same pattern as the Aegis sweep).
@@ -418,9 +418,9 @@ mod tests {
                 event,
                 BattleEvent::DamageApplied {
                     target,
-                    amount: 5,
+                    amount: 7,
                     source: DamageSource::EnemyWeapon(attacker, weapon),
-                    remaining_hp: 4,
+                    remaining_hp: 2,
                     ..
                 } if *target == ids::CONTROLLER
                     && *attacker == battery
@@ -430,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn siege_mortar_preview_pins_five_normal_damage_against_the_controller() {
+    fn siege_mortar_preview_pins_seven_normal_damage_against_the_controller() {
         let mut battle = mission_five(7);
         battle.begin_round().unwrap();
         let intent = battle.intent_for(ids::ARTILLERY_A).unwrap();
@@ -438,7 +438,7 @@ mod tests {
             .intended_preview
             .as_ref()
             .expect("opening locks a preview");
-        assert_eq!(preview.normal_damage, 5);
+        assert_eq!(preview.normal_damage, 7);
         assert_eq!(preview.target, GridPos::new(3, 8));
     }
 

@@ -98,9 +98,18 @@ fn mission_four_board() -> BoardState {
     )
 }
 
+/// The Gate Bulwark is the mission's objective: a reinforced Bulwark with 22
+/// max HP where the shared archetype has 16, so detonating both gate
+/// explosives on the opening turn softens it instead of ending the mission
+/// before its escorts act.
+const GATE_BULWARK_BONUS_HP: i16 = 6;
+
 fn mission_four_enemy_units() -> Vec<UnitState> {
+    let mut gate = enemies::bulwark(ids::BULWARK, "Gate Bulwark", GridPos::new(4, 5));
+    gate.stats.max_hp += GATE_BULWARK_BONUS_HP;
+    gate.hp = gate.stats.max_hp;
     vec![
-        enemies::bulwark(ids::BULWARK, "Gate Bulwark", GridPos::new(4, 5)),
+        gate,
         enemies::controller(ids::CONTROLLER, "Controller", GridPos::new(0, 7)),
         enemies::rifleman(ids::RIFLEMAN, "Rifleman", GridPos::new(8, 6)),
     ]
@@ -319,7 +328,7 @@ mod tests {
         )));
         assert_eq!(
             battle.unit(ids::BULWARK).unwrap().hp,
-            12,
+            18,
             "the Bulwark must take 4 explosion damage from the detonation"
         );
     }
