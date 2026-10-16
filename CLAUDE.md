@@ -22,7 +22,7 @@ Single test / subset:
 cargo test pure_battle_state_moves_without_bevy             # by name, anywhere
 cargo test --lib domain::combat::                           # one inline module
 cargo test --test presentation_app                          # only the integration suite
-SCORPIUS_BALANCE_RUNS=200 cargo test --release --test balance -- --nocapture   # Act 1 balance report
+cargo test --release --test balance -- --nocapture         # Act 1 balance report
 ```
 
 Coverage matches CI (`cargo llvm-cov --all-targets --lcov --output-path lcov.info`).

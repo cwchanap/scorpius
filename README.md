@@ -148,10 +148,10 @@ cargo test --all-targets --all-features
 cargo build --release
 ```
 
-`tests/balance.rs` plays the whole campaign headlessly with three scripted player policies and prints a per-mission report; `cargo test --all-targets` runs it at 40 campaigns per policy with guard rails on the Act 1 difficulty curve. For a larger sample:
+`tests/balance.rs` plays the whole campaign headlessly with three scripted player policies, 200 campaigns each, and asserts guard rails on the Act 1 difficulty curve. To read its per-mission report:
 
 ```bash
-SCORPIUS_BALANCE_RUNS=200 cargo test --release --test balance -- --nocapture
+cargo test --release --test balance -- --nocapture
 ```
 
 Detailed evidence is recorded in `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`, `docs/validation/hpa-523.md`, `docs/validation/hpa-524.md`, `docs/validation/hpa-386.md`, and `docs/validation/act-1-balance.md` (the headless Act 1 balance pass).

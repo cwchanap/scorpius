@@ -26,10 +26,10 @@ The bots score options from attack previews and committed intents only, never fr
 A campaign retries a lost mission (at most 12 tries) and then buys upgrades cheapest-first in a
 fixed order. Seeds are fixed, so every number below can be reproduced exactly.
 
-Each table below comes from 200 campaigns per policy:
+Each table below comes from 200 campaigns per policy, the harness default:
 
 ```bash
-SCORPIUS_BALANCE_RUNS=200 cargo test --release --test balance -- --nocapture
+cargo test --release --test balance -- --nocapture
 ```
 
 ## Rubric
@@ -78,7 +78,7 @@ Variants tested and rejected:
 - **Courier at (0,3).** Still reachable on turn 1.
 - **Courier at (1,1).** Too hard: every policy won only 72–74% of first tries.
 - **Courier HP 12–14.** Turn-1 kills stayed near 90%.
-- **Gate Bulwark at 20 and 24 HP.** At 20 HP, 28% of wins came in Round 1; at 24 HP, 5% did. 22 HP (13–15%) is the smaller change, and the Round 1 wins left all come from detonating the explosives the mission is built around.
+- **Gate Bulwark at 20 and 24 HP.** At 20 HP, 28% of wins came in Round 1; at 24 HP, 5% did. 22 HP (13–15%) is the smaller change and already meets rubric 3.
 - **Boss HP 48–56.** It mostly made the boss fights longer. Raising the boss weapons' damage works on rubric 2 directly, so that was kept instead.
 
 ## Results after the tuning
@@ -99,26 +99,41 @@ Against the rubric:
    sometimes loses the Gunner it must protect) and never needs more than 1.1 tries per clear. No
    run got stuck.
 2. **Reading the telegraphs pays.** Yes, on every mission where enemies commit damage. The gap is
-   about 30 points of HP on Missions 1, 2 and 7, and 12–15 points on Missions 5 and 6. Missions 3
+   29–37 points of HP on Missions 1, 2 and 7, and 12–15 points on Missions 5 and 6. Missions 3
    and 4 are objective puzzles with little incoming fire, so their lessons are the chase and the
    breach, not survival.
 3. **The mechanic shows before the mission ends.** Mission 3 no longer ends in Round 1. Mission 4
-   still does 13–15% of the time, when both detonations land and a follow-up hits; that run still
-   used the explosives the mission is built around.
+   still does 13–15% of the time, down from about 90%.
 4. **The bosses are the peak.** Yes: Mission 7 is the Novice's worst result (62% HP, 0.2 KOs per
    try).
 
 The "turn their plan against them" hook now pays off: the Tactician earns Mission 6's Turnabout
 bonus 56% of the time against the Reader's 28%, and Mission 5's Rapid Break 58% against 46%.
 
-Full per-policy tables, before and after, are at the end of this file.
+Full per-policy tables, before and after, are at the end of this file. In them, the four intent
+columns say how committed enemy attacks resolved (hit the squad, hit other enemies, hit an empty
+footprint, or were canceled by the attacker's knockout). The two enemy-damage columns are the share
+of damage enemies took from their own side's fire and from collisions, hazards and explosions. Focus
+and Gunner share are the share of enemy damage dealt by Focus attacks and by the Gunner. Credits in
+is the mean credit balance on entering the mission.
 
 ## Guard rails
 
-`cargo test --all-targets` runs the same harness at 40 campaigns per policy and asserts the
-rubric, so a later change that flattens the curve fails a test:
+`cargo test --all-targets` runs the same 200 campaigns per policy and asserts the rubric, so a
+later change that flattens the curve fails a test:
 
-GUARD_RAILS_PLACEHOLDER
+- No campaign run gets stuck, and the bots never issue an illegal command.
+- Every policy wins at most 25% of its clears in Round 1.
+- The Reader and the Tactician win at least 95% of first tries on every mission.
+- The Novice wins at least 85% of first tries, with at most 1.5 tries per clear, on every mission.
+- On Missions 1, 2, 5, 6 and 7, the Reader keeps at least 10 points more HP than the Novice.
+- Mission 7 is the Novice's lowest-HP mission.
+- On Mission 6, the Tactician earns Turnabout at least 15 points more often than the Reader.
+
+The run takes about 9 seconds. The baseline tables break these rails: Round 1 wins on
+Missions 3 and 4, the HP gap on Mission 5 (94% against 100%), and the Turnabout margin on Mission 6
+(28% against 25%). A smaller sample (`SCORPIUS_BALANCE_RUNS` below 200) prints the report and skips
+the rubric.
 
 ## Spec values this pass supersedes
 
@@ -145,8 +160,76 @@ GUARD_RAILS_PLACEHOLDER
 
 ## Full tables: before
 
-BASELINE_PLACEHOLDER
+#### Novice
+
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 3.5 | 0% | 88% | 81% | 0.0 | 60% | 0% | 5% | 35% | 6% | 4% | 22% | 34% | 0.0 |
+| 2 | 100% | 1.0 | 0 | 2.4 | 0% | 50% | 79% | 0.0 | 53% | 0% | 4% | 43% | 11% | 0% | 21% | 45% | 12.5 |
+| 3 | 100% | 1.0 | 0 | 1.0 | 100% | 100% | 100% | 0.0 | — | — | — | — | 0% | 6% | 48% | 48% | 49.0 |
+| 4 | 100% | 1.0 | 0 | 1.1 | 92% | 66% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 19% | 52% | 46% | 99.0 |
+| 5 | 100% | 1.0 | 0 | 4.8 | 0% | 28% | 94% | 0.0 | 27% | 0% | 41% | 32% | 0% | 0% | 17% | 47% | 66.0 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 12% | 88% | 0.0 | 37% | 1% | 59% | 3% | 1% | 0% | 19% | 42% | 174.0 |
+| 7 | 100% | 1.0 | 0 | 5.2 | 0% | 90% | 75% | 0.1 | 33% | 0% | 59% | 8% | 2% | 1% | 12% | 36% | 166.0 |
+
+#### Reader
+
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 3.9 | 0% | 100% | 100% | 0.0 | 4% | 11% | 51% | 34% | 6% | 11% | 22% | 42% | 0.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 15% | 0% | 42% | 43% | 9% | 7% | 24% | 34% | 0.5 |
+| 3 | 100% | 1.0 | 0 | 1.0 | 100% | 100% | 100% | 0.0 | — | — | — | — | 0% | 0% | 100% | 100% | 99.5 |
+| 4 | 100% | 1.0 | 0 | 1.1 | 88% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 50% | 2% | 16% | 149.5 |
+| 5 | 100% | 1.0 | 0 | 4.7 | 0% | 46% | 100% | 0.0 | 0% | 1% | 65% | 34% | 0% | 3% | 17% | 49% | 99.5 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 25% | 100% | 0.0 | 1% | 0% | 93% | 6% | 0% | 2% | 20% | 44% | 110.5 |
+| 7 | 100% | 1.0 | 0 | 4.9 | 0% | 94% | 94% | 0.0 | 11% | 2% | 76% | 11% | 1% | 5% | 15% | 42% | 91.0 |
+
+#### Tactician
+
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 3.9 | 0% | 100% | 100% | 0.0 | 4% | 11% | 51% | 34% | 6% | 11% | 22% | 42% | 0.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 15% | 0% | 42% | 43% | 9% | 7% | 24% | 34% | 0.5 |
+| 3 | 100% | 1.0 | 0 | 1.0 | 100% | 100% | 100% | 0.0 | — | — | — | — | 0% | 0% | 100% | 100% | 99.5 |
+| 4 | 100% | 1.0 | 0 | 1.1 | 88% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 50% | 2% | 16% | 149.5 |
+| 5 | 100% | 1.0 | 0 | 4.5 | 0% | 56% | 100% | 0.0 | 0% | 3% | 63% | 34% | 1% | 3% | 17% | 48% | 99.5 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 28% | 100% | 0.0 | 1% | 1% | 91% | 7% | 1% | 1% | 20% | 43% | 89.5 |
+| 7 | 100% | 1.0 | 0 | 5.1 | 0% | 90% | 93% | 0.0 | 13% | 3% | 72% | 12% | 2% | 6% | 14% | 41% | 89.5 |
 
 ## Full tables: after
 
-PACKAGE_PLACEHOLDER
+#### Novice
+
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 3.5 | 0% | 88% | 70% | 0.1 | 61% | 1% | 4% | 35% | 7% | 4% | 22% | 33% | 0.0 |
+| 2 | 90% | 1.1 | 0 | 2.3 | 0% | 34% | 70% | 0.1 | 52% | 0% | 3% | 44% | 15% | 0% | 21% | 43% | 12.5 |
+| 3 | 94% | 1.1 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 61% | 39% | 0% | 1% | 35% | 49% | 37.0 |
+| 4 | 100% | 1.0 | 0 | 1.9 | 13% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 36% | 47% | 13% | 85.0 |
+| 5 | 100% | 1.0 | 0 | 4.8 | 0% | 28% | 88% | 0.0 | 27% | 0% | 41% | 32% | 0% | 0% | 17% | 47% | 43.0 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 12% | 85% | 0.0 | 36% | 1% | 60% | 3% | 1% | 0% | 19% | 42% | 155.0 |
+| 7 | 100% | 1.0 | 0 | 5.1 | 0% | 95% | 62% | 0.2 | 32% | 0% | 60% | 8% | 3% | 1% | 12% | 35% | 161.0 |
+
+#### Reader
+
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 3.9 | 0% | 100% | 99% | 0.0 | 3% | 11% | 52% | 34% | 7% | 12% | 22% | 42% | 0.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 16% | 51% | 33% | 13% | 8% | 25% | 31% | 0.0 |
+| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 77% | 100% | 0.0 | 0% | 0% | 46% | 54% | 0% | 0% | 33% | 56% | 100.0 |
+| 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 115.5 |
+| 5 | 100% | 1.0 | 0 | 4.7 | 0% | 46% | 100% | 0.0 | 0% | 1% | 65% | 34% | 0% | 2% | 17% | 49% | 111.5 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 28% | 100% | 0.0 | 1% | 0% | 95% | 4% | 0% | 2% | 20% | 44% | 115.5 |
+| 7 | 100% | 1.0 | 0 | 5.7 | 0% | 86% | 99% | 0.0 | 1% | 0% | 80% | 19% | 0% | 5% | 13% | 40% | 112.2 |
+
+#### Tactician
+
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 3.9 | 0% | 100% | 99% | 0.0 | 3% | 11% | 52% | 34% | 7% | 12% | 22% | 42% | 0.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 16% | 51% | 33% | 13% | 8% | 25% | 31% | 0.0 |
+| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 78% | 100% | 0.0 | 0% | 3% | 44% | 54% | 2% | 0% | 32% | 56% | 100.0 |
+| 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 117.8 |
+| 5 | 100% | 1.0 | 0 | 4.5 | 0% | 58% | 100% | 0.0 | 1% | 3% | 63% | 33% | 1% | 1% | 18% | 47% | 110.8 |
+| 6 | 100% | 1.0 | 0 | 3.4 | 0% | 56% | 100% | 0.0 | 0% | 9% | 79% | 12% | 7% | 1% | 19% | 41% | 106.8 |
+| 7 | 100% | 1.0 | 0 | 6.0 | 0% | 73% | 99% | 0.0 | 0% | 2% | 77% | 21% | 1% | 4% | 12% | 41% | 85.5 |
