@@ -762,9 +762,9 @@ fn hud_tracks_intercept_mission_round_cap_and_courier_distance_to_exit() {
         hud.objective_track,
         Some(ObjectiveTrackSnapshot::Intercept {
             name: "Courier",
-            distance: 14,
+            distance: 10,
             deadline_round: 5,
-            position: GridPos::new(0, 6),
+            position: GridPos::new(0, 2),
             escape: GridPos::new(8, 0),
         })
     );
@@ -780,8 +780,8 @@ fn mission_four_target_hud_pins_the_gate_bulwark() {
         hud.objective_track,
         Some(ObjectiveTrackSnapshot::Target {
             name: "Gate Bulwark",
-            hp: 16,
-            max_hp: 16,
+            hp: 22,
+            max_hp: 22,
             position: GridPos::new(4, 4),
         })
     );

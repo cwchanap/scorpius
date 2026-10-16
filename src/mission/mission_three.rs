@@ -201,10 +201,7 @@ mod tests {
             battle.unit(ids::INTERCEPTOR).unwrap().position,
             GridPos::new(5, 8)
         );
-        assert_eq!(
-            battle.unit(ids::COURIER).unwrap().position,
-            COURIER_START
-        );
+        assert_eq!(battle.unit(ids::COURIER).unwrap().position, COURIER_START);
         assert_eq!(
             battle.unit(ids::RIFLEMAN).unwrap().position,
             GridPos::new(3, 2)

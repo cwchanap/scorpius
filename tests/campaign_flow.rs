@@ -313,7 +313,7 @@ fn mission_three_entry_builds_through_the_shared_definition_path_with_upgrades()
     );
     assert_eq!(
         battle.unit(mission_three::ids::COURIER).unwrap().position,
-        GridPos::new(0, 6)
+        mission_three::COURIER_START
     );
 }
 
