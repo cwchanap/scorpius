@@ -694,10 +694,11 @@ mod tests {
     #[test]
     fn guard_reduces_post_armor_damage_and_evade_changes_hit_chance() {
         let guard = incoming_preview_fixture(Some(Reaction::Guard));
-        assert_eq!(guard.normal_damage, 1);
+        assert_eq!(guard.normal_damage, 3);
 
         let evade = incoming_preview_fixture(Some(Reaction::Evade));
         let none = incoming_preview_fixture(None);
+        assert_eq!(none.normal_damage, 6);
         assert_eq!(none.hit_chance.saturating_sub(evade.hit_chance), 25);
     }
 

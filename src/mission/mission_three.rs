@@ -29,12 +29,18 @@ const MISSION_THREE_DEPLOYMENT: SquadDeployment = SquadDeployment {
     interceptor: GridPos::new(5, 8),
 };
 
-/// Authored opening: the Courier stays put at (0,6) while its escorts lock
+/// Where the Courier starts and holds during the opening: one cell beyond
+/// every mech's round-one reach (move plus weapon range), so the intercept is
+/// a chase that is decided in Round 2 or later rather than by an opening
+/// alpha strike.
+pub const COURIER_START: GridPos = GridPos::new(0, 2);
+
+/// Authored opening: the Courier holds at its start while its escorts lock
 /// their destinations and intended victims before the player phase.
 static MISSION_THREE_OPENING: [EnemyOpening; 3] = [
     EnemyOpening {
         unit: ids::COURIER,
-        destination: GridPos::new(0, 6),
+        destination: COURIER_START,
         target: None,
     },
     EnemyOpening {
@@ -92,7 +98,7 @@ fn mission_three_board() -> BoardState {
 
 fn mission_three_enemy_units() -> Vec<UnitState> {
     vec![
-        enemies::flanker(ids::COURIER, "Courier", GridPos::new(0, 6)),
+        enemies::flanker(ids::COURIER, "Courier", COURIER_START),
         enemies::rifleman(ids::RIFLEMAN, "Rifleman", GridPos::new(3, 2)),
         enemies::striker(ids::STRIKER, "Striker", GridPos::new(6, 6)),
     ]
@@ -197,7 +203,7 @@ mod tests {
         );
         assert_eq!(
             battle.unit(ids::COURIER).unwrap().position,
-            GridPos::new(0, 6)
+            COURIER_START
         );
         assert_eq!(
             battle.unit(ids::RIFLEMAN).unwrap().position,
@@ -241,7 +247,7 @@ mod tests {
         );
 
         let expected = [
-            (ids::COURIER, GridPos::new(0, 6), None),
+            (ids::COURIER, COURIER_START, None),
             (ids::RIFLEMAN, GridPos::new(3, 4), Some(ids::VANGUARD)),
             (ids::STRIKER, GridPos::new(5, 7), Some(ids::INTERCEPTOR)),
         ];
@@ -260,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn mission_three_extraction_is_a_legal_open_cell_and_the_race_is_manhattan_fourteen() {
+    fn mission_three_extraction_is_a_legal_open_cell_and_the_race_is_manhattan_ten() {
         let battle = mission_three(7);
         assert!(battle.board().contains(EXTRACTION));
         assert!(!battle.board().is_blocking(EXTRACTION));
@@ -273,7 +279,7 @@ mod tests {
 
         let courier = battle.unit(ids::COURIER).unwrap();
         assert_eq!(courier.stats.movement, 4);
-        assert_eq!(courier.position.manhattan(EXTRACTION), 14);
+        assert_eq!(courier.position.manhattan(EXTRACTION), 10);
     }
 
     #[test]
@@ -358,10 +364,10 @@ mod tests {
     }
 
     #[test]
-    fn the_couriers_first_three_moves_leave_player_phase_four_without_extraction() {
+    fn the_couriers_first_two_moves_leave_player_phase_three_without_extraction() {
         let mut battle = courier_race_after_opening();
 
-        for round in 1..=3 {
+        for round in 1..=2 {
             play_one_round(&mut battle);
             assert_eq!(battle.round(), round + 1);
             assert_eq!(battle.phase(), BattlePhase::Player);
@@ -375,13 +381,13 @@ mod tests {
                 "the courier cannot extract on move {round}"
             );
         }
-        assert_eq!(battle.round(), 4, "player phase 4 must exist");
+        assert_eq!(battle.round(), 3, "player phase 3 must exist");
     }
 
     #[test]
-    fn the_couriers_fourth_move_reaches_extraction_and_fails_the_mission() {
+    fn the_couriers_third_move_reaches_extraction_and_fails_the_mission() {
         let mut battle = courier_race_after_opening();
-        for _ in 1..=3 {
+        for _ in 1..=2 {
             play_one_round(&mut battle);
         }
 
@@ -390,7 +396,7 @@ mod tests {
         assert_eq!(battle.phase(), BattlePhase::Defeat);
         let result = battle.result().unwrap();
         assert!(!result.victory, "extraction is a defeat");
-        assert_eq!(result.rounds, 4);
+        assert_eq!(result.rounds, 3);
         assert_eq!(battle.unit(ids::COURIER).unwrap().position, EXTRACTION);
     }
 
@@ -457,22 +463,25 @@ mod tests {
     #[test]
     fn an_occupied_exit_stalls_to_the_round_five_deadline() {
         let mut battle = courier_race_after_opening();
-        for _ in 1..=3 {
+        for _ in 1..=2 {
             play_one_round(&mut battle);
         }
 
-        // Park the Interceptor on the extraction point: the courier's fourth
-        // move cannot land there, so player phase 5 begins with no result.
+        // Park the Interceptor on the extraction point: the courier's third
+        // and fourth moves cannot land there, so player phases 4 and 5 begin
+        // with no result.
         battle
             .unit_mut_for_test(ids::INTERCEPTOR)
             .expect("interceptor must exist")
             .position = EXTRACTION;
-        play_one_round(&mut battle);
+        for round in 4..=5 {
+            play_one_round(&mut battle);
 
-        assert_eq!(battle.round(), 5);
-        assert_eq!(battle.phase(), BattlePhase::Player);
-        assert!(battle.result().is_none());
-        assert_ne!(battle.unit(ids::COURIER).unwrap().position, EXTRACTION);
+            assert_eq!(battle.round(), round);
+            assert_eq!(battle.phase(), BattlePhase::Player);
+            assert!(battle.result().is_none());
+            assert_ne!(battle.unit(ids::COURIER).unwrap().position, EXTRACTION);
+        }
 
         // Resolving player phase 5 hits the deadline boundary before any
         // further courier movement.

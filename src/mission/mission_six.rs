@@ -114,7 +114,7 @@ fn mission_six_enemy_weapons() -> Vec<WeaponSpec> {
             3,
             6,
             crate::domain::model::WeaponShape::Cross1,
-            8,
+            10,
             10,
             5,
             0,
@@ -127,7 +127,7 @@ fn mission_six_enemy_weapons() -> Vec<WeaponSpec> {
             2,
             4,
             crate::domain::model::WeaponShape::Cross1,
-            10,
+            12,
             10,
             10,
             0,
@@ -264,7 +264,7 @@ mod tests {
                 3,
                 6,
                 WeaponShape::Cross1,
-                8,
+                10,
                 10,
                 5,
                 0,
@@ -280,7 +280,7 @@ mod tests {
                 2,
                 4,
                 WeaponShape::Cross1,
-                10,
+                12,
                 10,
                 10,
                 0,
@@ -402,7 +402,7 @@ mod tests {
         let events = battle.resolve_enemy_phase().unwrap();
 
         // Seed 2: the redirected boss Graviton hits the Controller (roll 52,
-        // no crit). The Controller is at 6 HP from Vector Pulse, so the 7
+        // no crit). The Controller is at 6 HP from Vector Pulse, so the 9
         // Graviton damage knocks it out.
         let boss_hit = events
             .iter()
