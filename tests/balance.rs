@@ -271,9 +271,8 @@ impl<'a> Situation<'a> {
         match self.battle.rules().primary {
             PrimaryObjective::EliminateTarget { target }
             | PrimaryObjective::InterceptBeforeEscape { target, .. } => Some(target),
-            PrimaryObjective::EliminateAllEnemies | PrimaryObjective::ProtectThroughRound { .. } => {
-                None
-            }
+            PrimaryObjective::EliminateAllEnemies
+            | PrimaryObjective::ProtectThroughRound { .. } => None,
         }
     }
 
@@ -317,11 +316,10 @@ impl<'a> Situation<'a> {
 
     fn wins_on_kill(&self, enemy: UnitId) -> bool {
         match self.battle.rules().primary {
-            PrimaryObjective::EliminateAllEnemies | PrimaryObjective::ProtectThroughRound { .. } => {
-                living(self.battle, Faction::Enemy)
-                    .iter()
-                    .all(|unit| unit.id == enemy)
-            }
+            PrimaryObjective::EliminateAllEnemies
+            | PrimaryObjective::ProtectThroughRound { .. } => living(self.battle, Faction::Enemy)
+                .iter()
+                .all(|unit| unit.id == enemy),
             PrimaryObjective::EliminateTarget { target }
             | PrimaryObjective::InterceptBeforeEscape { target, .. } => target == enemy,
         }
@@ -392,7 +390,8 @@ impl<'a> Situation<'a> {
         {
             let landed = destination.unwrap_or(enemy.position);
             value += 1.5
-                * (f64::from(landed.manhattan(escape)) - f64::from(enemy.position.manhattan(escape)));
+                * (f64::from(landed.manhattan(escape))
+                    - f64::from(enemy.position.manhattan(escape)));
         }
         match destination {
             None => value += COLLISION_DAMAGE * weight,
@@ -470,7 +469,11 @@ impl<'a> Situation<'a> {
                 continue;
             };
             let damage = f64::from(EXPLOSION_DAMAGE.min(unit.hp));
-            let lethal = if unit.hp <= EXPLOSION_DAMAGE { 1.0 } else { 0.0 };
+            let lethal = if unit.hp <= EXPLOSION_DAMAGE {
+                1.0
+            } else {
+                0.0
+            };
             match unit.faction {
                 Faction::Enemy => {
                     let alive = 1.0 - kills.get(&unit.id).copied().unwrap_or(0.0);
@@ -521,8 +524,7 @@ impl<'a> Situation<'a> {
                     KO_PENALTY
                 };
                 (
-                    base - damage * PLAYER_DAMAGE_WEIGHT * weight - knockout * protect_ko
-                        + counter,
+                    base - damage * PLAYER_DAMAGE_WEIGHT * weight - knockout * protect_ko + counter,
                     reaction,
                 )
             })
@@ -628,7 +630,9 @@ fn reachable(battle: &BattleState, unit: UnitId, overdrive: bool) -> Vec<GridPos
         .begin_activation(unit)
         .expect("planner only probes activatable units");
     if overdrive {
-        probe.use_overdrive().expect("overdrive availability checked");
+        probe
+            .use_overdrive()
+            .expect("overdrive availability checked");
     }
     let origin = battle.unit(unit).expect("planned unit exists").position;
     let mut cells: Vec<_> = probe
@@ -775,9 +779,16 @@ fn aegis_target(battle: &BattleState, policy: Policy, vanguard: UnitId) -> Optio
         .map(|ally| {
             let reaction = ally.reaction.unwrap_or(Reaction::Guard);
             let none = Kills::new();
-            let open = situation.threat(ally, ally.position, reaction, false, &none).0;
-            let shielded = situation.threat(ally, ally.position, reaction, true, &none).0;
-            ((open - shielded) * situation.player_weight(ally.id), ally.id)
+            let open = situation
+                .threat(ally, ally.position, reaction, false, &none)
+                .0;
+            let shielded = situation
+                .threat(ally, ally.position, reaction, true, &none)
+                .0;
+            (
+                (open - shielded) * situation.player_weight(ally.id),
+                ally.id,
+            )
         })
         .filter(|(value, _)| *value > AEGIS_THRESHOLD)
         .max_by(|left, right| left.0.total_cmp(&right.0))
@@ -1058,10 +1069,7 @@ fn play_battle(mut battle: BattleState, policy: Policy) -> BattleStats {
         .filter(|unit| unit.faction == Faction::Player)
         .collect();
     stats.hp_left = players.iter().map(|unit| i32::from(unit.hp)).sum();
-    stats.knockouts = players
-        .iter()
-        .filter(|unit| unit.is_knocked_out())
-        .count() as u32;
+    stats.knockouts = players.iter().filter(|unit| unit.is_knocked_out()).count() as u32;
     stats
 }
 
@@ -1288,18 +1296,120 @@ fn report(results: &BTreeMap<Policy, Vec<MissionTally>>) -> String {
     out
 }
 
+/// Campaigns per policy when `SCORPIUS_BALANCE_RUNS` is unset: the sample the
+/// tables in `docs/validation/act-1-balance.md` come from.
+const DEFAULT_RUNS: u64 = 200;
+/// Missions whose enemies commit real damage. Missions 3 and 4 are objective
+/// puzzles with little incoming fire, so their lesson is not survival.
+const TELEGRAPH_LESSONS: [MissionId; 5] = [
+    MissionId::One,
+    MissionId::Two,
+    MissionId::Five,
+    MissionId::Six,
+    MissionId::Seven,
+];
+
+fn ratio(part: impl Into<f64>, whole: impl Into<f64>) -> f64 {
+    let whole = whole.into();
+    if whole == 0.0 {
+        0.0
+    } else {
+        part.into() / whole
+    }
+}
+
+impl MissionTally {
+    fn first_try_rate(&self) -> f64 {
+        ratio(self.first_try_wins, self.runs)
+    }
+
+    fn tries_per_clear(&self) -> f64 {
+        ratio(self.attempts, self.clears)
+    }
+
+    fn round_one_rate(&self) -> f64 {
+        ratio(self.round_one_wins, self.clears)
+    }
+
+    fn bonus_rate(&self) -> f64 {
+        ratio(self.bonus, self.clears)
+    }
+
+    fn hp_left_rate(&self) -> f64 {
+        ratio(self.hp_left as f64, self.hp_max as f64)
+    }
+}
+
+/// The Act 1 rubric from `docs/validation/act-1-balance.md`: an introduction
+/// anyone clears, where reading the telegraphs pays and each mission's
+/// mechanic plays out before it ends.
+fn assert_act_one_curve(results: &BTreeMap<Policy, Vec<MissionTally>>) {
+    for (policy, tallies) in results {
+        for (mission, tally) in MISSIONS.iter().zip(tallies) {
+            let who = format!("{} on Mission {mission}", policy.name());
+            assert!(
+                tally.round_one_rate() <= 0.25,
+                "{who}: too many wins before the first enemy round"
+            );
+            if *policy != Policy::Novice {
+                assert!(
+                    tally.first_try_rate() >= 0.95,
+                    "{who}: a telegraph reader should almost never lose"
+                );
+            }
+        }
+    }
+
+    let novice = &results[&Policy::Novice];
+    let reader = &results[&Policy::Reader];
+    let tactician = &results[&Policy::Tactician];
+    for (index, mission) in MISSIONS.iter().enumerate() {
+        let (novice, reader) = (&novice[index], &reader[index]);
+        assert!(
+            novice.first_try_rate() >= 0.85 && novice.tries_per_clear() <= 1.5,
+            "Novice on Mission {mission}: Act 1 must stay clearable by anyone"
+        );
+        if TELEGRAPH_LESSONS.contains(mission) {
+            assert!(
+                reader.hp_left_rate() - novice.hp_left_rate() >= 0.10,
+                "Mission {mission}: ignoring the telegraphs must cost HP"
+            );
+        }
+    }
+
+    let finale = novice.last().expect("seven missions").hp_left_rate();
+    assert!(
+        novice.iter().all(|tally| tally.hp_left_rate() >= finale),
+        "the final boss must be the Novice's hardest fight"
+    );
+
+    let six = MISSIONS
+        .iter()
+        .position(|mission| *mission == MissionId::Six)
+        .expect("Mission 6 is authored");
+    assert!(
+        tactician[six].bonus_rate() - reader[six].bonus_rate() >= 0.15,
+        "turning the Dreadnought's fire on its escorts must pay off"
+    );
+}
+
 #[test]
 fn act_one_balance_report() {
     let runs = std::env::var("SCORPIUS_BALANCE_RUNS")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(40);
+        .unwrap_or(DEFAULT_RUNS);
     let results = simulate(runs);
     println!("{}", report(&results));
 
     for tallies in results.values() {
         for tally in tallies {
             assert_eq!(tally.bot_errors, 0, "bots only issue legal commands");
+            assert_eq!(tally.stuck, 0, "no campaign run gets stuck");
         }
+    }
+    // Small samples are for quick looks; the rubric needs the full one.
+    if runs >= DEFAULT_RUNS {
+        assert_act_one_curve(&results);
     }
 }

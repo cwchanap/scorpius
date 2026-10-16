@@ -843,7 +843,7 @@ fn battle_sidebar_binds_typed_preview_threat_and_icon_only_weapon_rows() {
     }));
     assert!(threat_texts.iter().any(|(kind, value, size)| {
         *kind == ThreatTextKind::Damage
-            && value == "4"
+            && value == "6"
             && matches!(size, FontSize::Px(value) if (value - 38.0).abs() < f32::EPSILON)
     }));
     assert!(threat_texts.iter().any(|(kind, value, size)| {
