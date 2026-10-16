@@ -22,6 +22,7 @@ Single test / subset:
 cargo test pure_battle_state_moves_without_bevy             # by name, anywhere
 cargo test --lib domain::combat::                           # one inline module
 cargo test --test presentation_app                          # only the integration suite
+SCORPIUS_BALANCE_RUNS=200 cargo test --release --test balance -- --nocapture   # Act 1 balance report
 ```
 
 Coverage matches CI (`cargo llvm-cov --all-targets --lcov --output-path lcov.info`).
@@ -159,6 +160,10 @@ breaks seeded tests; that's intended signal, not flakiness.
 - Presentation seams: `tests/presentation_app.rs`, building a bare `App::new()` with only the
   resources under test (see `presentation_fixture_app`) — never `DefaultPlugins`.
 - `BattleState::viability_fixture()` is a minimal two-unit state for tests that don't need Mission 1.
+- `tests/balance.rs` plays the campaign with three scripted policies (Novice, Reader, Tactician)
+  through the public domain API and asserts Act 1 difficulty guard rails. Tuning a weapon, unit, or
+  opening moves its numbers; rerun it with `--nocapture` and record the change in
+  `docs/validation/act-1-balance.md`.
 
 ## Constraints (from the HPA-632 spec)
 
@@ -178,5 +183,7 @@ breaks seeded tests; that's intended signal, not flakiness.
 - `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`,
   `docs/validation/hpa-523.md`, `docs/validation/hpa-524.md`, `docs/validation/hpa-386.md` —
   playtest and viability evidence
+- `docs/validation/act-1-balance.md` — the headless Act 1 balance pass; its tuned values supersede
+  the spec numbers it lists
 
 Commits follow Conventional Commits (`feat:`, `ci:`, `docs:`, `chore:`).

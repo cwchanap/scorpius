@@ -60,9 +60,9 @@ Victory in Mission 7 completes the campaign: the final aftermath's **CONTINUE** 
 
 **Mission 2 — Hold Relay Nine** (400 base + 100 bonus credits, unlocks Mission 3). Protect the Gunner: the mission fails if the Gunner is knocked out, and is won immediately when every attacker is eliminated or when Round 3 completes with the Gunner alive. The optional **Hold Fast** bonus requires finishing with the Gunner at or above 50% HP.
 
-**Mission 3 — Intercept Courier** (500 base + 150 bonus credits, unlocks Mission 4). Kill the Flanker-piloted Courier before it extracts at the marked exit cell or Round 5 completes with the Courier alive. The optional **Swift Intercept** bonus requires victory by the end of Round 2.
+**Mission 3 — Intercept Courier** (500 base + 150 bonus credits, unlocks Mission 4). Kill the Flanker-piloted Courier before it extracts at the marked exit cell or Round 5 completes with the Courier alive. The Courier starts one cell beyond every mech's first-turn reach and reaches the exit at the end of Round 3 unless something blocks it, so the intercept is a chase decided in Rounds 2–3. The optional **Swift Intercept** bonus requires victory by the end of Round 2.
 
-**Mission 4 — Breach the Gate** (600 base + 150 bonus credits, unlocks Mission 5). Destroy the Gate Bulwark; its escorts may be ignored, and the battle is won the moment the Bulwark falls. The optional **Chain Reaction** bonus requires damaging an enemy with enemy fire, collision, hazard, or explosion — the authored board offers an explosive the Gunner can detonate for splash and a hazard trench the Vanguard can ram the Bulwark into.
+**Mission 4 — Breach the Gate** (600 base + 150 bonus credits, unlocks Mission 5). Destroy the Gate Bulwark, a reinforced Bulwark with 22 HP; its escorts may be ignored, and the battle is won the moment the Bulwark falls. The optional **Chain Reaction** bonus requires damaging an enemy with enemy fire, collision, hazard, or explosion — the authored board offers an explosive the Gunner can detonate for splash and a hazard trench the Vanguard can ram the Bulwark into.
 
 **Mission 5 — Crossfire Break** (700 base + 200 bonus credits, unlocks Mission 6). Break the assault and destroy all enemies. The opening commits two Siege Mortar batteries whose Cross1 footprints share one cell, so pushing the displaced Controller into that shared cell walks it into both batteries' locked crossfire. The optional **Rapid Break** bonus rewards winning by the end of Round 4 but is not a failure deadline.
 
@@ -148,4 +148,10 @@ cargo test --all-targets --all-features
 cargo build --release
 ```
 
-Detailed evidence is recorded in `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`, `docs/validation/hpa-523.md`, `docs/validation/hpa-524.md`, and `docs/validation/hpa-386.md`.
+`tests/balance.rs` plays the whole campaign headlessly with three scripted player policies and prints a per-mission report; `cargo test --all-targets` runs it at 40 campaigns per policy with guard rails on the Act 1 difficulty curve. For a larger sample:
+
+```bash
+SCORPIUS_BALANCE_RUNS=200 cargo test --release --test balance -- --nocapture
+```
+
+Detailed evidence is recorded in `docs/validation/hpa-632.md`, `docs/validation/hpa-635.md`, `docs/validation/hpa-637.md`, `docs/validation/hpa-523.md`, `docs/validation/hpa-524.md`, `docs/validation/hpa-386.md`, and `docs/validation/act-1-balance.md` (the headless Act 1 balance pass).
