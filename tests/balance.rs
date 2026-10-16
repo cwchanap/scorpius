@@ -13,8 +13,10 @@
 //!   and detonations: the "turn their plan against them" hook.
 //!
 //! Bots score options from attack previews and committed intents only; they
-//! never read the battle RNG. Every seed is fixed, so the report and the guard
-//! rails below are deterministic.
+//! never read the battle RNG. The preview math is mirrored so bots can score
+//! cells they have not moved to, and `bot_strike_math_matches_the_domain_previews`
+//! pins the mirror to the domain. Every seed is fixed, so the report and the
+//! guard rails below are deterministic.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -952,24 +954,38 @@ fn execute(battle: &mut BattleState, policy: Policy, plan: &Plan, stats: &mut Ba
             Err(_) => stats.bot_errors += 1,
         }
     };
+    // Returns whether the unit ended up where the plan wanted it.
     let walk = |battle: &mut BattleState, to: GridPos, stats: &mut BattleStats| {
         let Some(unit) = battle.unit(id) else {
-            return;
+            return true;
         };
         if unit.is_knocked_out() || unit.position == to {
-            return;
+            return true;
         }
-        // A push or knockout earlier in the activation can block the cell;
-        // staying put is the legal fallback, not a bot error.
-        if let Ok(events) = battle.move_unit(id, to) {
-            stats.record_damage(battle, &events);
+        match battle.move_unit(id, to) {
+            Ok(events) => {
+                stats.record_damage(battle, &events);
+                true
+            }
+            Err(_) => false,
         }
     };
-    if plan.attack_first || plan.attack.is_none() {
+    if plan.attack_first && plan.attack.is_some() {
         fire(battle, stats);
+        // The attack's push, blast or knockout can block the planned cell;
+        // staying put is the legal fallback there, not a bot error.
         walk(battle, plan.destination, stats);
     } else {
-        walk(battle, plan.attack_from, stats);
+        // Nothing has changed since planning, so a refused move is a bot
+        // error.
+        let target = if plan.attack.is_some() {
+            plan.attack_from
+        } else {
+            plan.destination
+        };
+        if !walk(battle, target, stats) {
+            stats.bot_errors += 1;
+        }
         fire(battle, stats);
     }
     if battle.phase() != BattlePhase::Player || battle.active_unit() != Some(id) {
@@ -1411,5 +1427,74 @@ fn act_one_balance_report() {
     // Small samples are for quick looks; the rubric needs the full one.
     if runs >= DEFAULT_RUNS {
         assert_act_one_curve(&results);
+    }
+}
+
+/// The bots score hypothetical cells, so they mirror the combat math instead
+/// of calling `preview_attack`. Pin the mirror to the domain previews on every
+/// mission's opening so a rules change cannot leave the bots scoring stale
+/// odds.
+#[test]
+fn bot_strike_math_matches_the_domain_previews() {
+    let as_percent = |hit: f64| (hit * 100.0).round() as u8;
+    for mission in MISSIONS {
+        let mut opening = (definition(mission).build)(7, &CampaignState::new_game().upgrades);
+        opening.begin_round().expect("missions open in planning");
+
+        for intent in opening.intents() {
+            let (Some(preview), Some(defender)) = (
+                intent.intended_preview.as_ref(),
+                intent.intended_occupant.and_then(|id| opening.unit(id)),
+            ) else {
+                continue;
+            };
+            let strike = enemy_strike(&intent.profile, defender, defender.reaction, false);
+            assert_eq!(
+                (as_percent(strike.hit), strike.normal, strike.critical),
+                (
+                    preview.hit_chance,
+                    preview.normal_damage,
+                    preview.critical_damage
+                ),
+                "Mission {mission}: enemy intent mirror drifted from its preview"
+            );
+        }
+
+        let mut compared = 0;
+        for attacker in living(&opening, Faction::Player) {
+            let mut battle = opening.clone();
+            battle
+                .begin_activation(attacker.id)
+                .expect("opening units can activate");
+            for weapon in &attacker.weapons {
+                let spec = battle.weapon(*weapon).expect("owned weapon");
+                for enemy in living(&battle, Faction::Enemy) {
+                    if !reaches(spec, attacker.position, enemy.position)
+                        || attacker.en < spec.en_cost
+                    {
+                        continue;
+                    }
+                    let preview = battle
+                        .preview_attack(attacker.id, *weapon, enemy.position)
+                        .expect("a reachable, affordable target previews");
+                    let strike = player_strike(attacker, spec, enemy, false);
+                    assert_eq!(
+                        (as_percent(strike.hit), strike.normal, strike.critical),
+                        (
+                            preview.hit_chance,
+                            preview.normal_damage,
+                            preview.critical_damage
+                        ),
+                        "Mission {mission}: {} mirror drifted from its preview",
+                        spec.name
+                    );
+                    compared += 1;
+                }
+            }
+        }
+        assert!(
+            compared > 0,
+            "Mission {mission}: no opening shot to compare"
+        );
     }
 }
