@@ -18,6 +18,7 @@ use crate::{
             CampaignStatus, DialogueCursor, despawn_campaign_screen, update_campaign_status_text,
             update_dialogue_screen,
         },
+        cut_in::{ActiveCutIn, CutInSettings, animate_cut_in, stage_cut_ins},
         interaction::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
             reset_transient_battle_state,
@@ -81,6 +82,8 @@ impl Plugin for ScorpiusPlugin {
             .init_resource::<BattleEventQueue>()
             .init_resource::<EventPlayback>()
             .init_resource::<RecentBattleLog>()
+            .init_resource::<CutInSettings>()
+            .init_resource::<ActiveCutIn>()
             .init_resource::<AttackPreviewCells>()
             .init_resource::<InteractionState>()
             .init_resource::<StatusMessage>()
@@ -175,6 +178,13 @@ impl Plugin for ScorpiusPlugin {
                 Update,
                 play_battle_events
                     .after(apply_unit_transforms)
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(
+                Update,
+                (stage_cut_ins, animate_cut_in)
+                    .chain()
+                    .after(play_battle_events)
                     .run_if(in_state(GameScreen::Battle)),
             )
             .add_systems(

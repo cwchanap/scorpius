@@ -110,6 +110,9 @@ pub enum CaptureAction {
     SetBattle(BattleSetup),
     SetAssetStatus(AssetLoadStatus),
     AdvanceRounds(u8),
+    /// Leave the events earlier actions queued to production playback
+    /// instead of settling them before the capture.
+    KeepPlayback,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -605,6 +608,33 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             ExpectedFact::Screen(GameScreen::Battle),
             ExpectedFact::PlaybackActive(true),
             ExpectedFact::RecentLogEntries(4),
+        ],
+    },
+    CaptureFixture {
+        id: "battle-cut-in",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::Inspect(m1::VANGUARD),
+            CaptureAction::Command(CommandAction::WeaponSlot(0)),
+            CaptureAction::ClickCell(GridPos::new(4, 6)),
+            CaptureAction::KeepPlayback,
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::PlaybackActive(true),
+        ],
+    },
+    CaptureFixture {
+        id: "battle-road-patrol",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::AdvanceRounds(1),
+            CaptureAction::FocusMap(GridPos::new(10, 7), 70),
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::Round(2),
+            ExpectedFact::BattlePhase(BattlePhase::Player),
         ],
     },
     CaptureFixture {
