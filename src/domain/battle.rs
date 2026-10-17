@@ -81,7 +81,7 @@ impl BattleState {
                 "reinforcements arrive after the authored opening (round {})",
                 wave.round
             );
-            for unit in &wave.units {
+            for (index, unit) in wave.units.iter().enumerate() {
                 assert_eq!(
                     unit.faction,
                     Faction::Enemy,
@@ -89,7 +89,9 @@ impl BattleState {
                     unit.name
                 );
                 assert!(
-                    self.unit(unit.id).is_none() && self.pending_unit(unit.id).is_none(),
+                    self.unit(unit.id).is_none()
+                        && self.pending_unit(unit.id).is_none()
+                        && wave.units[..index].iter().all(|other| other.id != unit.id),
                     "{} reuses unit id {:?}",
                     unit.name,
                     unit.id
