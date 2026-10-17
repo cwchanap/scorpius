@@ -14,9 +14,10 @@
 //!
 //! Bots score options from attack previews and committed intents only; they
 //! never read the battle RNG. The preview math is mirrored so bots can score
-//! cells they have not moved to, and `bot_strike_math_matches_the_domain_previews`
-//! pins the mirror to the domain. Every seed is fixed, so the report and the
-//! guard rails below are deterministic.
+//! cells they have not moved to; `bot_strike_math_matches_the_domain_previews`
+//! and `bot_reaction_math_matches_resolved_enemy_fire` pin the mirror to the
+//! domain. Every seed is fixed, so the report and the guard rails below are
+//! deterministic.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -1430,13 +1431,17 @@ fn act_one_balance_report() {
     }
 }
 
+fn as_percent(hit: f64) -> u8 {
+    (hit * 100.0).round() as u8
+}
+
 /// The bots score hypothetical cells, so they mirror the combat math instead
 /// of calling `preview_attack`. Pin the mirror to the domain previews on every
-/// mission's opening so a rules change cannot leave the bots scoring stale
-/// odds.
+/// mission's opening, Focus included, so a rules change cannot leave the bots
+/// scoring stale odds.
 #[test]
 fn bot_strike_math_matches_the_domain_previews() {
-    let as_percent = |hit: f64| (hit * 100.0).round() as u8;
+    let mut focused_shots = 0;
     for mission in MISSIONS {
         let mut opening = (definition(mission).build)(7, &CampaignState::new_game().upgrades);
         opening.begin_round().expect("missions open in planning");
@@ -1466,6 +1471,11 @@ fn bot_strike_math_matches_the_domain_previews() {
             battle
                 .begin_activation(attacker.id)
                 .expect("opening units can activate");
+            let focused = (attacker.archetype == UnitArchetype::Gunner).then(|| {
+                let mut focused = battle.clone();
+                focused.use_focus().expect("an active Gunner can Focus");
+                focused
+            });
             for weapon in &attacker.weapons {
                 let spec = battle.weapon(*weapon).expect("owned weapon");
                 for enemy in living(&battle, Faction::Enemy) {
@@ -1489,6 +1499,25 @@ fn bot_strike_math_matches_the_domain_previews() {
                         spec.name
                     );
                     compared += 1;
+
+                    let Some(focused) = &focused else {
+                        continue;
+                    };
+                    let preview = focused
+                        .preview_attack(attacker.id, *weapon, enemy.position)
+                        .expect("a focused shot previews");
+                    let strike = player_strike(attacker, spec, enemy, true);
+                    assert_eq!(
+                        (as_percent(strike.hit), strike.normal, strike.critical),
+                        (
+                            preview.hit_chance,
+                            preview.normal_damage,
+                            preview.critical_damage
+                        ),
+                        "Mission {mission}: focused {} mirror drifted from its preview",
+                        spec.name
+                    );
+                    focused_shots += 1;
                 }
             }
         }
@@ -1496,5 +1525,178 @@ fn bot_strike_math_matches_the_domain_previews() {
             compared > 0,
             "Mission {mission}: no opening shot to compare"
         );
+    }
+    assert!(focused_shots > 0, "no focused opening shot to compare");
+}
+
+/// Reactions and Aegis only change enemy fire as it resolves; the committed
+/// intent previews never include them. Pin those branches of `enemy_strike` to
+/// resolved fire instead: every roll must land on the side of the mirrored hit
+/// chance the domain chose, and every hit must deal the mirrored damage.
+#[test]
+fn bot_reaction_math_matches_resolved_enemy_fire() {
+    const SEEDS: u64 = 48;
+    // Finishing an activation requires a reaction, and Counter leaves
+    // incoming fire alone, so Counter with Aegis isolates the shield.
+    const CASES: [(Reaction, bool); 5] = [
+        (Reaction::Guard, false),
+        (Reaction::Evade, false),
+        (Reaction::Counter, false),
+        (Reaction::Counter, true),
+        (Reaction::Guard, true),
+    ];
+    let upgrades = CampaignState::new_game().upgrades;
+    for (reaction, aegis) in CASES {
+        let case = format!("{reaction:?} with Aegis {aegis}");
+        let (mut damage_compared, mut evaded, mut shielded) = (0, 0, 0);
+        for seed in 0..SEEDS {
+            for mission in MISSIONS {
+                let mut battle = (definition(mission).build)(seed, &upgrades);
+                battle.begin_round().expect("missions open in planning");
+                ready_reactions(&mut battle, reaction, aegis);
+                let before = battle.clone();
+                let shield = before.pilot_skills().aegis_target;
+                let profiles: BTreeMap<_, _> = before
+                    .intents()
+                    .iter()
+                    .map(|intent| (intent.attacker, &intent.profile))
+                    .collect();
+                let mut hp: BTreeMap<_, _> =
+                    before.units().map(|unit| (unit.id, unit.hp)).collect();
+                let events = battle
+                    .resolve_enemy_phase()
+                    .expect("a ready round resolves");
+
+                for (index, event) in events.iter().enumerate() {
+                    if let BattleEvent::DamageApplied {
+                        target,
+                        remaining_hp,
+                        ..
+                    } = event
+                    {
+                        hp.insert(*target, *remaining_hp);
+                    }
+                    let BattleEvent::AttackRolled {
+                        attacker,
+                        target,
+                        roll,
+                        hit,
+                        critical,
+                        ..
+                    } = event
+                    else {
+                        continue;
+                    };
+                    // Player counters roll too; only committed enemy fire is mirrored.
+                    let Some(profile) = profiles.get(attacker) else {
+                        continue;
+                    };
+                    let defender = before.unit(*target).expect("a rolled target exists");
+                    let shielded_target = shield == Some(*target);
+                    let strike =
+                        enemy_strike(profile, defender, defender.reaction, shielded_target);
+                    assert_eq!(
+                        *hit,
+                        *roll <= as_percent(strike.hit),
+                        "Mission {mission}, seed {seed}, {case}: hit-chance mirror drifted"
+                    );
+                    if !*hit {
+                        let plain = enemy_strike(profile, defender, None, false);
+                        if defender.reaction == Some(Reaction::Evade)
+                            && *roll <= as_percent(plain.hit)
+                        {
+                            evaded += 1;
+                        }
+                        continue;
+                    }
+
+                    let damage = if *critical {
+                        strike.critical
+                    } else {
+                        strike.normal
+                    };
+                    let applied = match events.get(index + 1) {
+                        Some(BattleEvent::DamageApplied {
+                            target: hurt,
+                            amount,
+                            source: DamageSource::EnemyWeapon(from, _),
+                            ..
+                        }) if hurt == target && from == attacker => *amount,
+                        _ => 0,
+                    };
+                    assert_eq!(
+                        applied,
+                        damage.min(hp[target]),
+                        "Mission {mission}, seed {seed}, {case}: damage mirror drifted"
+                    );
+                    if damage < hp[target] {
+                        damage_compared += 1;
+                        if shielded_target {
+                            shielded += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(damage_compared > 0, "{case}: no enemy hit to compare");
+        if reaction == Reaction::Evade {
+            assert!(
+                evaded > 0,
+                "{case}: no roll that only Evade turned into a miss"
+            );
+        }
+        if aegis {
+            assert!(
+                shielded > 0,
+                "{case}: no hit on the Aegis target to compare"
+            );
+        }
+    }
+}
+
+/// Activate every living player, give each `reaction`, and with `aegis` walk
+/// the Vanguard next to an ally in committed fire and shield it. Nobody else
+/// moves, so the committed footprints still land on their occupants.
+fn ready_reactions(battle: &mut BattleState, reaction: Reaction, aegis: bool) {
+    let players: Vec<_> = living(battle, Faction::Player)
+        .iter()
+        .map(|unit| (unit.id, unit.archetype, unit.position))
+        .collect();
+    for &(id, archetype, _) in &players {
+        battle
+            .begin_activation(id)
+            .expect("opening units can activate");
+        battle
+            .choose_reaction(id, reaction)
+            .expect("an active unit picks a reaction");
+        if aegis && archetype == UnitArchetype::Vanguard {
+            let cells = battle.reachable_cells(id).expect("the Vanguard is active");
+            let in_fire = |at: GridPos| {
+                battle
+                    .intents()
+                    .iter()
+                    .any(|intent| intent.footprint.contains(&at))
+            };
+            let post = players
+                .iter()
+                .filter(|&&(ally, _, at)| ally != id && in_fire(at))
+                .find_map(|&(ally, _, at)| {
+                    cells
+                        .iter()
+                        .find(|cell| cell.manhattan(at) == 1)
+                        .map(|&cell| (cell, ally))
+                });
+            if let Some((cell, ally)) = post {
+                battle
+                    .move_unit(id, cell)
+                    .expect("a reachable cell accepts the Vanguard");
+                battle
+                    .use_aegis(ally)
+                    .expect("an adjacent ally can be shielded");
+            }
+        }
+        battle
+            .finish_activation(id)
+            .expect("an active unit can finish");
     }
 }
