@@ -23,8 +23,10 @@ policies:
 | Tactician | Reader, plus it values pushing enemies into other enemies' locked fire and into explosive blasts: the "turn their plan against them" hook. |
 
 The bots score options from attack previews and committed intents only, never from the battle RNG.
-They mirror the preview math so they can score cells they have not moved to yet, and a second
-test pins that mirror to the game's own previews on every mission's opening.
+They mirror the preview math so they can score cells they have not moved to yet. Two more tests
+pin that mirror to the game: one against its own previews (Focus included) on every mission's
+opening, and one against resolved enemy fire for Guard, Evade, Counter and Aegis, which the
+committed previews never include.
 A campaign retries a lost mission (at most 12 tries) and then buys upgrades cheapest-first in a
 fixed order. Seeds are fixed, so every number below can be reproduced exactly.
 
@@ -128,6 +130,8 @@ later change that flattens the curve fails a test:
 - Every policy wins at most 25% of its clears in Round 1.
 - The Reader and the Tactician win at least 95% of first tries on every mission.
 - The Novice wins at least 85% of first tries, with at most 1.5 tries per clear, on every mission.
+  This sits below the rubric's 90% on purpose: Mission 2 measures 181 of 200, and with 200 runs a
+  change to the order of rolls alone can move a rate by about 2 points.
 - On Missions 1, 2, 5, 6 and 7, the Reader keeps at least 10 points more HP than the Novice.
 - Mission 7 is the Novice's lowest-HP mission.
 - On Mission 6, the Tactician earns Turnabout at least 15 points more often than the Reader.
