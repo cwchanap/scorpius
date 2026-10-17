@@ -739,7 +739,7 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             ExpectedFact::Round(3),
             ExpectedFact::ObjectiveTrack(ObjectiveFact::Protect {
                 target: m2::GUNNER,
-                hp: 8,
+                hp: 2,
                 max_hp: 15,
                 round: 3,
             }),
@@ -758,7 +758,7 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             }),
             ExpectedFact::ObjectiveTrack(ObjectiveFact::Intercept {
                 target: m3::COURIER,
-                distance: 14,
+                distance: 10,
                 deadline_round: 5,
                 escape: mission_three::EXTRACTION,
             }),
@@ -828,8 +828,8 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             }),
             ExpectedFact::ObjectiveTrack(ObjectiveFact::Target {
                 target: m4::BULWARK,
-                hp: 16,
-                max_hp: 16,
+                hp: 22,
+                max_hp: 22,
             }),
         ],
     },
@@ -864,7 +864,7 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         expect: &[
             ExpectedFact::Screen(GameScreen::Battle),
             ExpectedFact::Inspection(Some(m6::DREADNOUGHT)),
-            ExpectedFact::UnitHp(m6::DREADNOUGHT, 16),
+            ExpectedFact::UnitHp(m6::DREADNOUGHT, 14),
             ExpectedFact::IntentWeapon(m6::DREADNOUGHT, m6::OVERLOAD_SALVO),
         ],
     },
@@ -889,7 +889,7 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         expect: &[
             ExpectedFact::Screen(GameScreen::Battle),
             ExpectedFact::Inspection(Some(m7::REGENT)),
-            ExpectedFact::UnitHp(m7::REGENT, 20),
+            ExpectedFact::UnitHp(m7::REGENT, 21),
             ExpectedFact::IntentWeapon(m7::REGENT, m7::RUPTURE_BEAM),
         ],
     },
