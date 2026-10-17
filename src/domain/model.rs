@@ -136,6 +136,15 @@ pub enum OptionalObjective {
     VictoryByRound { round: u16 },
 }
 
+/// An authored enemy wave held off the board until its round's enemy
+/// planning, or until every deployed enemy is down, whichever comes first.
+/// Arrivals hold their arrival cell for that planning and move from the next.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Reinforcement {
+    pub round: u16,
+    pub units: Vec<UnitState>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EnemyOpening {
     pub unit: UnitId,
@@ -241,6 +250,10 @@ pub enum BattleEvent {
         defender: UnitId,
         attacker: UnitId,
         weapon: WeaponId,
+    },
+    ReinforcementArrived {
+        unit: UnitId,
+        position: GridPos,
     },
     OptionalObjectiveCompleted,
     MissionCompleted {

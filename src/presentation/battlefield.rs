@@ -178,7 +178,12 @@ fn populate_mission_root(
         );
     }
     for unit in battle.0.units() {
-        spawn_token(commands, stage, ui_assets, unit);
+        spawn_token(commands, stage, ui_assets, unit, Visibility::Visible);
+    }
+    // Waves still off the board get their tokens now, hidden until playback
+    // reaches their arrival; the domain owns when and where they land.
+    for unit in battle.0.pending_reinforcements() {
+        spawn_token(commands, stage, ui_assets, unit, Visibility::Hidden);
     }
 }
 
@@ -390,6 +395,7 @@ fn spawn_token(
     stage: Entity,
     ui_assets: &UiAssets,
     unit: &crate::domain::model::UnitState,
+    visibility: Visibility,
 ) {
     let style = theme::unit_archetype_style(unit.archetype);
     let depth = token_depth(unit.position);
@@ -413,7 +419,7 @@ fn spawn_token(
             Color::srgba(0.0, 0.0, 0.0, 0.58),
         ),
         TokenFootprintVisual(unit.id),
-        Visibility::Visible,
+        visibility,
         ZIndex(depth - 1),
         Pickable::IGNORE,
         ChildOf(stage),
@@ -461,7 +467,7 @@ fn spawn_token(
             token_sprite_node(unit.position),
             UiTransform::IDENTITY,
             ImageNode::new(ui_assets.map_sprite(unit.archetype).clone()),
-            Visibility::Visible,
+            visibility,
             ZIndex(depth),
             Pickable::default(),
             ChildOf(stage),

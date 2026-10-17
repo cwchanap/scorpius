@@ -265,9 +265,19 @@ pub fn spawn_map_controls(
         ))
         .observe(on_minimap_click)
         .id();
-    for unit in battle.0.units() {
+    let pending: Vec<_> = battle
+        .0
+        .pending_reinforcements()
+        .map(|unit| unit.id)
+        .collect();
+    for unit in battle.0.units().chain(battle.0.pending_reinforcements()) {
         commands.spawn((
             MinimapUnit(unit.id),
+            if pending.contains(&unit.id) {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            },
             Node {
                 position_type: PositionType::Absolute,
                 width: px(5),
@@ -715,9 +725,18 @@ mod tests {
         assert!(view.is_regional());
         assert_eq!(view.zoom, 0.7);
 
-        let unit_count = app.world().resource::<BattleRuntime>().0.units().count();
-        let mut units = app.world_mut().query::<&MinimapUnit>();
+        // Waves still off the board get a hidden marker up front.
+        let battle = &app.world().resource::<BattleRuntime>().0;
+        let unit_count = battle.units().count() + battle.pending_reinforcements().count();
+        let mut units = app.world_mut().query::<(&MinimapUnit, &Visibility)>();
         assert_eq!(units.iter(app.world()).count(), unit_count);
+        assert_eq!(
+            units
+                .iter(app.world())
+                .filter(|(_, visibility)| **visibility == Visibility::Hidden)
+                .count(),
+            2
+        );
         let mut edges = app.world_mut().query::<&MinimapEdge>();
         assert_eq!(edges.iter(app.world()).count(), 4);
         let mut actions = app.world_mut().query::<&MapAction>();

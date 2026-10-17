@@ -210,6 +210,7 @@ impl HudSnapshot {
             .filter(|unit| unit.faction == Faction::Enemy)
             .count();
         let enemy_count = remaining;
+        let inbound = battle.pending_reinforcements().next().is_some();
         let ally_count = battle
             .units()
             .filter(|unit| unit.faction == Faction::Player && !unit.is_knocked_out())
@@ -326,6 +327,10 @@ impl HudSnapshot {
                 None => format!("Round {} · {}", battle.round(), phase_label(battle.phase())),
             },
             primary: match battle.rules().primary {
+                PrimaryObjective::EliminateAllEnemies if inbound => format!(
+                    "{} · {remaining} remaining · more inbound",
+                    definition.primary_objective
+                ),
                 PrimaryObjective::EliminateAllEnemies => {
                     format!("{} · {remaining} remaining", definition.primary_objective)
                 }
@@ -3616,6 +3621,9 @@ pub fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
         BattleEvent::CounterFired { defender, .. } => {
             format!("{} COUNTER", unit_name(battle, *defender))
         }
+        BattleEvent::ReinforcementArrived { unit, .. } => {
+            format!("REINFORCEMENTS\n{}", unit_name(battle, *unit))
+        }
         BattleEvent::OptionalObjectiveCompleted => "BONUS ACHIEVED".to_owned(),
         BattleEvent::MissionCompleted { .. } => "MISSION COMPLETE".to_owned(),
         BattleEvent::MissionFailed { .. } => "MISSION FAILED".to_owned(),
@@ -3705,6 +3713,7 @@ mod tests {
 
     fn terminal_battle(victory: bool) -> BattleState {
         let mut battle = mission_one(7);
+        battle.clear_reinforcements_for_test();
         let (casualties, source) = if victory {
             (
                 &[

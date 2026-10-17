@@ -15,11 +15,14 @@ use super::{
         MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, battle_stage_rect, footprint_top_left, iso_center,
         selection_top_left, stage_effect_depth, token_depth, unit_root_top_left,
     },
+    map_view::MapView,
     theme,
     ui::format_event,
 };
 
 const UNIT_SCALE: f32 = 1.0;
+/// Stage pixels a reinforcement token falls before it lands on its cell.
+const ARRIVAL_DROP: f32 = 48.0;
 
 type UnitVisualQuery<'w, 's> = Query<
     'w,
@@ -43,6 +46,7 @@ type FootprintVisualQuery<'w, 's> = Query<
     (
         &'static TokenFootprintVisual,
         &'static mut Node,
+        &'static mut Visibility,
         Option<&'static mut ZIndex>,
     ),
     (
@@ -133,6 +137,17 @@ pub(crate) fn begin_restarted_round(
     pending.0 = false;
 }
 
+/// Return the camera to where it was before a reinforcement cutaway.
+/// Only touches the view when a cutaway is open, so ordinary events leave
+/// `MapView` unchanged.
+fn restore_cutaway(cutaway_from: &mut Option<Vec2>, view: &mut Option<ResMut<MapView>>) {
+    if let Some(center) = cutaway_from.take()
+        && let Some(view) = view
+    {
+        view.center = center;
+    }
+}
+
 fn stage_point(cell: crate::domain::board::GridPos) -> Vec2 {
     iso_center(cell) - battle_stage_rect().min
 }
@@ -158,6 +173,9 @@ pub(crate) fn play_battle_events(
     mut unit_queries: UnitPlaybackQueries,
     mut effects: EventEffectQuery,
     mut damage_numbers: DamageNumberQuery,
+    mut view: Option<ResMut<MapView>>,
+    mut status: Option<ResMut<StatusMessage>>,
+    mut cutaway_from: Local<Option<Vec2>>,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
         timer.tick(time.delta());
@@ -178,6 +196,7 @@ pub(crate) fn play_battle_events(
     }
 
     let Some(event) = queue.0.pop_front() else {
+        restore_cutaway(&mut cutaway_from, &mut view);
         playback.input_locked = false;
         return;
     };
@@ -215,6 +234,23 @@ pub(crate) fn play_battle_events(
             stage_effect_depth(battle.0.board().width(), battle.0.board().height()),
         );
     }
+    // An arriving wave cuts the regional camera to its entry cell when the
+    // player isn't already looking there, then cuts back for the rest of the
+    // round, the way SRW shows a new arrival.
+    if let BattleEvent::ReinforcementArrived { position, .. } = &event {
+        if let Some(view) = view.as_deref_mut()
+            && view.is_regional()
+            && !view.visible_cells().contains(position)
+        {
+            cutaway_from.get_or_insert(view.center);
+            view.focus(*position);
+        }
+        if let Some(status) = status.as_deref_mut() {
+            status.0 = "Enemy reinforcements have arrived.".to_owned();
+        }
+    } else {
+        restore_cutaway(&mut cutaway_from, &mut view);
+    }
     animate_unit_event(&event, 0.0, &mut unit_queries);
     playback.current = Some((
         event.clone(),
@@ -239,6 +275,7 @@ fn event_duration(event: &BattleEvent) -> Duration {
         BattleEvent::OptionalObjectiveCompleted
         | BattleEvent::MissionCompleted { .. }
         | BattleEvent::MissionFailed { .. } => 0.18,
+        BattleEvent::ReinforcementArrived { .. } => 0.6,
     };
     Duration::from_secs_f32(seconds)
 }
@@ -310,7 +347,7 @@ fn animate_unit_event(
         // the moving token re-sorts against blockers mid-slide instead of
         // snapping when the resting sync unlocks.
         let depth = animated_token_depth(*from, *to, eased);
-        for (footprint, mut node, zindex) in queries.footprints.iter_mut() {
+        for (footprint, mut node, _, zindex) in queries.footprints.iter_mut() {
             if footprint.0 == *unit {
                 let current = footprint_position(*from).lerp(footprint_position(*to), eased);
                 node.left = px(current.x);
@@ -352,6 +389,21 @@ fn animate_unit_event(
             }
         }
     }
+    if let BattleEvent::ReinforcementArrived { unit, position } = event {
+        // Arrivals are spawned hidden at rebuild; reveal the token's shadow at
+        // the cell the domain actually placed it on.
+        for (footprint, mut node, mut visibility, zindex) in queries.footprints.iter_mut() {
+            if footprint.0 == *unit {
+                let top_left = footprint_position(*position);
+                node.left = px(top_left.x);
+                node.top = px(top_left.y);
+                *visibility = Visibility::Visible;
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(token_depth(*position) - 1);
+                }
+            }
+        }
+    }
     for (visual, mut node, mut transform, mut visibility, zindex) in queries.units.iter_mut() {
         match event {
             BattleEvent::UnitMoved { unit, from, to }
@@ -389,6 +441,17 @@ fn animate_unit_event(
             BattleEvent::CounterFired { defender, .. } if *defender == visual.0 => {
                 let pulse = (progress * PI).sin();
                 set_unit_scale(&mut transform, UNIT_SCALE * (1.0 + pulse * 0.12));
+            }
+            BattleEvent::ReinforcementArrived { unit, position } if *unit == visual.0 => {
+                // Drop in from above the cell and settle on its shadow.
+                let root = node_position(*position);
+                node.left = px(root.x);
+                node.top = px(root.y - (1.0 - eased) * ARRIVAL_DROP);
+                *visibility = Visibility::Visible;
+                if let Some(mut zindex) = zindex {
+                    *zindex = ZIndex(token_depth(*position));
+                }
+                set_unit_scale(&mut transform, UNIT_SCALE);
             }
             _ => {}
         }
@@ -852,6 +915,129 @@ mod tests {
                 + (1.0 - scale) * MAP_UNIT_HEIGHT * 0.5;
             assert!((bottom - 0.0).abs() < 1e-4, "scale {scale} lifts the feet");
         }
+    }
+
+    #[test]
+    fn reinforcement_playback_reveals_the_token_and_cuts_the_camera_back() {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.set_phase_for_test(crate::domain::model::BattlePhase::EnemyPlanning);
+        let arrivals: Vec<_> = battle
+            .begin_round()
+            .unwrap()
+            .into_iter()
+            .filter(|event| matches!(event, BattleEvent::ReinforcementArrived { .. }))
+            .collect();
+        let [
+            BattleEvent::ReinforcementArrived {
+                unit: north,
+                position: north_cell,
+            },
+            BattleEvent::ReinforcementArrived { .. },
+        ] = arrivals[..]
+        else {
+            panic!("Mission 1's road patrol arrives as two units: {arrivals:?}");
+        };
+        let mut view = MapView::new(battle.board());
+        view.focus(crate::domain::board::GridPos::new(60, 60));
+        assert!(!view.visible_cells().contains(&north_cell));
+        let watching = view.center;
+
+        let mut queue: std::collections::VecDeque<_> = arrivals.into();
+        queue.push_back(BattleEvent::OptionalObjectiveCompleted);
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+                0.25,
+            )))
+            .insert_resource(BattleRuntime(battle))
+            .insert_resource(UiAssets {
+                key_art: Handle::default(),
+                briefing_art: Handle::default(),
+                vanguard_art: Handle::default(),
+                gunner_art: Handle::default(),
+                interceptor_art: Handle::default(),
+                vanguard_map: Handle::default(),
+                gunner_map: Handle::default(),
+                interceptor_map: Handle::default(),
+                enemy_map: Handle::default(),
+                icons: Handle::default(),
+                board: Handle::default(),
+                terrain: Handle::default(),
+                fonts: std::array::from_fn(|_| Handle::default()),
+            })
+            .insert_resource(BattleEventQueue(queue))
+            .insert_resource(view)
+            .init_resource::<StatusMessage>()
+            .init_resource::<EventPlayback>()
+            .init_resource::<RecentBattleLog>()
+            .add_systems(Update, play_battle_events);
+        app.world_mut().spawn(BattleMap);
+        let card = app
+            .world_mut()
+            .spawn((
+                UnitVisual(north),
+                Node::default(),
+                UiTransform::IDENTITY,
+                Visibility::Hidden,
+            ))
+            .id();
+        let footprint = app
+            .world_mut()
+            .spawn((
+                TokenFootprintVisual(north),
+                Node::default(),
+                Visibility::Hidden,
+            ))
+            .id();
+
+        app.update();
+        let landing = node_position(north_cell);
+        let card_node = app.world().get::<Node>(card).unwrap();
+        assert_eq!(card_node.left, px(landing.x));
+        assert_eq!(card_node.top, px(landing.y - ARRIVAL_DROP));
+        assert_eq!(
+            app.world().get::<Visibility>(card),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(footprint),
+            Some(&Visibility::Visible)
+        );
+        let mut cut = MapView::new(app.world().resource::<BattleRuntime>().0.board());
+        cut.focus(north_cell);
+        assert_eq!(app.world().resource::<MapView>().center, cut.center);
+        assert_eq!(
+            app.world().resource::<StatusMessage>().0,
+            "Enemy reinforcements have arrived."
+        );
+
+        // Both arrivals play inside the cutaway; the next ordinary event ends it.
+        let current = |app: &App| {
+            app.world()
+                .resource::<EventPlayback>()
+                .current
+                .as_ref()
+                .map(|(event, _)| event.clone())
+        };
+        while matches!(
+            current(&app),
+            Some(BattleEvent::ReinforcementArrived { .. })
+        ) {
+            assert_ne!(app.world().resource::<MapView>().center, watching);
+            app.update();
+        }
+        assert_eq!(current(&app), Some(BattleEvent::OptionalObjectiveCompleted));
+        assert_eq!(app.world().resource::<MapView>().center, watching);
+        assert_eq!(
+            app.world()
+                .resource::<RecentBattleLog>()
+                .0
+                .iter()
+                .filter(|line| line.starts_with("REINFORCEMENTS"))
+                .count(),
+            2
+        );
     }
 
     #[test]

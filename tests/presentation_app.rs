@@ -680,7 +680,10 @@ fn hud_snapshot_reports_objectives_unit_allowances_and_threats() {
     );
 
     assert_eq!(hud.round_phase, "Round 1 · Player Phase");
-    assert_eq!(hud.primary, "Eliminate all enemies. · 4 remaining");
+    assert_eq!(
+        hud.primary,
+        "Eliminate all enemies. · 4 remaining · more inbound"
+    );
     assert_eq!(
         hud.objective_track,
         Some(ObjectiveTrackSnapshot::EliminateAll {

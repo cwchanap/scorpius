@@ -78,7 +78,16 @@ impl BattleState {
         if opening {
             events.extend(self.apply_authored_opening_movement()?);
         } else {
-            events.extend(self.apply_later_enemy_movement()?);
+            let arrivals = self.deploy_due_reinforcements();
+            let arrived: Vec<_> = arrivals
+                .iter()
+                .filter_map(|event| match event {
+                    BattleEvent::ReinforcementArrived { unit, .. } => Some(*unit),
+                    _ => None,
+                })
+                .collect();
+            events.extend(arrivals);
+            events.extend(self.apply_later_enemy_movement(&arrived)?);
         }
         events.extend(self.check_terminal_state());
         if self.result().is_some() {
@@ -221,10 +230,19 @@ impl BattleState {
         Ok(events)
     }
 
-    fn apply_later_enemy_movement(&mut self) -> Result<Vec<BattleEvent>, BattleError> {
+    /// Every living enemy except this planning's `arrived` reinforcements,
+    /// which hold their arrival cell until the next planning.
+    fn apply_later_enemy_movement(
+        &mut self,
+        arrived: &[UnitId],
+    ) -> Result<Vec<BattleEvent>, BattleError> {
         let enemy_ids: Vec<_> = self
             .units()
-            .filter(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out())
+            .filter(|unit| {
+                unit.faction == Faction::Enemy
+                    && !unit.is_knocked_out()
+                    && !arrived.contains(&unit.id)
+            })
             .map(|unit| unit.id)
             .collect();
         let mut events = Vec::new();
@@ -716,8 +734,8 @@ mod tests {
             combat::{DamageSource, weapon_reaches},
             model::{
                 BattleError, BattleEvent, BattlePhase, EnemyOpening, Faction, MissionRules,
-                OptionalObjective, PrimaryObjective, Reaction, UnitArchetype, UnitId, WeaponId,
-                WeaponShape, WeaponSpec,
+                OptionalObjective, PrimaryObjective, Reaction, Reinforcement, UnitArchetype,
+                UnitId, WeaponId, WeaponShape, WeaponSpec,
             },
         },
         mission::{
@@ -1932,6 +1950,132 @@ mod tests {
             battle.unit(FLANKER_COURIER).unwrap().position,
             GridPos::new(1, 4)
         );
+    }
+
+    const GARRISON: UnitId = UnitId(31);
+    const WAVE: UnitId = UnitId(32);
+    const WAVE_PLAYER: UnitId = UnitId(1);
+
+    /// One garrison Rifleman, one player far from it, and a one-Rifleman wave
+    /// due at Round 3's planning on the far corner.
+    fn wave_fixture(wave_cell: GridPos) -> BattleState {
+        let mut battle = squad_fixture(
+            eliminate_rules(),
+            [(GARRISON, UnitArchetype::Rifleman, GridPos::new(0, 0))],
+            [(WAVE_PLAYER, GridPos::new(8, 8))],
+        )
+        .with_reinforcements([Reinforcement {
+            round: 3,
+            units: vec![enemies::rifleman(WAVE, "Wave Rifleman", wave_cell)],
+        }]);
+        battle.set_round_for_test(1);
+        battle
+    }
+
+    fn plan_next_round(battle: &mut BattleState) -> Vec<BattleEvent> {
+        battle.set_phase_for_test(BattlePhase::EnemyPlanning);
+        battle.begin_round().unwrap()
+    }
+
+    fn arrivals(events: &[BattleEvent]) -> Vec<(UnitId, GridPos)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                BattleEvent::ReinforcementArrived { unit, position } => Some((*unit, *position)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn moved(events: &[BattleEvent], id: UnitId) -> bool {
+        events
+            .iter()
+            .any(|event| matches!(event, BattleEvent::UnitMoved { unit, .. } if *unit == id))
+    }
+
+    #[test]
+    fn reinforcements_arrive_on_their_round_and_hold_their_first_planning() {
+        let mut battle = wave_fixture(GridPos::new(0, 8));
+
+        let round_two = plan_next_round(&mut battle);
+        assert!(arrivals(&round_two).is_empty());
+        assert!(battle.unit(WAVE).is_none());
+        assert_eq!(battle.pending_reinforcements().count(), 1);
+
+        let round_three = plan_next_round(&mut battle);
+        assert_eq!(arrivals(&round_three), vec![(WAVE, GridPos::new(0, 8))]);
+        assert_eq!(battle.round(), 3);
+        assert_eq!(battle.pending_reinforcements().count(), 0);
+        assert!(!moved(&round_three, WAVE), "arrivals hold their entry cell");
+        assert_eq!(battle.unit(WAVE).unwrap().position, GridPos::new(0, 8));
+        assert!(
+            battle
+                .intents()
+                .iter()
+                .any(|intent| intent.attacker == WAVE),
+            "arrivals still lock an intent on their first planning"
+        );
+
+        let round_four = plan_next_round(&mut battle);
+        assert!(
+            moved(&round_four, WAVE),
+            "arrivals advance from the next planning"
+        );
+    }
+
+    #[test]
+    fn clearing_the_board_early_brings_the_wave_instead_of_victory() {
+        let mut battle = wave_fixture(GridPos::new(0, 8));
+        battle.unit_mut_for_test(GARRISON).unwrap().hp = 0;
+
+        let events = plan_next_round(&mut battle);
+        assert!(
+            battle.result().is_none(),
+            "a pending wave is a living enemy"
+        );
+        assert_eq!(battle.round(), 2, "the Round 3 wave came early");
+        assert_eq!(arrivals(&events), vec![(WAVE, GridPos::new(0, 8))]);
+
+        battle.unit_mut_for_test(WAVE).unwrap().hp = 0;
+        let events = plan_next_round(&mut battle);
+        assert!(battle.result().is_some_and(|result| result.victory));
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::MissionCompleted { .. }))
+        );
+    }
+
+    #[test]
+    fn an_occupied_arrival_cell_falls_back_to_the_nearest_open_cell() {
+        let mut battle = wave_fixture(GridPos::new(8, 8));
+        battle.set_round_for_test(2);
+
+        let events = plan_next_round(&mut battle);
+        let [(unit, position)] = arrivals(&events)[..] else {
+            panic!("one arrival expected, got {events:?}");
+        };
+        assert_eq!(unit, WAVE);
+        assert_eq!(position.manhattan(GridPos::new(8, 8)), 1);
+        assert_eq!(battle.unit(WAVE).unwrap().position, position);
+        assert_eq!(
+            battle.unit(WAVE_PLAYER).unwrap().position,
+            GridPos::new(8, 8)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "reuses unit id")]
+    fn reinforcements_reject_a_unit_id_already_on_the_board() {
+        let _ = squad_fixture(
+            eliminate_rules(),
+            [(GARRISON, UnitArchetype::Rifleman, GridPos::new(0, 0))],
+            [(WAVE_PLAYER, GridPos::new(8, 8))],
+        )
+        .with_reinforcements([Reinforcement {
+            round: 3,
+            units: vec![enemies::rifleman(GARRISON, "Duplicate", GridPos::new(0, 8))],
+        }]);
     }
 
     fn eliminate_rules() -> MissionRules {
