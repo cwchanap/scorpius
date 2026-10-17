@@ -353,7 +353,7 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             ExpectedFact::Dialogue {
                 cursor: 0,
                 speaker: "Control",
-                text: "Squad, Relay Nine is broadcasting an enemy garrison signal. Four hostiles hold the relay.",
+                text: "Squad, Relay Nine is broadcasting an enemy garrison signal. Four hostiles hold the relay, and a patrol is coming up the east road.",
             },
         ],
     },

@@ -28,8 +28,8 @@ pub mod ids {
     pub const ROAD_RIFLEMAN_SOUTH: UnitId = UnitId(16);
 }
 
-/// The east road patrol reaches the board at Round 3's enemy planning, or as
-/// soon as the garrison falls, whichever is first.
+/// The east road patrol reaches the board during the enemy planning that opens
+/// Round 2, or as soon as the garrison falls, whichever is first.
 pub const ROAD_PATROL_ROUND: u16 = 2;
 
 const MISSION_ONE_DEPLOYMENT: SquadDeployment = SquadDeployment {
