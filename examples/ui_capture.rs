@@ -34,6 +34,7 @@ use scorpius::{
     },
     domain::{
         battle::BattleState,
+        board::GridPos,
         model::{BattleEvent, Faction, OptionalObjective, Reaction, UnitId},
     },
     mission::{MissionDefinition, mission_definition},
@@ -958,6 +959,50 @@ fn install_battle_setup(world: &mut World, setup: BattleSetup, seed: u64) {
     }
 }
 
+/// Moves `unit` into range and fires the first affordable weapon that can
+/// reach `boss`, holding fire when a normal hit would knock the boss out.
+fn strike_boss_if_in_reach(battle: &mut BattleState, unit: UnitId, boss: UnitId) {
+    let boss_unit = battle
+        .unit(boss)
+        .expect("boss threshold fixture target must exist");
+    let (boss_position, boss_hp) = (boss_unit.position, boss_unit.hp);
+    let attacker = battle
+        .unit(unit)
+        .expect("boss threshold fixture unit must exist");
+    let (current_position, en) = (attacker.position, attacker.en);
+    let reachable = battle
+        .reachable_cells(unit)
+        .expect("boss threshold fixture reachability must be available");
+    let Some((weapon, destination)) = attacker.weapons.clone().into_iter().find_map(|weapon| {
+        let spec = battle.weapon(weapon)?;
+        if spec.en_cost > en {
+            return None;
+        }
+        let in_range = |position: &GridPos| {
+            (spec.min_range..=spec.max_range).contains(&position.manhattan(boss_position))
+        };
+        std::iter::once(current_position)
+            .chain(reachable.iter().copied())
+            .find(in_range)
+            .map(|destination| (weapon, destination))
+    }) else {
+        return;
+    };
+    if destination != current_position {
+        battle
+            .move_unit(unit, destination)
+            .expect("boss threshold fixture move must be legal");
+    }
+    if battle
+        .preview_attack(unit, weapon, boss_position)
+        .is_ok_and(|preview| preview.normal_damage < boss_hp)
+    {
+        battle
+            .attack(unit, weapon, boss_position)
+            .expect("boss threshold fixture attack must be legal");
+    }
+}
+
 fn build_boss_threshold_fixture(
     definition: &MissionDefinition,
     upgrades: &SquadUpgrades,
@@ -1037,9 +1082,17 @@ fn build_boss_threshold_fixture(
             scorpius::mission::squad::ids::VANGUARD,
             scorpius::mission::squad::ids::INTERCEPTOR,
         ] {
+            if battle.unit(player).is_none_or(|unit| unit.is_knocked_out()) {
+                continue;
+            }
             battle
                 .begin_activation(player)
                 .expect("boss threshold fixture player activation must be legal");
+            // The tuned boss weapons wipe a squad that only guards, so the
+            // escorts chip in while a hit cannot finish the boss.
+            if battle.unit(boss).is_some_and(|unit| unit.hp > desired_hp) {
+                strike_boss_if_in_reach(&mut battle, player, boss);
+            }
             battle
                 .choose_reaction(player, Reaction::Guard)
                 .expect("boss threshold fixture player reaction must be legal");
