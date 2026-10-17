@@ -2078,6 +2078,23 @@ mod tests {
         }]);
     }
 
+    #[test]
+    #[should_panic(expected = "reuses unit id")]
+    fn reinforcements_reject_a_unit_id_repeated_within_one_wave() {
+        let _ = squad_fixture(
+            eliminate_rules(),
+            [(GARRISON, UnitArchetype::Rifleman, GridPos::new(0, 0))],
+            [(WAVE_PLAYER, GridPos::new(8, 8))],
+        )
+        .with_reinforcements([Reinforcement {
+            round: 3,
+            units: vec![
+                enemies::rifleman(WAVE, "Wave Rifleman", GridPos::new(0, 8)),
+                enemies::rifleman(WAVE, "Twin", GridPos::new(1, 8)),
+            ],
+        }]);
+    }
+
     fn eliminate_rules() -> MissionRules {
         MissionRules {
             primary: PrimaryObjective::EliminateAllEnemies,

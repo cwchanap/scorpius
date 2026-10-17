@@ -13,6 +13,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 
 use crate::domain::battle::BattleState;
+use crate::domain::combat::DamageSource;
 use crate::domain::model::{BattleEvent, Faction, UnitArchetype, UnitId, WeaponId};
 
 use super::{
@@ -98,13 +99,27 @@ impl CutInSnapshot {
         let queued: i16 = pending.iter().filter_map(damage_to_target).sum();
         let max_hp = defending.stats.max_hp;
         let hp_before = (defending.hp.max(0) + queued).clamp(0, max_hp);
-        // This attack's own damage is the first queued hit on the target;
-        // later ones (a collision after a push, another attacker) play after.
+        // This attack's own damage carries its weapon as the source. A hit
+        // can deal none (a Guarded target), and the collision or hazard
+        // damage that follows a push plays after the cut-in on the map.
+        let from_this_weapon = |source: &DamageSource| match source {
+            DamageSource::PlayerWeapon(used) => used == &weapon.id,
+            DamageSource::EnemyWeapon(unit, used) => unit == attacker && used == &weapon.id,
+            DamageSource::Collision | DamageSource::Hazard | DamageSource::Explosion => false,
+        };
         let damage = if *hit {
             pending
                 .iter()
                 .take_while(|event| !matches!(event, BattleEvent::AttackRolled { .. }))
-                .find_map(damage_to_target)
+                .find_map(|event| match event {
+                    BattleEvent::DamageApplied {
+                        target: damaged,
+                        amount,
+                        source,
+                        ..
+                    } if damaged == target && from_this_weapon(source) => Some(*amount),
+                    _ => None,
+                })
                 .unwrap_or(0)
         } else {
             0
@@ -811,6 +826,41 @@ mod tests {
             assert_eq!(snapshot.damage > 0, hit);
             assert_eq!(snapshot.knocked_out(), striker.is_knocked_out());
         }
+    }
+
+    #[test]
+    fn a_hit_that_deals_no_weapon_damage_does_not_claim_the_collision_after_it() {
+        let (battle, _) = pile_lance_on_striker(7);
+        let striker = battle.unit(ids::STRIKER).unwrap();
+        let rolled = BattleEvent::AttackRolled {
+            attacker: ids::VANGUARD,
+            weapon: ids::PILE_LANCE,
+            target: ids::STRIKER,
+            roll: 10,
+            hit: true,
+            critical_roll: Some(5),
+            critical: true,
+        };
+        // A Guarded hit for 0, then the push slams the target into a wall.
+        let pending = VecDeque::from([
+            BattleEvent::CollisionOccurred {
+                unit: ids::STRIKER,
+                blocked_at: striker.position,
+            },
+            BattleEvent::DamageApplied {
+                target: ids::STRIKER,
+                amount: 3,
+                remaining_hp: striker.hp,
+                source: DamageSource::Collision,
+            },
+        ]);
+        let snapshot = CutInSnapshot::from_attack(&rolled, &pending, &battle, false).unwrap();
+        assert_eq!(snapshot.damage, 0);
+        assert_eq!(
+            snapshot.hp_before,
+            (striker.hp.max(0) + 3).min(striker.stats.max_hp)
+        );
+        assert_eq!(snapshot.hp_after, snapshot.hp_before);
     }
 
     #[test]
