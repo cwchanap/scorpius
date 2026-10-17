@@ -631,10 +631,12 @@ fn fixture_has_asset_override(fixture: &CaptureFixture) -> bool {
 }
 
 fn fixture_has_playback_setup(fixture: &CaptureFixture) -> bool {
-    fixture
-        .actions
-        .iter()
-        .any(|action| matches!(action, CaptureAction::SetBattle(BattleSetup::Playback)))
+    fixture.actions.iter().any(|action| {
+        matches!(
+            action,
+            CaptureAction::SetBattle(BattleSetup::Playback) | CaptureAction::KeepPlayback
+        )
+    })
 }
 
 fn install_authored_battle(world: &mut World) {
@@ -729,6 +731,7 @@ fn apply_action(world: &mut World, action: &CaptureAction, seed: u64) {
             *world.resource_mut::<AssetLoadStatus>() = status.clone();
         }
         CaptureAction::AdvanceRounds(rounds) => advance_rounds(world, *rounds),
+        CaptureAction::KeepPlayback => {}
     }
 }
 
