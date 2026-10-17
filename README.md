@@ -17,7 +17,8 @@ The game starts at the **Title** screen.
 The 2.5D battlefield uses an icon-led native Bevy UI in a resizable canvas.
 Mission 1 has a **128×128 regional map** with a western sea, inland forests,
 mountain ridges and connecting roads. Its original opening fight remains at
-Relay Nine in the northwest. Plains and roads cost 1 movement point per cell;
+Relay Nine in the northwest, and an enemy patrol reaches the east road outside the relay gate
+during Round 2's enemy planning. Plains and roads cost 1 movement point per cell;
 forests cost 2; sea and mountains block ground movement and pushes. Missions
 2–7 retain their authored 9×9 boards.
 
@@ -56,7 +57,7 @@ Victory in Mission 7 completes the campaign: the final aftermath's **CONTINUE** 
 
 ## Mission flow
 
-**Mission 1 — Turnabout at Relay Nine.** The primary objective is to eliminate all four enemies. The optional **Turnabout** objective is achieved when an enemy takes damage from a committed enemy attack, collision, hazard, or explosion. The mission fails when all three player mechs are knocked out.
+**Mission 1 — Turnabout at Relay Nine.** The primary objective is to eliminate all enemies: the four-unit garrison and a two-Rifleman patrol that arrives on the east road in Round 2 (or as soon as the garrison falls). The camera cuts to the patrol when it arrives, and the minimap shows it coming. The optional **Turnabout** objective is achieved when an enemy takes damage from a committed enemy attack, collision, hazard, or explosion. The mission fails when all three player mechs are knocked out.
 
 **Mission 2 — Hold Relay Nine** (400 base + 100 bonus credits, unlocks Mission 3). Protect the Gunner: the mission fails if the Gunner is knocked out, and is won immediately when every attacker is eliminated or when Round 3 completes with the Gunner alive. The optional **Hold Fast** bonus requires finishing with the Gunner at or above 50% HP.
 
@@ -115,6 +116,8 @@ aftermath, or upgrade screens. These keys mirror the battle command buttons:
 | Arrow keys / middle mouse drag | Pan Mission 1's regional map |
 | Mouse wheel / minimap `−` and `+` buttons | Zoom the regional map |
 | `Home` / minimap **Center** | Center the active, inspected, or first living player |
+| `Space`, `Enter`, `Escape`, or click during a battle cut-in | Skip the cut-in |
+| `V` | Turn battle cut-ins off or on |
 
 ### Native UI capture
 
