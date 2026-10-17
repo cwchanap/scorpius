@@ -121,6 +121,30 @@ of damage enemies took from their own side's fire and from collisions, hazards a
 and Gunner share are the share of enemy damage dealt by Focus attacks and by the Gunner. Credits in
 is the mean credit balance on entering the mission.
 
+## Mission 1 road patrol (2026-10-17)
+
+Mission 1 gained a second wave so its 128×128 regional map is part of the fight: two Riflemen
+arrive on the east road at (13,7) and (13,9) during Round 2's enemy planning, or as soon as the
+garrison is down if that comes first. They hold their arrival cell for that planning and pursue the
+squad from Round 3. A wave still off the board counts as a living enemy, so clearing the garrison
+no longer ends the mission.
+
+The first try put the patrol at (15,7) and (15,9) arriving in Round 3. It cost the squad no HP and
+only added walking: the fight ran 6.2 rounds for the Novice, with the patrol reaching the squad
+after the garrison was gone. Moving it two cells closer and one round earlier overlaps the two
+fights:
+
+| Mission 1 | Before | Round 3 at x=15 | Shipped: Round 2 at x=13 |
+| --- | ---: | ---: | ---: |
+| Novice rounds | 3.5 | 6.2 | 4.9 |
+| Novice HP left | 70% | 70% | 76% |
+| Reader rounds | 3.9 | 6.5 | 5.4 |
+| Reader HP left | 99% | 99% | 94% |
+| Novice / Reader first try | 100% / 100% | 100% / 100% | 100% / 100% |
+
+Every guard rail still passes, and the Reader's HP lead on Mission 1 is 18 points. The patrol changes Mission 1's bonus and credit flow a little,
+so later missions moved by a few points too. The "after" tables below are the current numbers.
+
 ## Guard rails
 
 `cargo test --all-targets` runs the same 200 campaigns per policy and asserts the rubric, so a
@@ -158,8 +182,8 @@ the rubric.
 - Bots are not people. The Novice still picks a strong attack every activation, so a real first-time
   player will likely take more damage than it does. These numbers are a floor on difficulty, not a
   prediction.
-- The harness plays each mission's authored battle arena. Mission 1's 128×128 regional map beyond
-  the arena is not exercised.
+- The harness plays each mission's authored battle arena. On Mission 1 that now includes the east
+  road outside the relay gate, where the patrol arrives, but not the rest of the 128×128 region.
 - Bonus rates for Swift Intercept (Mission 3) and Final Push (Mission 7) depend on how aggressively
   a player chases. The bots' aggression is a guess.
 - A human playtest of Act 1 is still the real test. The rubric above is what to watch for.
@@ -204,23 +228,25 @@ the rubric.
 
 ## Full tables: after
 
+With the Mission 1 road patrol.
+
 #### Novice
 
 | Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 1.0 | 0 | 3.5 | 0% | 88% | 70% | 0.1 | 61% | 1% | 4% | 35% | 7% | 4% | 22% | 33% | 0.0 |
-| 2 | 90% | 1.1 | 0 | 2.3 | 0% | 34% | 70% | 0.1 | 52% | 0% | 3% | 44% | 15% | 0% | 21% | 43% | 12.5 |
-| 3 | 94% | 1.1 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 61% | 39% | 0% | 1% | 35% | 49% | 37.0 |
-| 4 | 100% | 1.0 | 0 | 1.9 | 13% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 36% | 47% | 13% | 85.0 |
-| 5 | 100% | 1.0 | 0 | 4.8 | 0% | 28% | 88% | 0.0 | 27% | 0% | 41% | 32% | 0% | 0% | 17% | 47% | 43.0 |
-| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 12% | 85% | 0.0 | 36% | 1% | 60% | 3% | 1% | 0% | 19% | 42% | 155.0 |
-| 7 | 100% | 1.0 | 0 | 5.1 | 0% | 95% | 62% | 0.2 | 32% | 0% | 60% | 8% | 3% | 1% | 12% | 35% | 161.0 |
+| 1 | 100% | 1.0 | 0 | 4.9 | 0% | 86% | 76% | 0.1 | 31% | 0% | 40% | 29% | 5% | 3% | 16% | 41% | 0.0 |
+| 2 | 90% | 1.1 | 0 | 2.4 | 0% | 34% | 70% | 0.1 | 52% | 0% | 3% | 44% | 15% | 0% | 21% | 43% | 14.0 |
+| 3 | 95% | 1.1 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 61% | 39% | 0% | 1% | 35% | 49% | 37.0 |
+| 4 | 100% | 1.0 | 0 | 1.9 | 13% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 36% | 47% | 13% | 84.2 |
+| 5 | 100% | 1.0 | 0 | 4.8 | 0% | 28% | 88% | 0.0 | 27% | 0% | 41% | 32% | 0% | 0% | 17% | 47% | 43.2 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 12% | 85% | 0.0 | 37% | 1% | 59% | 3% | 1% | 0% | 19% | 42% | 152.2 |
+| 7 | 100% | 1.0 | 0 | 5.2 | 0% | 95% | 62% | 0.2 | 32% | 0% | 60% | 8% | 3% | 1% | 12% | 35% | 158.2 |
 
 #### Reader
 
 | Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 1.0 | 0 | 3.9 | 0% | 100% | 99% | 0.0 | 3% | 11% | 52% | 34% | 7% | 12% | 22% | 42% | 0.0 |
+| 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 |
 | 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 16% | 51% | 33% | 13% | 8% | 25% | 31% | 0.0 |
 | 3 | 99% | 1.0 | 0 | 2.2 | 0% | 77% | 100% | 0.0 | 0% | 0% | 46% | 54% | 0% | 0% | 33% | 56% | 100.0 |
 | 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 115.5 |
@@ -232,7 +258,7 @@ the rubric.
 
 | Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 1.0 | 0 | 3.9 | 0% | 100% | 99% | 0.0 | 3% | 11% | 52% | 34% | 7% | 12% | 22% | 42% | 0.0 |
+| 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 |
 | 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 16% | 51% | 33% | 13% | 8% | 25% | 31% | 0.0 |
 | 3 | 99% | 1.0 | 0 | 2.2 | 0% | 78% | 100% | 0.0 | 0% | 3% | 44% | 54% | 2% | 0% | 32% | 56% | 100.0 |
 | 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 117.8 |

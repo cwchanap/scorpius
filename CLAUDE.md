@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, HPA-524 authored Mission 6 and the single-cell Dreadnought boss, and HPA-386 authored Mission 7, the Regent boss, and the campaign ending. The campaign runs authored One→Seven: Mission 7 → Campaign Complete → Return to Title, and a completed Continue resumes at the Ending screen. The MVP has no mission select, no New Game+, and no dedicated battle-animation scene.
+Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, HPA-524 authored Mission 6 and the single-cell Dreadnought boss, and HPA-386 authored Mission 7, the Regent boss, and the campaign ending. The campaign runs authored One→Seven: Mission 7 → Campaign Complete → Return to Title, and a completed Continue resumes at the Ending screen. The MVP has no mission select and no New Game+. Post-MVP, Mission 1 gained a road-patrol reinforcement wave on its regional map, and attacks play skippable SRW-style battle cut-ins (`cut_in.rs`).
 
 ## Commands
 
@@ -82,7 +82,10 @@ one opening-legality validator
 (`assert_opening_plan_is_legal`). No RON/JSON/scripting layer exists; keep new content typed here.
 `restart_mission` rebuilds the whole state from a new seed. Mission rules carry a typed
 `PrimaryObjective` / `OptionalObjective` plus an `EnemyOpening` plan; only objective boundary
-logic lives in the domain (`completed_enemy_round`).
+logic lives in the domain (`completed_enemy_round`). `BattleState::with_reinforcements` holds typed
+`Reinforcement` waves off the board: a wave arrives at its round's enemy planning (or as soon as the
+deployed enemies are all down), emits `ReinforcementArrived`, holds its arrival cell that planning,
+and counts as a living enemy until it arrives. Mission 1's two-Rifleman road patrol is the only wave.
 
 ### `src/presentation/` — Bevy adapters
 
@@ -95,7 +98,14 @@ grid to the authored 2.5D stage.
   integration tests hook in.
 - `playback.rs` — drains `BattleEventQueue` one event at a time on a `Timer`, holding
   `EventPlayback::input_locked` until the queue empties. Adding a `BattleEvent` variant means
-  giving it a duration and a visual in `event_duration` / `play_battle_events`.
+  giving it a duration and a visual in `event_duration` / `play_battle_events`. Waves still off
+  the board get hidden tokens at rebuild; `ReinforcementArrived` reveals them and cuts the regional
+  camera to the arrival and back.
+- `cut_in.rs` — SRW-style battle cut-ins. `stage_cut_ins` (after `play_battle_events`) holds the
+  first `AttackRolled` of each strike for `CUT_IN_SECONDS` and builds a `CutInSnapshot` from the
+  events still queued behind it; `animate_cut_in` lays out the band. Presentation only: no domain
+  state or RNG changes. They play only when the `CutInSettings` resource exists and is enabled,
+  so bare test apps keep map-speed playback.
 - `sync.rs` — reconciles marker entities against current state each frame (spawn/despawn diffing).
 - `ui.rs` — native Bevy UI. `HudSnapshot::from_battle` derives all HUD text from state, so HUD logic
   is testable without a renderer; the sidebar, Inspector, Preview, Threat, Log, and Result regions
@@ -114,7 +124,8 @@ opens the three typed weapon rows; **STANCE** opens Counter, Guard, and Evade. *
 the active unit, and **RESOLVE** becomes available after surviving units finish. `Escape` invokes
 the existing Cancel action for menus and targeting. `R` invokes the guarded Restart action during
 an idle Player phase or after defeat; it remains guarded during activation/loading/playback/planning/
-resolution/victory/pending transitions. Victory exposes Continue. The campaign **SKIP** button is created only for
+resolution/victory/pending transitions. Victory exposes Continue. During a battle cut-in, `Space`,
+`Enter`, `Escape`, or a left click skips it, and `V` turns cut-ins off or on at any time. The campaign **SKIP** button is created only for
 `GameScreen::PreMissionStory`. Keep these bindings in the existing command/action types.
 
 Regional boards (larger than 9×9) add camera controls: **arrow keys** and **middle-drag** pan,
