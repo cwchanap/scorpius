@@ -10,8 +10,8 @@ use super::{
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MAX_WEAPONS_PER_UNIT,
         MissionResult, MissionRules, ObjectiveProgress, OptionalObjective, PilotSkillState,
-        PrimaryObjective, Reaction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId,
-        WeaponSpec,
+        PrimaryObjective, Reaction, Reinforcement, UnitArchetype, UnitId, UnitState, UnitStats,
+        WeaponId, WeaponSpec,
     },
     rng::BattleRng,
 };
@@ -30,6 +30,7 @@ pub struct BattleState {
     pilot_skills: PilotSkillState,
     result: Option<MissionResult>,
     rng: BattleRng,
+    reinforcements: Vec<Reinforcement>,
 }
 
 impl BattleState {
@@ -67,7 +68,57 @@ impl BattleState {
             pilot_skills: PilotSkillState::default(),
             result: None,
             rng: BattleRng::seeded(seed),
+            reinforcements: Vec::new(),
         }
+    }
+
+    /// Hold authored enemy waves off the board until they are due; see
+    /// [`Reinforcement`]. Waves arrive in the order given.
+    pub fn with_reinforcements(mut self, waves: impl IntoIterator<Item = Reinforcement>) -> Self {
+        for wave in waves {
+            assert!(
+                wave.round >= 2,
+                "reinforcements arrive after the authored opening (round {})",
+                wave.round
+            );
+            for unit in &wave.units {
+                assert_eq!(
+                    unit.faction,
+                    Faction::Enemy,
+                    "{} must be an enemy",
+                    unit.name
+                );
+                assert!(
+                    self.unit(unit.id).is_none() && self.pending_unit(unit.id).is_none(),
+                    "{} reuses unit id {:?}",
+                    unit.name,
+                    unit.id
+                );
+                assert!(
+                    unit.weapons
+                        .iter()
+                        .all(|weapon| self.weapons.contains_key(weapon)),
+                    "{} carries an unregistered weapon",
+                    unit.name
+                );
+                assert!(
+                    self.board.movement_cost(unit.position).is_some(),
+                    "{} arrives on an impassable cell",
+                    unit.name
+                );
+            }
+            self.reinforcements.push(wave);
+        }
+        self
+    }
+
+    /// Enemies that have not arrived yet, at their authored arrival cells.
+    pub fn pending_reinforcements(&self) -> impl Iterator<Item = &UnitState> {
+        self.reinforcements.iter().flat_map(|wave| &wave.units)
+    }
+
+    fn pending_unit(&self, id: UnitId) -> Option<&UnitState> {
+        self.pending_reinforcements().find(|unit| unit.id == id)
     }
 
     pub fn viability_fixture() -> Self {
@@ -466,6 +517,62 @@ impl BattleState {
         vec![BattleEvent::OptionalObjectiveCompleted]
     }
 
+    /// Bring in every wave whose round has come, or the next wave when no
+    /// deployed enemy is left. Called from enemy planning for `self.round + 1`.
+    pub(super) fn deploy_due_reinforcements(&mut self) -> Vec<BattleEvent> {
+        let planning = self.round.saturating_add(1);
+        let board_clear = !self
+            .units
+            .values()
+            .any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out());
+        let mut due = self
+            .reinforcements
+            .iter()
+            .take_while(|wave| wave.round <= planning)
+            .count();
+        if due == 0 && board_clear && !self.reinforcements.is_empty() {
+            due = 1;
+        }
+
+        let mut events = Vec::new();
+        for wave in self.reinforcements.drain(..due).collect::<Vec<_>>() {
+            for mut unit in wave.units {
+                let position = self.arrival_cell(unit.position);
+                unit.position = position;
+                events.push(BattleEvent::ReinforcementArrived {
+                    unit: unit.id,
+                    position,
+                });
+                self.units.insert(unit.id, unit);
+            }
+        }
+        events
+    }
+
+    /// The authored arrival cell, or the nearest open cell reachable from it
+    /// over passable ground when someone is standing there.
+    fn arrival_cell(&self, preferred: GridPos) -> GridPos {
+        let open = |cell: GridPos| {
+            !self.board.is_blocking(cell)
+                && !self.board.has_live_explosive(cell)
+                && !self.board.is_hazard(cell)
+                && self.occupant_at(cell).is_none()
+        };
+        let mut seen = BTreeSet::from([preferred]);
+        let mut frontier = std::collections::VecDeque::from([preferred]);
+        while let Some(cell) = frontier.pop_front() {
+            if open(cell) {
+                return cell;
+            }
+            for next in cell.orthogonal_neighbors(self.board.width(), self.board.height()) {
+                if !self.board.is_blocking(next) && seen.insert(next) {
+                    frontier.push_back(next);
+                }
+            }
+        }
+        preferred
+    }
+
     /// A full enemy round `round` is complete once the battle is back in
     /// planning after that round resolved: the only shared deadline boundary.
     fn completed_enemy_round(&self, round: u16) -> bool {
@@ -481,10 +588,13 @@ impl BattleState {
             .units
             .values()
             .any(|unit| unit.faction == Faction::Player && !unit.is_knocked_out());
-        let any_living_enemy = self
-            .units
-            .values()
-            .any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out());
+        // A wave still on its way counts as living: clearing the board early
+        // brings it in rather than ending the battle.
+        let any_living_enemy = !self.reinforcements.is_empty()
+            || self
+                .units
+                .values()
+                .any(|unit| unit.faction == Faction::Enemy && !unit.is_knocked_out());
         let victory = match self.rules.primary {
             PrimaryObjective::EliminateAllEnemies => {
                 if any_living_player && !any_living_enemy {
@@ -601,6 +711,13 @@ impl BattleState {
     #[cfg(test)]
     pub(crate) fn unit_mut_for_test(&mut self, id: UnitId) -> Option<&mut UnitState> {
         self.units.get_mut(&id)
+    }
+
+    /// Drop every wave still off the board, so a test can end a mission by
+    /// knocking out the units already deployed.
+    #[cfg(test)]
+    pub(crate) fn clear_reinforcements_for_test(&mut self) {
+        self.reinforcements.clear();
     }
 
     #[cfg(test)]
@@ -1421,7 +1538,9 @@ mod tests {
         );
     }
 
+    /// Mission 1's garrison is every enemy once the road patrol is dropped.
     fn knock_out_all_enemies(battle: &mut BattleState) -> Vec<BattleEvent> {
+        battle.clear_reinforcements_for_test();
         let mut events = Vec::new();
         for enemy in [
             ids::RIFLEMAN_LEFT,

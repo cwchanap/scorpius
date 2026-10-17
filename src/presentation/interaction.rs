@@ -947,6 +947,7 @@ mod tests {
 
     fn terminal_victory_battle() -> BattleState {
         let mut battle = mission_one(7);
+        battle.clear_reinforcements_for_test();
         for enemy in [
             ids::RIFLEMAN_LEFT,
             ids::RIFLEMAN_RIGHT,

@@ -3,7 +3,8 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos, Terrain},
     model::{
-        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement, UnitState,
+        WeaponSpec,
     },
 };
 use crate::mission::enemies;
@@ -23,7 +24,13 @@ pub mod ids {
     pub const RIFLEMAN_RIGHT: UnitId = UnitId(12);
     pub const STRIKER: UnitId = UnitId(13);
     pub const ARTILLERY: UnitId = UnitId(14);
+    pub const ROAD_RIFLEMAN_NORTH: UnitId = UnitId(15);
+    pub const ROAD_RIFLEMAN_SOUTH: UnitId = UnitId(16);
 }
+
+/// The east road patrol reaches the board at Round 3's enemy planning, or as
+/// soon as the garrison falls, whichever is first.
+pub const ROAD_PATROL_ROUND: u16 = 2;
 
 const MISSION_ONE_DEPLOYMENT: SquadDeployment = SquadDeployment {
     vanguard: GridPos::new(4, 7),
@@ -72,6 +79,10 @@ pub fn mission_one_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleSt
     units.extend(mission_one_enemy_units());
     weapons.extend(mission_one_enemy_weapons());
     BattleState::new(mission_one_board(), units, weapons, MISSION_ONE_RULES, seed)
+        .with_reinforcements([Reinforcement {
+            round: ROAD_PATROL_ROUND,
+            units: mission_one_road_patrol(),
+        }])
 }
 
 /// The east and south rim of the original 9×9 arena. Blocking these cells
@@ -182,6 +193,15 @@ fn mission_one_enemy_units() -> Vec<UnitState> {
     ]
 }
 
+/// The patrol enters on the east road, out of reach of the arena: the squad
+/// sees it coming on the minimap and chooses whether to meet it at the gate.
+fn mission_one_road_patrol() -> Vec<UnitState> {
+    vec![
+        enemies::rifleman(ids::ROAD_RIFLEMAN_NORTH, "Rifleman N", GridPos::new(13, 7)),
+        enemies::rifleman(ids::ROAD_RIFLEMAN_SOUTH, "Rifleman S", GridPos::new(13, 9)),
+    ]
+}
+
 fn mission_one_enemy_weapons() -> Vec<WeaponSpec> {
     vec![
         enemies::service_rifle(),
@@ -193,12 +213,12 @@ fn mission_one_enemy_weapons() -> Vec<WeaponSpec> {
 static PRE_MISSION_LINES: [DialogueLine; 3] = [
     DialogueLine {
         speaker: "Control",
-        text: "Squad, Relay Nine is broadcasting an enemy garrison signal. Four hostiles hold the relay.",
+        text: "Squad, Relay Nine is broadcasting an enemy garrison signal. Four hostiles hold the relay, and a patrol is coming up the east road.",
         portrait: "vn/control_neutral.png",
     },
     DialogueLine {
         speaker: "Vanguard",
-        text: "Understood. We punch through, clear the board, and take the relay back.",
+        text: "Understood. We break the garrison, then meet the patrol at the gate.",
         portrait: "vn/vanguard_neutral.png",
     },
     DialogueLine {
@@ -299,6 +319,50 @@ mod tests {
         battle.begin_activation(ids::VANGUARD).unwrap();
         battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
         assert_eq!(battle.intents(), committed);
+    }
+
+    #[test]
+    fn road_patrol_enters_on_the_east_road_after_the_opening() {
+        let mut battle = mission_one(7);
+        let patrol: Vec<_> = battle
+            .pending_reinforcements()
+            .map(|unit| (unit.id, unit.position))
+            .collect();
+        assert_eq!(
+            patrol,
+            vec![
+                (ids::ROAD_RIFLEMAN_NORTH, GridPos::new(13, 7)),
+                (ids::ROAD_RIFLEMAN_SOUTH, GridPos::new(13, 9)),
+            ]
+        );
+        for (_, cell) in &patrol {
+            assert_eq!(battle.board().terrain_at(*cell), Some(Terrain::Road));
+            assert!(cell.x >= 9, "the patrol starts outside the arena");
+        }
+
+        // Opening planning: the garrison only.
+        let opening = battle.begin_round().unwrap();
+        assert!(
+            !opening
+                .iter()
+                .any(|event| matches!(event, BattleEvent::ReinforcementArrived { .. }))
+        );
+        assert_eq!(battle.units().count(), 7);
+
+        // Round 2 planning: the patrol arrives on the road.
+        battle.set_phase_for_test(crate::domain::model::BattlePhase::EnemyPlanning);
+        let events = battle.begin_round().unwrap();
+        assert_eq!(battle.round(), ROAD_PATROL_ROUND);
+        let arrived: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                BattleEvent::ReinforcementArrived { unit, position } => Some((*unit, *position)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(arrived, patrol);
+        assert_eq!(battle.pending_reinforcements().count(), 0);
+        assert!(battle.result().is_none());
     }
 
     #[test]
