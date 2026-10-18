@@ -1,4 +1,5 @@
 use std::f32::consts::PI;
+use std::ops::DerefMut;
 use std::time::Duration;
 
 use bevy::prelude::*;
@@ -137,14 +138,49 @@ pub(crate) fn begin_restarted_round(
     pending.0 = false;
 }
 
-/// Return the camera to where it was before a reinforcement cutaway.
-/// Only touches the view when a cutaway is open, so ordinary events leave
-/// `MapView` unchanged.
-fn restore_cutaway(cutaway_from: &mut Option<Vec2>, view: &mut Option<ResMut<MapView>>) {
-    if let Some(center) = cutaway_from.take()
-        && let Some(view) = view
+/// A reinforcement cutaway: where the camera was, and the view it cut to.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Cutaway {
+    from: Vec2,
+    to: Vec2,
+    zoom: f32,
+}
+
+impl Cutaway {
+    /// The player has not panned or zoomed since the cut. Epsilon, as in
+    /// `navigate_map`: clamping can move the center by an ulp.
+    fn untouched(&self, view: &MapView) -> bool {
+        view.zoom == self.zoom && view.center.distance(self.to) <= 0.01
+    }
+}
+
+/// Cut the camera to an arrival. A second arrival inside the same cutaway
+/// keeps the view to return to, unless the player has moved the camera since.
+fn cut_to(cutaway: &mut Option<Cutaway>, view: &mut MapView, cell: crate::domain::board::GridPos) {
+    let from = match *cutaway {
+        Some(open) if open.untouched(view) => open.from,
+        _ => view.center,
+    };
+    view.focus(cell);
+    *cutaway = Some(Cutaway {
+        from,
+        to: view.center,
+        zoom: view.zoom,
+    });
+}
+
+/// Return the camera to where it was before a reinforcement cutaway, unless
+/// the player has panned or zoomed since; their view wins. Only touches the
+/// view when a cutaway is open, so ordinary events leave `MapView` unchanged.
+fn restore_cutaway<V: DerefMut<Target = MapView>>(
+    cutaway: &mut Option<Cutaway>,
+    view: &mut Option<V>,
+) {
+    if let Some(open) = cutaway.take()
+        && let Some(view) = view.as_mut()
+        && open.untouched(view)
     {
-        view.center = center;
+        view.center = open.from;
     }
 }
 
@@ -175,7 +211,7 @@ pub(crate) fn play_battle_events(
     mut damage_numbers: DamageNumberQuery,
     mut view: Option<ResMut<MapView>>,
     mut status: Option<ResMut<StatusMessage>>,
-    mut cutaway_from: Local<Option<Vec2>>,
+    mut cutaway: Local<Option<Cutaway>>,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
         timer.tick(time.delta());
@@ -196,7 +232,7 @@ pub(crate) fn play_battle_events(
     }
 
     let Some(event) = queue.0.pop_front() else {
-        restore_cutaway(&mut cutaway_from, &mut view);
+        restore_cutaway(&mut cutaway, &mut view);
         playback.input_locked = false;
         return;
     };
@@ -238,18 +274,19 @@ pub(crate) fn play_battle_events(
     // player isn't already looking there, then cuts back for the rest of the
     // round, the way SRW shows a new arrival.
     if let BattleEvent::ReinforcementArrived { position, .. } = &event {
-        if let Some(view) = view.as_deref_mut()
-            && view.is_regional()
-            && !view.visible_cells().contains(position)
-        {
-            cutaway_from.get_or_insert(view.center);
-            view.focus(*position);
+        if let Some(view) = view.as_mut() {
+            // Wake `sync_map_view`: the arrival's minimap marker stays hidden
+            // only while its event is still queued.
+            view.set_changed();
+            if view.is_regional() && !view.visible_cells().contains(position) {
+                cut_to(&mut cutaway, view, *position);
+            }
         }
         if let Some(status) = status.as_deref_mut() {
             status.0 = "Enemy reinforcements have arrived.".to_owned();
         }
     } else {
-        restore_cutaway(&mut cutaway_from, &mut view);
+        restore_cutaway(&mut cutaway, &mut view);
     }
     animate_unit_event(&event, 0.0, &mut unit_queries);
     playback.current = Some((
@@ -915,6 +952,39 @@ mod tests {
                 + (1.0 - scale) * MAP_UNIT_HEIGHT * 0.5;
             assert!((bottom - 0.0).abs() < 1e-4, "scale {scale} lifts the feet");
         }
+    }
+
+    #[test]
+    fn a_cutaway_returns_the_camera_unless_the_player_moved_it() {
+        use crate::domain::board::GridPos;
+        let battle = mission_one(7);
+        let mut view = MapView::new(battle.board());
+        view.focus(GridPos::new(60, 60));
+        let watching = view.center;
+        let patrol = GridPos::new(13, 7);
+        let mut cutaway = None;
+
+        cut_to(&mut cutaway, &mut view, patrol);
+        assert_ne!(view.center, watching);
+        restore_cutaway(&mut cutaway, &mut Some(&mut view));
+        assert_eq!(view.center, watching);
+
+        // A pan during the cutaway is where the player chose to look, and a
+        // second arrival after it returns there rather than to the first view.
+        cut_to(&mut cutaway, &mut view, patrol);
+        view.focus(GridPos::new(100, 100));
+        let panned = view.center;
+        cut_to(&mut cutaway, &mut view, GridPos::new(13, 9));
+        restore_cutaway(&mut cutaway, &mut Some(&mut view));
+        assert_eq!(view.center, panned);
+        assert!(cutaway.is_none());
+
+        // A zoom keeps the view too.
+        cut_to(&mut cutaway, &mut view, patrol);
+        view.zoom = 1.2;
+        let zoomed = view.center;
+        restore_cutaway(&mut cutaway, &mut Some(&mut view));
+        assert_eq!(view.center, zoomed);
     }
 
     #[test]

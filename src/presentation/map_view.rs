@@ -7,7 +7,7 @@ use bevy::{
 };
 
 use super::{
-    AttackPreviewCells, BattleMap, BattleRuntime,
+    AttackPreviewCells, BattleEventQueue, BattleMap, BattleRuntime,
     assets::UiAssets,
     interaction::InteractionState,
     layout::{
@@ -18,7 +18,7 @@ use super::{
 };
 use crate::domain::{
     board::{BoardState, GridPos, Terrain},
-    model::{Faction, UnitId},
+    model::{BattleEvent, Faction, UnitId},
 };
 
 const MINIMAP_SIZE: f32 = 176.0;
@@ -530,6 +530,7 @@ pub fn navigate_map(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sync_map_view(
     view: Res<MapView>,
     battle: Res<BattleRuntime>,
@@ -538,6 +539,7 @@ pub(crate) fn sync_map_view(
     mut edges: Query<(&MinimapEdge, &mut Node, &mut UiTransform), Without<MinimapUnit>>,
     mut units: Query<(&MinimapUnit, &mut Node, &mut Visibility), Without<MinimapEdge>>,
     mut readouts: Query<&mut Text, With<MapReadout>>,
+    queue: Option<Res<BattleEventQueue>>,
 ) {
     // The view, the battle, or the hover must have moved; otherwise skip so an
     // idle frame leaves the map transform, minimap markers, and readout text
@@ -573,11 +575,21 @@ pub(crate) fn sync_map_view(
         node.width = px(delta.length());
         transform.rotation = Rot2::radians(delta.y.atan2(delta.x));
     }
+    // A wave is on the board as soon as its round begins, but like its map
+    // token, its marker waits until playback reaches the arrival.
+    let arriving: Vec<UnitId> = queue
+        .iter()
+        .flat_map(|queue| queue.0.iter())
+        .filter_map(|event| match event {
+            BattleEvent::ReinforcementArrived { unit, .. } => Some(*unit),
+            _ => None,
+        })
+        .collect();
     for (marker, mut node, mut visibility) in &mut units {
         if let Some(unit) = battle.0.unit(marker.0) {
             node.left = px((f32::from(unit.position.x) + 0.5) / size.x * MINIMAP_SIZE - 2.5);
             node.top = px((f32::from(unit.position.y) + 0.5) / size.y * MINIMAP_SIZE - 2.5);
-            *visibility = if unit.is_knocked_out() {
+            *visibility = if unit.is_knocked_out() || arriving.contains(&unit.id) {
                 Visibility::Hidden
             } else {
                 Visibility::Visible
@@ -1235,6 +1247,35 @@ mod tests {
         };
         trigger_click(&mut app, zoom_in, PointerButton::Primary, Some(Vec3::ZERO));
         assert!(app.world().resource::<MapView>().zoom > focused.zoom);
+    }
+
+    #[test]
+    fn a_patrol_marker_waits_for_its_arrival_to_play() {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.set_phase_for_test(crate::domain::model::BattlePhase::EnemyPlanning);
+        let events = battle.begin_round().unwrap();
+        assert!(battle.unit(ids::ROAD_RIFLEMAN_NORTH).is_some());
+        let mut app = scene_app(battle);
+        app.insert_resource(BattleEventQueue(events.into()))
+            .add_systems(Update, sync_map_view);
+        let marker = |app: &mut App| {
+            app.world_mut()
+                .query::<(&MinimapUnit, &Visibility)>()
+                .iter(app.world())
+                .find(|(marker, _)| marker.0 == ids::ROAD_RIFLEMAN_NORTH)
+                .map(|(_, visibility)| *visibility)
+                .expect("the patrol has a minimap marker")
+        };
+
+        app.update();
+        assert_eq!(marker(&mut app), Visibility::Hidden);
+
+        // Playback pops the arrival and touches the view.
+        app.world_mut().resource_mut::<BattleEventQueue>().0.clear();
+        app.world_mut().resource_mut::<MapView>().set_changed();
+        app.update();
+        assert_eq!(marker(&mut app), Visibility::Visible);
     }
 
     #[test]
