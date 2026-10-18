@@ -73,7 +73,7 @@ impl BattleState {
     }
 
     /// Hold authored enemy waves off the board until they are due; see
-    /// [`Reinforcement`]. Waves arrive in the order given.
+    /// [`Reinforcement`]. Waves are listed in round order and arrive in that order.
     pub fn with_reinforcements(mut self, waves: impl IntoIterator<Item = Reinforcement>) -> Self {
         for wave in waves {
             assert!(
@@ -81,6 +81,14 @@ impl BattleState {
                 "reinforcements arrive after the authored opening (round {})",
                 wave.round
             );
+            if let Some(last) = self.reinforcements.last() {
+                assert!(
+                    last.round <= wave.round,
+                    "reinforcement waves are listed in round order (round {} after round {})",
+                    wave.round,
+                    last.round
+                );
+            }
             for (index, unit) in wave.units.iter().enumerate() {
                 assert_eq!(
                     unit.faction,
