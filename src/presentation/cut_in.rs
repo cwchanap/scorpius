@@ -163,7 +163,9 @@ pub struct ActiveCutIn {
     /// The last event this system saw as current, so each one is judged once.
     seen: Option<BattleEvent>,
     /// One cut-in per attack: a blast that rolls on several targets shows
-    /// the first, the way SRW skips animations for map weapons.
+    /// the first, the way SRW skips animations for map weapons. Counters
+    /// never replace it, because an enemy blast resolves each target's
+    /// counter before it rolls on the next target.
     last_strike: Option<(UnitId, WeaponId)>,
     counter_next: bool,
 }
@@ -264,11 +266,13 @@ pub(crate) fn stage_cut_ins(
         } => {
             let strike = (*attacker, *weapon);
             let counter = std::mem::take(&mut active.counter_next);
-            if active.last_strike == Some(strike) || !settings.enabled {
+            let repeat = !counter && active.last_strike == Some(strike);
+            if !counter {
                 active.last_strike = Some(strike);
+            }
+            if repeat || !settings.enabled {
                 return;
             }
-            active.last_strike = Some(strike);
             let Some(snapshot) = CutInSnapshot::from_attack(&event, &queue.0, &battle.0, counter)
             else {
                 return;
@@ -1053,6 +1057,55 @@ mod tests {
         ];
         let mut app = cut_in_app(battle, queue, true);
 
+        assert_eq!(
+            shown_cut_ins(&mut app),
+            vec![
+                ("Vanguard", "Striker", false),
+                ("Striker", "Vanguard", true)
+            ]
+        );
+        assert!(app.world().resource::<EventPlayback>().current.is_none());
+        assert_eq!(cut_in_count(&mut app), 0);
+    }
+
+    #[test]
+    fn a_counter_between_blast_rolls_does_not_restart_the_blast() {
+        let (battle, _) = pile_lance_on_striker(7);
+        let roll = |attacker, weapon, target, hit| BattleEvent::AttackRolled {
+            attacker,
+            weapon,
+            target,
+            roll: if hit { 1 } else { 99 },
+            hit,
+            critical_roll: None,
+            critical: false,
+        };
+        // An enemy blast resolves the counter its first hit draws before it
+        // rolls on the next cell of its footprint.
+        let queue = vec![
+            roll(ids::ARTILLERY, ids::SIEGE_MORTAR, ids::GUNNER, true),
+            BattleEvent::CounterFired {
+                defender: ids::GUNNER,
+                attacker: ids::ARTILLERY,
+                weapon: ids::RAIL_RIFLE,
+            },
+            roll(ids::GUNNER, ids::RAIL_RIFLE, ids::ARTILLERY, false),
+            roll(ids::ARTILLERY, ids::SIEGE_MORTAR, ids::VANGUARD, false),
+        ];
+        let mut app = cut_in_app(battle, queue, true);
+
+        assert_eq!(
+            shown_cut_ins(&mut app),
+            vec![
+                ("Artillery", "Gunner", false),
+                ("Gunner", "Artillery", true)
+            ]
+        );
+        assert!(app.world().resource::<EventPlayback>().current.is_none());
+    }
+
+    /// Plays the queue out and lists each cut-in as (attacker, target, counter).
+    fn shown_cut_ins(app: &mut App) -> Vec<(&'static str, &'static str, bool)> {
         let mut shown = Vec::new();
         let mut last = None;
         for _ in 0..64 {
@@ -1069,15 +1122,7 @@ mod tests {
             }
             last = snapshot;
         }
-        assert_eq!(
-            shown,
-            vec![
-                ("Vanguard", "Striker", false),
-                ("Striker", "Vanguard", true)
-            ]
-        );
-        assert!(app.world().resource::<EventPlayback>().current.is_none());
-        assert_eq!(cut_in_count(&mut app), 0);
+        shown
     }
 
     #[test]
