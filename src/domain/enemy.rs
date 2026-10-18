@@ -2115,6 +2115,23 @@ mod tests {
         ]);
     }
 
+    #[test]
+    #[should_panic(expected = "must start on the board")]
+    fn reinforcements_reject_the_primary_objective_target() {
+        let _ = squad_fixture(
+            MissionRules {
+                primary: PrimaryObjective::EliminateTarget { target: WAVE },
+                ..eliminate_rules()
+            },
+            [(GARRISON, UnitArchetype::Rifleman, GridPos::new(0, 0))],
+            [(WAVE_PLAYER, GridPos::new(8, 8))],
+        )
+        .with_reinforcements([Reinforcement {
+            round: 3,
+            units: vec![enemies::rifleman(WAVE, "Wave Rifleman", GridPos::new(0, 8))],
+        }]);
+    }
+
     fn eliminate_rules() -> MissionRules {
         MissionRules {
             primary: PrimaryObjective::EliminateAllEnemies,

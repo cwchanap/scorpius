@@ -75,6 +75,13 @@ impl BattleState {
     /// Hold authored enemy waves off the board until they are due; see
     /// [`Reinforcement`]. Waves are listed in round order and arrive in that order.
     pub fn with_reinforcements(mut self, waves: impl IntoIterator<Item = Reinforcement>) -> Self {
+        // Objective checks read the board, where a pending target looks dead.
+        let objective_target = match self.rules.primary {
+            PrimaryObjective::EliminateAllEnemies => None,
+            PrimaryObjective::EliminateTarget { target }
+            | PrimaryObjective::ProtectThroughRound { target, .. }
+            | PrimaryObjective::InterceptBeforeEscape { target, .. } => Some(target),
+        };
         for wave in waves {
             assert!(
                 wave.round >= 2,
@@ -94,6 +101,12 @@ impl BattleState {
                     unit.faction,
                     Faction::Enemy,
                     "{} must be an enemy",
+                    unit.name
+                );
+                assert_ne!(
+                    objective_target,
+                    Some(unit.id),
+                    "{} is the primary objective's target, which must start on the board",
                     unit.name
                 );
                 assert!(
