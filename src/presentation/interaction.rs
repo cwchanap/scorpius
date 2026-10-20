@@ -19,6 +19,7 @@ use super::{
     RestartRoundPending, TokenCard,
     assets::{AssetLoadStatus, mission_assets_ready},
     campaign_ui::screen_transition_pending,
+    field_tips::FieldTips,
     layout::{
         BATTLE_STAGE_SIZE, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, grid_from_map_point,
         grid_from_stage_point, unit_root_top_left,
@@ -884,6 +885,9 @@ pub(crate) fn reset_transient_battle_state(world: &mut World) {
     world.resource_mut::<AttackPreviewCells>().0.clear();
     if let Some(mut log) = world.get_resource_mut::<RecentBattleLog>() {
         log.0.clear();
+    }
+    if let Some(mut tips) = world.get_resource_mut::<FieldTips>() {
+        tips.skip_all();
     }
 }
 

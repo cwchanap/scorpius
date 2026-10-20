@@ -43,7 +43,8 @@ impl Default for TipSettings {
 }
 
 /// The active battle visit's tips, by authored index. Battle entry resets
-/// it; a restart keeps it, so a retry does not repeat what was already said.
+/// it; a restart drops the tips still waiting, which described the old
+/// battle, but keeps what was already said so a retry does not repeat it.
 #[derive(Resource, Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldTips {
     /// Tips whose trigger has held this visit, shown or skipped.
@@ -142,12 +143,7 @@ pub(crate) fn stage_field_tips(
         }
     }
 
-    let player_can_act = mission_assets_ready(&asset_status)
-        && playback.current.is_none()
-        && queue.0.is_empty()
-        && battle.0.phase() == BattlePhase::Player
-        && battle.0.result().is_none();
-    if !player_can_act {
+    if !player_can_act(&asset_status, &playback, &queue, &battle.0) {
         return;
     }
     if pressed(KeyCode::Enter) {
@@ -158,6 +154,21 @@ pub(crate) fn stage_field_tips(
         InteractionMode::Inspect | InteractionMode::Move | InteractionMode::AegisTarget => None,
     };
     tips.observe(mission.0.tips, &battle.0, armed, settings.enabled);
+}
+
+/// Tips queue and dismiss only while the player can act: assets ready,
+/// playback idle, and a live Player phase.
+fn player_can_act(
+    asset_status: &AssetLoadStatus,
+    playback: &EventPlayback,
+    queue: &BattleEventQueue,
+    battle: &BattleState,
+) -> bool {
+    mission_assets_ready(asset_status)
+        && playback.current.is_none()
+        && queue.0.is_empty()
+        && battle.phase() == BattlePhase::Player
+        && battle.result().is_none()
 }
 
 /// Project the tip on screen onto the band. The band hides while there is
@@ -201,9 +212,20 @@ pub(crate) fn sync_field_tip_band(
     }
 }
 
-fn on_field_tip_button_click(mut click: On<Pointer<Click>>, mut tips: ResMut<FieldTips>) {
+fn on_field_tip_button_click(
+    mut click: On<Pointer<Click>>,
+    mut tips: ResMut<FieldTips>,
+    battle: Res<BattleRuntime>,
+    playback: Res<EventPlayback>,
+    queue: Res<BattleEventQueue>,
+    asset_status: Res<AssetLoadStatus>,
+) {
     click.propagate(false);
-    tips.dismiss();
+    if click.button == PointerButton::Primary
+        && player_can_act(&asset_status, &playback, &queue, &battle.0)
+    {
+        tips.dismiss();
+    }
 }
 
 /// Spawn the hidden comms band under the battle stage.
@@ -351,6 +373,16 @@ pub fn spawn_field_tip_band(commands: &mut Commands, parent: Entity, ui_assets: 
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use bevy::{
+        camera::NormalizedRenderTarget,
+        picking::{
+            backend::HitData,
+            pointer::{Location, PointerId},
+        },
+    };
+
     use super::*;
     use crate::domain::{
         board::GridPos,
@@ -542,6 +574,57 @@ mod tests {
         assert_eq!(band_text(&mut app, FieldTipText::Button), "NEXT");
         tap(&mut app, KeyCode::Enter);
         assert_eq!(band_text(&mut app, FieldTipText::Title), "YOUR MOVE");
+    }
+
+    fn click_tip_button(app: &mut App, button: PointerButton) {
+        let entity = app
+            .world_mut()
+            .query_filtered::<Entity, With<FieldTipButton>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().trigger(Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: NormalizedRenderTarget::None {
+                    width: 1920,
+                    height: 1080,
+                },
+                position: Vec2::ZERO,
+            },
+            Click {
+                button,
+                hit: HitData::new(Entity::PLACEHOLDER, 0.0, None, None),
+                duration: Duration::ZERO,
+                count: 1,
+            },
+            entity,
+        ));
+    }
+
+    #[test]
+    fn the_button_dismisses_on_a_primary_click_only_while_the_player_can_act() {
+        let mut app = tips_app();
+        app.update();
+        let current = |app: &App| app.world().resource::<FieldTips>().current();
+        assert_eq!(current(&app), Some(0));
+
+        click_tip_button(&mut app, PointerButton::Secondary);
+        assert_eq!(current(&app), Some(0));
+
+        app.world_mut()
+            .resource_mut::<BattleEventQueue>()
+            .0
+            .push_back(BattleEvent::UnitMoved {
+                unit: ids::VANGUARD,
+                from: GridPos::new(4, 7),
+                to: GridPos::new(4, 8),
+            });
+        click_tip_button(&mut app, PointerButton::Primary);
+        assert_eq!(current(&app), Some(0), "a click during playback keeps it");
+
+        app.world_mut().resource_mut::<BattleEventQueue>().0.clear();
+        click_tip_button(&mut app, PointerButton::Primary);
+        assert_eq!(current(&app), None);
     }
 
     #[test]
