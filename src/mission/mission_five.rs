@@ -8,7 +8,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{GUNNER, INTERCEPTOR, VANGUARD};
@@ -147,6 +149,12 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 1] = [FieldTip {
+    trigger: TipTrigger::Opening,
+    title: "CROSSFIRE",
+    text: "Both mortars lock crosses that overlap on one cell. Get your mechs clear, then shove an enemy onto that cell to make it take both blasts.",
+}];
+
 pub const MISSION_FIVE_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Five,
     unlocks: Some(MissionId::Six),
@@ -164,6 +172,7 @@ pub const MISSION_FIVE_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]

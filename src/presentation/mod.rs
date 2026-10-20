@@ -3,6 +3,7 @@ pub mod battle_menu;
 pub mod battlefield;
 pub mod campaign_ui;
 pub mod cut_in;
+pub mod field_tips;
 pub mod interaction;
 pub mod layout;
 pub mod map_view;

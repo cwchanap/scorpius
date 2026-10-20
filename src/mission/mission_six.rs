@@ -9,7 +9,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad, stats, unit, weapon};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{GUNNER, INTERCEPTOR, VANGUARD};
@@ -171,6 +173,19 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 2] = [
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "DREADNOUGHT",
+        text: "Only the Dreadnought has to fall. Its cross hits everything inside, escorts too: shove one in for the Turnabout bonus. Its battery changes at half HP.",
+    },
+    FieldTip {
+        trigger: TipTrigger::AtHalfHp(ids::DREADNOUGHT),
+        title: "OVERLOAD",
+        text: "The Dreadnought is at half HP. From its next plan it fires Overload Salvo at range 2 to 4 and closes in. The attack it already locked stays as it is.",
+    },
+];
+
 pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Six,
     unlocks: Some(MissionId::Seven),
@@ -188,6 +203,7 @@ pub const MISSION_SIX_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]

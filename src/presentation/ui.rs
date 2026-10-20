@@ -25,6 +25,7 @@ use super::{
         WeaponTextKind, spawn_battle_menu,
     },
     e2e_id,
+    field_tips::spawn_field_tip_band,
     interaction::{
         CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
         on_command_button_click, restart_allowed,
@@ -1909,6 +1910,7 @@ pub fn setup_mission_ui(
         "CONTINUE",
         0.0,
     );
+    spawn_field_tip_band(&mut commands, root, &ui_assets);
 
     commands.spawn((
         Text::new("Loading battle UI assets..."),
@@ -3704,6 +3706,7 @@ mod tests {
             gunner_map: Handle::default(),
             interceptor_map: Handle::default(),
             enemy_map: Handle::default(),
+            control_portrait: Handle::default(),
             icons: Handle::default(),
             board: Handle::default(),
             terrain: Handle::default(),

@@ -9,7 +9,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad, stats, unit, weapon};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{GUNNER, INTERCEPTOR, VANGUARD};
@@ -204,6 +206,19 @@ static AFTERMATH_LINES: [DialogueLine; 3] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 2] = [
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "THE REGENT",
+        text: "Only the Regent has to fall. Like the Dreadnought, it switches weapons at half HP. Destroy it by the end of Round 6 for the Final Push bonus.",
+    },
+    FieldTip {
+        trigger: TipTrigger::AtHalfHp(ids::REGENT),
+        title: "RUPTURE BEAM",
+        text: "The Regent is at half HP. Its next plans fire Rupture Beam: one cell at range 2 to 4, its hardest hit. The attack it already locked stays as it is.",
+    },
+];
+
 pub const MISSION_SEVEN_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Seven,
     unlocks: None,
@@ -221,6 +236,7 @@ pub const MISSION_SEVEN_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]

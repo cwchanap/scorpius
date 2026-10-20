@@ -94,6 +94,16 @@ Each pilot has one signature skill usable once per mission, armed with the `[P] 
 - **Focus** (Gunner): the next validated player Action attack previews and resolves at 100% hit chance and is consumed on commit. Counter never consumes or receives Focus.
 - **Overdrive** (Interceptor): before Move is spent, gain +2 movement for that activation. This is the only movement-range increase in the game — the Mobility upgrade track improves evasion instead.
 
+### Field tips
+
+Act 1 teaches its rules in battle. The first time a mechanic matters, **Control** explains it in a
+comms band under the battlefield: locked enemy attacks, the turn order, stances, pushes and the
+Turnabout bonus, resolving a round, and reinforcements in Mission 1, then each mission's own idea
+(protecting the Gunner, the Courier chase, armor and explosives, crossfire, and the bosses' half-HP
+weapon switch) and one pilot skill each in Missions 2–4. Each tip shows once per mission visit; a
+restart does not repeat it. Tips never block input. **GOT IT** or `Enter` dismisses the tip on screen
+(**NEXT** when more are waiting), and `H` turns tips off or back on.
+
 ### Keyboard mirrors
 
 Pointer input selects mechs, destinations, and targets. **CANCEL** and `Escape`
@@ -118,6 +128,8 @@ aftermath, or upgrade screens. These keys mirror the battle command buttons:
 | `Home` / minimap **Center** | Center the active, inspected, or first living player |
 | `Space`, `Enter`, `Escape`, or click during a battle cut-in | Skip the cut-in |
 | `V` | Turn battle cut-ins off or on |
+| `Enter` | Dismiss the field tip on screen during an idle Player phase |
+| `H` | Turn field tips off or on |
 
 ### Native UI capture
 
@@ -138,6 +150,8 @@ Captures use the production Bevy UI tree and an isolated temporary save; they
 never read or write the platform campaign save.
 Regional terrain fixtures: `battle-regional-coast`, `battle-regional-forest`,
 `battle-regional-mountains`, and `battle-regional-edge` (cell 127,127).
+Field tips are off in every fixture except `battle-tip-opening`, `battle-tip-push`, and
+`m6-tip-overload`, so the other captures keep their composition.
 
 ## Verify
 

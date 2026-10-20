@@ -9,7 +9,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::enemies::ids::{SERVICE_RIFLE, SHOCK_CLAW, SIEGE_MORTAR};
@@ -241,6 +243,39 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 6] = [
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "LOCKED ATTACKS",
+        text: "Red-outlined cells are locked enemy attacks that fire when you press RESOLVE. Click a unit to see damage and hit chance on the right. Their aim never changes: step out, or destroy the attacker first.",
+    },
+    FieldTip {
+        trigger: TipTrigger::AnyActivation,
+        title: "YOUR MOVE",
+        text: "Each mech can MOVE and ATTACK once, in either order. It needs a STANCE before it can WAIT and hand over to the next mech.",
+    },
+    FieldTip {
+        trigger: TipTrigger::ActiveUnitTargeted,
+        title: "STANCES",
+        text: "This mech stands in a locked attack. GUARD takes 3 less damage per hit, EVADE cuts the enemy's hit chance by 25, and COUNTER shoots back after a hit if the attacker is in range.",
+    },
+    FieldTip {
+        trigger: TipTrigger::PushArmed,
+        title: "PUSH",
+        text: "This weapon shoves its target one cell back. A blocked shove is a collision for 3 damage. Hurt an enemy with a collision, a hazard, an explosion or enemy fire for the Turnabout bonus.",
+    },
+    FieldTip {
+        trigger: TipTrigger::ReadyToResolve,
+        title: "RESOLVE",
+        text: "Every mech is set. Press RESOLVE: the locked attacks fire, then the enemies move and lock their next attacks before your turn comes back.",
+    },
+    FieldTip {
+        trigger: TipTrigger::Deployed(ids::ROAD_RIFLEMAN_NORTH),
+        title: "REINFORCEMENTS",
+        text: "A patrol has reached the east road, and it has to fall too before Relay Nine is clear. Pan with the arrow keys or click the minimap to keep it in view.",
+    },
+];
+
 pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::One,
     unlocks: Some(MissionId::Two),
@@ -258,6 +293,7 @@ pub const MISSION_ONE_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]
