@@ -43,8 +43,8 @@ impl Default for TipSettings {
 }
 
 /// The active battle visit's tips, by authored index. Battle entry resets
-/// it; a restart drops the tips still waiting, which described the old
-/// battle, but keeps what was already said so a retry does not repeat it.
+/// it; a restart forgets the tips not yet dismissed, which described the
+/// old battle, but keeps what was already said so a retry does not repeat it.
 #[derive(Resource, Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldTips {
     /// Tips whose trigger has held this visit, shown or skipped.
@@ -71,6 +71,13 @@ impl FieldTips {
     /// Drop every queued tip without showing it.
     pub fn skip_all(&mut self) {
         self.queue.clear();
+    }
+
+    /// Drop the tips not yet dismissed and forget that they triggered, so
+    /// each queues again once its trigger holds in the restarted battle.
+    pub fn forget_undismissed(&mut self) {
+        let undismissed = std::mem::take(&mut self.queue);
+        self.triggered.retain(|index| !undismissed.contains(index));
     }
 
     /// Mark every tip whose trigger now holds for the first time as
@@ -443,6 +450,21 @@ mod tests {
         battle.finish_activation(ids::VANGUARD).unwrap();
         tips.observe(&TIPS, &battle, None, true);
         assert_eq!(tips.current(), None);
+    }
+
+    #[test]
+    fn forgotten_tips_queue_again_but_dismissed_ones_stay_taught() {
+        let battle = opened_mission_one();
+        let mut tips = FieldTips::default();
+        tips.observe(&TIPS, &battle, None, true);
+        tips.dismiss();
+        assert_eq!(tips.current(), Some(1));
+
+        tips.forget_undismissed();
+        assert_eq!(tips.current(), None);
+        tips.observe(&TIPS, &battle, None, true);
+        assert_eq!(tips.current(), Some(1));
+        assert_eq!(tips.waiting(), 0);
     }
 
     #[test]

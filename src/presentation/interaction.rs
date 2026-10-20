@@ -887,7 +887,7 @@ pub(crate) fn reset_transient_battle_state(world: &mut World) {
         log.0.clear();
     }
     if let Some(mut tips) = world.get_resource_mut::<FieldTips>() {
-        tips.skip_all();
+        tips.forget_undismissed();
     }
 }
 
