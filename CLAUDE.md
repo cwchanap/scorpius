@@ -110,7 +110,7 @@ grid to the authored 2.5D stage.
   so bare test apps keep map-speed playback.
 - `field_tips.rs` — Control's comms band under the stage. `stage_field_tips` (after the input
   systems) queues each authored tip on the first idle Player-phase frame its trigger holds, once per
-  battle visit: `enter_battle` resets `FieldTips`, a restart keeps it. Presentation only, never
+  battle visit: `enter_battle` resets `FieldTips`; a restart drops waiting tips but keeps what was taught. Presentation only, never
   modal. The `TipSettings` resource gates it; the `ui_capture` fixtures turn it off unless a fixture
   uses `CaptureAction::ShowTip`.
 - `sync.rs` — reconciles marker entities against current state each frame (spawn/despawn diffing).

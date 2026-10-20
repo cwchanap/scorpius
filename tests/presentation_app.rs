@@ -24,6 +24,7 @@ use scorpius::{
         TokenFootprintVisual, TokenHpFill, TokenSelectionVisual, UnitVisual,
         assets::UiAssets,
         battlefield::{mission_grid_cells, setup_mission_scene},
+        field_tips::FieldTips,
         interaction::{
             CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
             handle_viability_cell_click, restart_battle, route_cell_click, update_hover_preview,
@@ -953,6 +954,11 @@ fn restart_replaces_presentation_root_and_transient_state() {
         .resource_mut::<AttackPreviewCells>()
         .0
         .insert(GridPos::new(4, 4));
+    let tips = mission_definition(MissionId::One).unwrap().tips;
+    let mut field_tips = FieldTips::default();
+    field_tips.observe(tips, &app.world().resource::<BattleRuntime>().0, None, true);
+    assert!(field_tips.current().is_some());
+    app.insert_resource(field_tips);
     restart_battle(app.world_mut(), 11);
     app.update();
 
@@ -972,6 +978,13 @@ fn restart_replaces_presentation_root_and_transient_state() {
     assert!(app.world().resource::<StatusMessage>().0.is_empty());
     assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
     assert_eq!(app.world().resource::<BattleRuntime>().0.round(), 0);
+
+    // Waiting tips described the old battle; taught ones stay taught.
+    let battle = app.world().resource::<BattleRuntime>().0.clone();
+    let mut field_tips = app.world_mut().resource_mut::<FieldTips>();
+    assert_eq!(field_tips.current(), None);
+    field_tips.observe(tips, &battle, None, true);
+    assert_eq!(field_tips.current(), None);
 }
 
 #[test]
