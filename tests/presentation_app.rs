@@ -979,12 +979,13 @@ fn restart_replaces_presentation_root_and_transient_state() {
     assert!(app.world().resource::<AttackPreviewCells>().0.is_empty());
     assert_eq!(app.world().resource::<BattleRuntime>().0.round(), 0);
 
-    // Waiting tips described the old battle; taught ones stay taught.
+    // The undismissed tip described the old battle; it queues again from
+    // the new one.
     let battle = app.world().resource::<BattleRuntime>().0.clone();
     let mut field_tips = app.world_mut().resource_mut::<FieldTips>();
     assert_eq!(field_tips.current(), None);
     field_tips.observe(tips, &battle, None, true);
-    assert_eq!(field_tips.current(), None);
+    assert_eq!(field_tips.current(), Some(0));
 }
 
 #[test]
