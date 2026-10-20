@@ -20,6 +20,9 @@ pub mod mission_six;
 pub mod mission_three;
 pub mod mission_two;
 pub mod squad;
+pub mod tips;
+
+pub use tips::{FieldTip, TipTrigger};
 
 pub type MissionBuilder = fn(u64, &SquadUpgrades) -> BattleState;
 
@@ -74,6 +77,9 @@ pub struct MissionDefinition {
     pub optional_reward: u32,
     pub pre_mission: DialogueScene,
     pub aftermath: DialogueScene,
+    /// Control's in-battle tips, in the order they queue when several
+    /// trigger at once.
+    pub tips: &'static [FieldTip],
 }
 
 impl PartialEq for MissionDefinition {
@@ -88,6 +94,7 @@ impl PartialEq for MissionDefinition {
             && self.optional_reward == other.optional_reward
             && self.pre_mission == other.pre_mission
             && self.aftermath == other.aftermath
+            && self.tips == other.tips
     }
 }
 

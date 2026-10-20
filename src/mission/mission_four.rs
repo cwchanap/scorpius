@@ -8,7 +8,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{GUNNER, INTERCEPTOR, VANGUARD};
@@ -154,6 +156,29 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 4] = [
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "ARMOR",
+        text: "The Gate Bulwark has 4 armor, so every weapon hit does 4 less. Collisions, the hazard trench and explosions ignore armor. Destroy it and the gate is open; the escorts can wait.",
+    },
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "EXPLOSIVES",
+        text: "Orange fuel cells explode once they take enough damage, hitting their cell and the four next to it for 4, friend or foe. Aim any weapon at one.",
+    },
+    FieldTip {
+        trigger: TipTrigger::ActiveUnitTargetedBy(ids::CONTROLLER),
+        title: "CONTROLLER",
+        text: "The Controller has this mech locked. Its shot shoves the target one cell away, so check where you would land: a wall, the trench or another locked attack all hurt.",
+    },
+    FieldTip {
+        trigger: TipTrigger::Activation(ids::GUNNER),
+        title: "FOCUS",
+        text: "Gunner's pilot skill: press SKILL and the Gunner's next attack can't miss. Save it for the shot that matters. Once per mission.",
+    },
+];
+
 pub const MISSION_FOUR_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Four,
     unlocks: Some(MissionId::Five),
@@ -171,6 +196,7 @@ pub const MISSION_FOUR_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]

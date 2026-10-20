@@ -8,7 +8,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{GUNNER, INTERCEPTOR, VANGUARD};
@@ -143,6 +145,19 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 2] = [
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "INTERCEPT",
+        text: "The Courier is racing for the gold exit cell and gets there at the end of Round 3. Only the Courier has to fall. Do it by the end of Round 2 for the Swift Intercept bonus.",
+    },
+    FieldTip {
+        trigger: TipTrigger::Activation(ids::INTERCEPTOR),
+        title: "OVERDRIVE",
+        text: "Interceptor's pilot skill: press SKILL before you MOVE for 2 extra movement this turn. Once per mission.",
+    },
+];
+
 pub const MISSION_THREE_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Three,
     unlocks: Some(MissionId::Four),
@@ -160,6 +175,7 @@ pub const MISSION_THREE_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]

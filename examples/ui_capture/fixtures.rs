@@ -113,6 +113,9 @@ pub enum CaptureAction {
     /// Leave the events earlier actions queued to production playback
     /// instead of settling them before the capture.
     KeepPlayback,
+    /// Turn field tips on for this fixture (every other fixture runs with
+    /// them off) and dismiss queued tips until this title is on screen.
+    ShowTip(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -150,6 +153,7 @@ pub enum ExpectedFact {
     RecentLogEntries(usize),
     PlaybackActive(bool),
     AssetStatus(AssetLoadStatus),
+    FieldTip(Option<&'static str>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -625,6 +629,31 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         ],
     },
     CaptureFixture {
+        id: "battle-tip-opening",
+        profile: battle_profile(MissionId::One),
+        actions: &[CaptureAction::ShowTip("LOCKED ATTACKS")],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::BattlePhase(BattlePhase::Player),
+            ExpectedFact::Round(1),
+            ExpectedFact::FieldTip(Some("LOCKED ATTACKS")),
+        ],
+    },
+    CaptureFixture {
+        id: "battle-tip-push",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::Inspect(m1::VANGUARD),
+            CaptureAction::Command(CommandAction::WeaponSlot(1)),
+            CaptureAction::ShowTip("PUSH"),
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::Mode(InteractionMode::Attack(m1::REPULSOR_RAM)),
+            ExpectedFact::FieldTip(Some("PUSH")),
+        ],
+    },
+    CaptureFixture {
         id: "battle-road-patrol",
         profile: battle_profile(MissionId::One),
         actions: &[
@@ -866,6 +895,19 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             ExpectedFact::Inspection(Some(m6::DREADNOUGHT)),
             ExpectedFact::UnitHp(m6::DREADNOUGHT, 14),
             ExpectedFact::IntentWeapon(m6::DREADNOUGHT, m6::OVERLOAD_SALVO),
+        ],
+    },
+    CaptureFixture {
+        id: "m6-tip-overload",
+        profile: battle_profile(MissionId::Six),
+        actions: &[
+            CaptureAction::SetBattle(BattleSetup::SetBossBelowHp(m6::DREADNOUGHT, 18)),
+            CaptureAction::ShowTip("OVERLOAD"),
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::UnitHp(m6::DREADNOUGHT, 14),
+            ExpectedFact::FieldTip(Some("OVERLOAD")),
         ],
     },
     CaptureFixture {

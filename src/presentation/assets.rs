@@ -12,6 +12,7 @@ pub const VANGUARD_MAP_PATH: &str = "ui/map/vanguard.png";
 pub const GUNNER_MAP_PATH: &str = "ui/map/gunner.png";
 pub const INTERCEPTOR_MAP_PATH: &str = "ui/map/interceptor.png";
 pub const ENEMY_MAP_PATH: &str = "ui/map/enemy.png";
+pub const CONTROL_PORTRAIT_PATH: &str = "vn/control_neutral.png";
 
 /// Handles for every asset used by the native campaign and battle UI.
 /// `AssetLoadStatus` is the single readiness/error gate for presentation.
@@ -26,6 +27,7 @@ pub struct UiAssets {
     pub gunner_map: Handle<Image>,
     pub interceptor_map: Handle<Image>,
     pub enemy_map: Handle<Image>,
+    pub control_portrait: Handle<Image>,
     pub icons: Handle<Image>,
     pub board: Handle<Image>,
     pub terrain: Handle<Image>,
@@ -45,6 +47,7 @@ impl FromWorld for UiAssets {
             gunner_map: asset_server.load(GUNNER_MAP_PATH),
             interceptor_map: asset_server.load(INTERCEPTOR_MAP_PATH),
             enemy_map: asset_server.load(ENEMY_MAP_PATH),
+            control_portrait: asset_server.load(CONTROL_PORTRAIT_PATH),
             icons: asset_server.load(theme::ICON_ATLAS_PATH),
             board: asset_server.load(theme::BOARD_ATLAS_PATH),
             terrain: asset_server.load(theme::TERRAIN_ATLAS_PATH),
@@ -80,7 +83,7 @@ impl UiAssets {
         }
     }
 
-    fn images(&self) -> [(&'static str, &Handle<Image>); 12] {
+    fn images(&self) -> [(&'static str, &Handle<Image>); 13] {
         [
             (KEY_ART_PATH, &self.key_art),
             (BRIEFING_ART_PATH, &self.briefing_art),
@@ -91,6 +94,7 @@ impl UiAssets {
             (GUNNER_MAP_PATH, &self.gunner_map),
             (INTERCEPTOR_MAP_PATH, &self.interceptor_map),
             (ENEMY_MAP_PATH, &self.enemy_map),
+            (CONTROL_PORTRAIT_PATH, &self.control_portrait),
             (theme::ICON_ATLAS_PATH, &self.icons),
             (theme::BOARD_ATLAS_PATH, &self.board),
             (theme::TERRAIN_ATLAS_PATH, &self.terrain),
@@ -189,6 +193,7 @@ mod tests {
             gunner_map: Handle::default(),
             interceptor_map: Handle::default(),
             enemy_map: Handle::default(),
+            control_portrait: Handle::default(),
             icons: Handle::default(),
             board: Handle::default(),
             terrain: Handle::default(),
@@ -236,9 +241,9 @@ mod tests {
     }
 
     #[test]
-    fn image_readiness_gate_covers_all_twelve_images() {
+    fn image_readiness_gate_covers_all_thirteen_images() {
         let assets = catalog();
-        assert_eq!(assets.images().len(), 12);
+        assert_eq!(assets.images().len(), 13);
     }
 
     #[test]
@@ -249,7 +254,7 @@ mod tests {
         app.init_asset::<Font>();
         app.world_mut().init_resource::<UiAssets>();
         let assets = app.world().resource::<UiAssets>();
-        assert_eq!(assets.images().len(), 12);
+        assert_eq!(assets.images().len(), 13);
         for (path, handle) in assets.images() {
             assert_eq!(
                 handle

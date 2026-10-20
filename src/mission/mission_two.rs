@@ -8,7 +8,9 @@ use crate::domain::{
 };
 use crate::mission::enemies;
 use crate::mission::squad::{SquadDeployment, build_player_squad};
-use crate::mission::{DialogueLine, DialogueScene, MissionDefinition, MissionId};
+use crate::mission::{
+    DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
+};
 
 pub mod ids {
     pub use crate::mission::squad::ids::{GUNNER, INTERCEPTOR, VANGUARD};
@@ -153,6 +155,19 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
+static FIELD_TIPS: [FieldTip; 2] = [
+    FieldTip {
+        trigger: TipTrigger::Opening,
+        title: "PROTECT THE GUNNER",
+        text: "The mission fails if the Gunner falls. Hold until Round 3 ends, or destroy every attacker. Keep the Gunner at half HP or better for the Hold Fast bonus.",
+    },
+    FieldTip {
+        trigger: TipTrigger::Activation(ids::VANGUARD),
+        title: "AEGIS",
+        text: "Vanguard's pilot skill: press SKILL, then click an ally next to it. That ally takes 3 less damage per hit next enemy turn. Each pilot skill works once per mission.",
+    },
+];
+
 pub const MISSION_TWO_DEFINITION: MissionDefinition = MissionDefinition {
     id: MissionId::Two,
     unlocks: Some(MissionId::Three),
@@ -170,6 +185,7 @@ pub const MISSION_TWO_DEFINITION: MissionDefinition = MissionDefinition {
         background: "vn/relay_nine_bg.png",
         lines: &AFTERMATH_LINES,
     },
+    tips: &FIELD_TIPS,
 };
 
 #[cfg(test)]

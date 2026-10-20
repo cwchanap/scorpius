@@ -19,6 +19,7 @@ use crate::{
             update_dialogue_screen,
         },
         cut_in::{ActiveCutIn, CutInSettings, animate_cut_in, stage_cut_ins},
+        field_tips::{FieldTips, TipSettings, stage_field_tips, sync_field_tip_band},
         interaction::{
             InteractionState, StatusMessage, handle_keyboard_shortcuts, process_restart_request,
             reset_transient_battle_state,
@@ -84,6 +85,8 @@ impl Plugin for ScorpiusPlugin {
             .init_resource::<RecentBattleLog>()
             .init_resource::<CutInSettings>()
             .init_resource::<ActiveCutIn>()
+            .init_resource::<TipSettings>()
+            .init_resource::<FieldTips>()
             .init_resource::<AttackPreviewCells>()
             .init_resource::<InteractionState>()
             .init_resource::<StatusMessage>()
@@ -195,6 +198,14 @@ impl Plugin for ScorpiusPlugin {
             )
             .add_systems(
                 Update,
+                (stage_field_tips, sync_field_tip_band)
+                    .chain()
+                    .after(handle_keyboard_shortcuts)
+                    .after(stage_cut_ins)
+                    .run_if(in_state(GameScreen::Battle)),
+            )
+            .add_systems(
+                Update,
                 (update_hud, update_battle_menu, update_asset_status_text)
                     .after(play_battle_events)
                     .run_if(in_state(GameScreen::Battle)),
@@ -246,6 +257,8 @@ pub fn enter_battle(world: &mut World) {
         .expect("authored mission opening must be valid");
     world.insert_resource(ActiveMission(definition));
     world.insert_resource(BattleRuntime(battle));
+    // A new visit teaches the mission again; a restart keeps what was said.
+    world.insert_resource(FieldTips::default());
     reset_transient_battle_state(world);
 }
 

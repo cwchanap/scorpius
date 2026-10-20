@@ -80,6 +80,7 @@ fn test_assets() -> UiAssets {
         gunner_map: Handle::default(),
         interceptor_map: Handle::default(),
         enemy_map: Handle::default(),
+        control_portrait: Handle::default(),
         icons: Handle::default(),
         board: Handle::default(),
         terrain: Handle::default(),

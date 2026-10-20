@@ -44,9 +44,10 @@ use scorpius::{
         assets::{AssetLoadStatus, monitor_mission_assets},
         battle_menu::apply_menu_action,
         campaign_ui::{CampaignStatus, DialogueCursor, ScreenRoot, apply_campaign_action},
+        field_tips::{FieldTipBand, FieldTips, TipSettings},
         interaction::{
-            CommandAction, InteractionState, StatusMessage, execute_command, route_cell_click,
-            route_token_click, update_hover_preview,
+            CommandAction, InteractionMode, InteractionState, StatusMessage, execute_command,
+            route_cell_click, route_token_click, update_hover_preview,
         },
         ui::{
             AssetStatusText, HudRoot, HudSnapshot, ObjectiveTrackSnapshot, format_event,
@@ -193,8 +194,14 @@ fn main() {
     let definition = mission_definition(profile.mission)
         .unwrap_or_else(|| panic!("fixture mission {:?} has no definition", profile.mission));
 
+    let show_tips = fixture
+        .actions
+        .iter()
+        .any(|action| matches!(action, CaptureAction::ShowTip(_)));
+
     let mut app = App::new();
     app.add_plugins(ScorpiusPlugin)
+        .insert_resource(TipSettings { enabled: show_tips })
         .insert_resource(CampaignRuntime(session))
         .insert_resource(ActiveMission(definition))
         .insert_resource(CaptureRun {
@@ -733,7 +740,28 @@ fn apply_action(world: &mut World, action: &CaptureAction, seed: u64) {
         }
         CaptureAction::AdvanceRounds(rounds) => advance_rounds(world, *rounds),
         CaptureAction::KeepPlayback => {}
+        CaptureAction::ShowTip(title) => show_tip(world, title),
     }
+}
+
+/// Queue every tip whose trigger holds now, as the production system would
+/// on the next idle frame, then dismiss tips until `title` is on screen.
+fn show_tip(world: &mut World, title: &str) {
+    let tips = world.resource::<ActiveMission>().0.tips;
+    let armed = match world.resource::<InteractionState>().mode {
+        InteractionMode::Attack(weapon) => Some(weapon),
+        InteractionMode::Inspect | InteractionMode::Move | InteractionMode::AegisTarget => None,
+    };
+    world.resource_scope(|world, mut field_tips: Mut<FieldTips>| {
+        field_tips.observe(tips, battle(world), armed, true);
+        while let Some(index) = field_tips.current() {
+            if tips[index].title == title {
+                return;
+            }
+            field_tips.dismiss();
+        }
+        panic!("field tip {title:?} never triggered");
+    });
 }
 
 fn apply_command(world: &mut World, action: CommandAction) {
@@ -1224,6 +1252,24 @@ fn validate_fact(world: &mut World, screen: GameScreen, expected: &ExpectedFact)
         ExpectedFact::AssetStatus(want) => {
             assert_eq!(world.resource::<AssetLoadStatus>(), want);
             validate_asset_status_node(world, want);
+        }
+        ExpectedFact::FieldTip(want) => {
+            let tips = world.resource::<ActiveMission>().0.tips;
+            let shown = world
+                .resource::<FieldTips>()
+                .current()
+                .map(|index| tips[index].title);
+            assert_eq!(shown, *want);
+            let band = *world
+                .query_filtered::<&Visibility, With<FieldTipBand>>()
+                .single(world)
+                .expect("battle field tip band must exist");
+            let visible = if want.is_some() {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            assert_eq!(band, visible);
         }
     }
 }
