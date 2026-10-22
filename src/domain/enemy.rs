@@ -2064,21 +2064,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_wave_with_nowhere_to_land_waits_for_the_next_planning() {
-        // The arrival corner is walled in and the player stands on it.
-        let walled = GridPos::new(8, 8);
+    /// One garrison Rifleman and one wave Rifleman due at Round 3's planning
+    /// on `wave_cell`, on a board with `walls`, and a player on `player_cell`.
+    fn walled_wave_fixture(
+        size: (u8, u8),
+        walls: impl IntoIterator<Item = GridPos>,
+        garrison_cell: GridPos,
+        player_cell: GridPos,
+        wave_cell: GridPos,
+    ) -> BattleState {
         let mut battle = BattleState::new(
-            BoardState::new(9, 9, [GridPos::new(7, 8), GridPos::new(8, 7)], [], []),
+            BoardState::new(size.0, size.1, walls, [], []),
             vec![
-                enemies::rifleman(GARRISON, "Rifleman", GridPos::new(0, 0)),
+                enemies::rifleman(GARRISON, "Rifleman", garrison_cell),
                 squad::unit(
                     WAVE_PLAYER,
                     "Player",
                     UnitArchetype::Vanguard,
                     Faction::Player,
                     squad::stats(20, 3, 3, 78, 5, 7),
-                    walled,
+                    player_cell,
                     vec![],
                 ),
             ],
@@ -2088,24 +2093,56 @@ mod tests {
         )
         .with_reinforcements([Reinforcement {
             round: 3,
-            units: vec![enemies::rifleman(WAVE, "Wave Rifleman", walled)],
+            units: vec![enemies::rifleman(WAVE, "Wave Rifleman", wave_cell)],
         }]);
         battle.set_round_for_test(2);
+        battle
+    }
+
+    #[test]
+    fn a_wave_shut_out_of_its_pocket_lands_on_the_nearest_open_cell() {
+        // The arrival corner is walled in and the player stands on it, so
+        // nothing is reachable from it; the wave lands outside instead of
+        // stacking or waiting for a pocket the player can never leave.
+        let corner = GridPos::new(8, 8);
+        let mut battle = walled_wave_fixture(
+            (9, 9),
+            [GridPos::new(7, 8), GridPos::new(8, 7)],
+            GridPos::new(0, 0),
+            corner,
+            corner,
+        );
         battle.unit_mut_for_test(GARRISON).unwrap().hp = 0;
 
         let events = plan_next_round(&mut battle);
-        assert!(arrivals(&events).is_empty());
-        assert!(battle.unit(WAVE).is_none(), "no unit stacks on the player");
-        assert_eq!(battle.pending_reinforcements().count(), 1);
-        assert!(
-            battle.result().is_none(),
-            "a held unit is still a living enemy"
+        assert_eq!(arrivals(&events), vec![(WAVE, GridPos::new(8, 6))]);
+        assert_eq!(battle.pending_reinforcements().count(), 0);
+        assert!(battle.result().is_none(), "the wave is there to fight");
+    }
+
+    #[test]
+    fn a_wave_with_no_open_cell_on_the_board_waits_for_one() {
+        // A 3×1 strip: player, wall, garrison. Nothing is open anywhere.
+        let mut battle = walled_wave_fixture(
+            (3, 1),
+            [GridPos::new(1, 0)],
+            GridPos::new(2, 0),
+            GridPos::new(0, 0),
+            GridPos::new(0, 0),
         );
 
-        battle.move_unit_direct_for_test(WAVE_PLAYER, GridPos::new(0, 8));
         let events = plan_next_round(&mut battle);
-        assert_eq!(arrivals(&events), vec![(WAVE, walled)]);
+        assert!(arrivals(&events).is_empty());
+        assert!(battle.unit(WAVE).is_none(), "no unit stacks on another");
+        assert_eq!(battle.pending_reinforcements().count(), 1);
+
+        // Knocking out the garrison frees its cell, and the held unit lands
+        // there at the next planning.
+        battle.unit_mut_for_test(GARRISON).unwrap().hp = 0;
+        let events = plan_next_round(&mut battle);
+        assert_eq!(arrivals(&events), vec![(WAVE, GridPos::new(2, 0))]);
         assert_eq!(battle.pending_reinforcements().count(), 0);
+        assert!(battle.result().is_none());
     }
 
     #[test]

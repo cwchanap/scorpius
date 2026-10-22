@@ -542,7 +542,8 @@ impl BattleState {
 
     /// Bring in every wave whose round has come, or the next wave when no
     /// deployed enemy is left. Called from enemy planning for `self.round + 1`.
-    /// A unit with no open cell to arrive on waits for the next planning.
+    /// A unit with no open cell anywhere on the board waits for the next
+    /// planning.
     pub(super) fn deploy_due_reinforcements(&mut self) -> Vec<BattleEvent> {
         let planning = self.round.saturating_add(1);
         let board_clear = !self
@@ -587,8 +588,10 @@ impl BattleState {
     }
 
     /// The authored arrival cell, or the nearest open cell reachable from it
-    /// over passable ground when someone is standing there. `None` when every
-    /// cell it can reach is taken.
+    /// over passable ground when someone is standing there. When everything
+    /// reachable is taken (a walled pocket the player holds), the nearest open
+    /// cell anywhere, so the wave can still land and be fought. `None` only
+    /// when the board has no open cell at all.
     fn arrival_cell(&self, preferred: GridPos) -> Option<GridPos> {
         let open = |cell: GridPos| {
             !self.board.is_blocking(cell)
@@ -608,7 +611,10 @@ impl BattleState {
                 }
             }
         }
-        None
+        (0..self.board.height())
+            .flat_map(|y| (0..self.board.width()).map(move |x| GridPos::new(x, y)))
+            .filter(|cell| open(*cell))
+            .min_by_key(|cell| cell.manhattan(preferred))
     }
 
     /// A full enemy round `round` is complete once the battle is back in
