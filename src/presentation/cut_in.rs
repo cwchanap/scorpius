@@ -160,10 +160,10 @@ impl CutInSnapshot {
 #[derive(Resource, Default)]
 pub struct ActiveCutIn {
     pub snapshot: Option<CutInSnapshot>,
-    /// The playback event the cut-in belongs to.
-    event: Option<BattleEvent>,
+    /// The playback event the cut-in belongs to, by `EventPlayback::started`.
+    event: Option<u64>,
     /// The last event this system saw as current, so each one is judged once.
-    seen: Option<BattleEvent>,
+    seen: Option<u64>,
     /// One cut-in per attack: a blast that rolls on several targets shows
     /// the first, the way SRW skips animations for map weapons. Counters
     /// never replace it, because an enemy blast resolves each target's
@@ -225,7 +225,7 @@ pub(crate) fn stage_cut_ins(
         }
     }
 
-    let current = playback.current.as_ref().map(|(event, _)| event.clone());
+    let current = playback.current.is_some().then_some(playback.started);
     if current.is_some() && current == active.event {
         let skip = !settings.enabled
             || [KeyCode::Space, KeyCode::Enter, KeyCode::Escape]
@@ -261,8 +261,8 @@ pub(crate) fn stage_cut_ins(
     if current == active.seen {
         return;
     }
-    active.seen.clone_from(&current);
-    let Some(event) = current else {
+    active.seen = current;
+    let Some(event) = playback.current.as_ref().map(|(event, _)| event.clone()) else {
         return;
     };
     match &event {
@@ -294,7 +294,7 @@ pub(crate) fn stage_cut_ins(
                 cues.hold_strike_for_cut_in(CUT_IN_IMPACT * CUT_IN_SECONDS);
             }
             active.snapshot = Some(snapshot);
-            active.event = Some(event);
+            active.event = current;
         }
         _ => {}
     }
@@ -673,7 +673,7 @@ pub(crate) fn animate_cut_in(
     let Some((_, timer)) = playback
         .current
         .as_ref()
-        .filter(|(event, _)| Some(event) == active.event.as_ref())
+        .filter(|_| active.event == Some(playback.started))
     else {
         return;
     };
@@ -1076,6 +1076,30 @@ mod tests {
         );
         assert!(app.world().resource::<EventPlayback>().current.is_none());
         assert_eq!(cut_in_count(&mut app), 0);
+    }
+
+    #[test]
+    fn an_identical_roll_after_a_cut_in_plays_on_its_own() {
+        let (battle, _) = pile_lance_on_striker(7);
+        let roll = BattleEvent::AttackRolled {
+            attacker: ids::VANGUARD,
+            weapon: ids::PILE_LANCE,
+            target: ids::STRIKER,
+            roll: 99,
+            hit: false,
+            critical_roll: None,
+            critical: false,
+        };
+        let mut app = cut_in_app(battle, vec![roll.clone(), roll], true);
+
+        app.update();
+        assert_eq!(cut_in_count(&mut app), 1);
+        while app.world().resource::<EventPlayback>().started < 2 {
+            app.update();
+        }
+        // The second roll is a repeat of the same strike: no band, map speed.
+        assert_eq!(cut_in_count(&mut app), 0);
+        assert!(held_seconds(&app).is_some_and(|seconds| seconds < 0.5));
     }
 
     #[test]

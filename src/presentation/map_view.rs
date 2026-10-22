@@ -157,6 +157,13 @@ impl MapView {
         cells
     }
 
+    /// Whether `cell`'s center is inside the battle viewport itself, without
+    /// the spawn margin `visible_cells` adds around it.
+    pub fn shows(&self, cell: GridPos) -> bool {
+        let point = self.to_stage(iso_center(cell) - battle_stage_rect().min);
+        point.cmpge(Vec2::ZERO).all() && point.cmple(BATTLE_STAGE_SIZE).all()
+    }
+
     pub fn transform(&self) -> UiTransform {
         // UI scales around the node center, which is the viewport center.
         let offset = (BATTLE_STAGE_SIZE * 0.5 - self.center) * self.zoom;
@@ -1427,6 +1434,9 @@ mod tests {
                     "viewport must not spawn all 16384 tiles"
                 );
                 assert!(visible.iter().all(|cell| battle.board().contains(*cell)));
+                // The spawn margin holds tiles the player can't see yet.
+                assert!(visible.iter().any(|cell| !view.shows(*cell)));
+                assert!(view.shows(cell));
             }
         }
         view.focus(GridPos::new(64, 64));

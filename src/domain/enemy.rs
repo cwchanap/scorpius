@@ -2065,6 +2065,50 @@ mod tests {
     }
 
     #[test]
+    fn a_wave_with_nowhere_to_land_waits_for_the_next_planning() {
+        // The arrival corner is walled in and the player stands on it.
+        let walled = GridPos::new(8, 8);
+        let mut battle = BattleState::new(
+            BoardState::new(9, 9, [GridPos::new(7, 8), GridPos::new(8, 7)], [], []),
+            vec![
+                enemies::rifleman(GARRISON, "Rifleman", GridPos::new(0, 0)),
+                squad::unit(
+                    WAVE_PLAYER,
+                    "Player",
+                    UnitArchetype::Vanguard,
+                    Faction::Player,
+                    squad::stats(20, 3, 3, 78, 5, 7),
+                    walled,
+                    vec![],
+                ),
+            ],
+            vec![enemies::service_rifle()],
+            eliminate_rules(),
+            7,
+        )
+        .with_reinforcements([Reinforcement {
+            round: 3,
+            units: vec![enemies::rifleman(WAVE, "Wave Rifleman", walled)],
+        }]);
+        battle.set_round_for_test(2);
+        battle.unit_mut_for_test(GARRISON).unwrap().hp = 0;
+
+        let events = plan_next_round(&mut battle);
+        assert!(arrivals(&events).is_empty());
+        assert!(battle.unit(WAVE).is_none(), "no unit stacks on the player");
+        assert_eq!(battle.pending_reinforcements().count(), 1);
+        assert!(
+            battle.result().is_none(),
+            "a held unit is still a living enemy"
+        );
+
+        battle.move_unit_direct_for_test(WAVE_PLAYER, GridPos::new(0, 8));
+        let events = plan_next_round(&mut battle);
+        assert_eq!(arrivals(&events), vec![(WAVE, walled)]);
+        assert_eq!(battle.pending_reinforcements().count(), 0);
+    }
+
+    #[test]
     #[should_panic(expected = "reuses unit id")]
     fn reinforcements_reject_a_unit_id_already_on_the_board() {
         let _ = squad_fixture(

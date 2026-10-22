@@ -383,6 +383,7 @@ fn drive_capture(world: &mut World) {
         *world.resource_mut::<EventPlayback>() = EventPlayback {
             current: Some((event, Timer::from_seconds(0.5, TimerMode::Once))),
             input_locked: true,
+            ..default()
         };
     }
 
@@ -1006,8 +1007,10 @@ fn strike_boss_if_in_reach(battle: &mut BattleState, unit: UnitId, boss: UnitId)
         if spec.en_cost > en {
             return None;
         }
+        // A push weapon also needs a straight row or column to the boss.
         let in_range = |position: &GridPos| {
             (spec.min_range..=spec.max_range).contains(&position.manhattan(boss_position))
+                && (!spec.push || position.x == boss_position.x || position.y == boss_position.y)
         };
         std::iter::once(current_position)
             .chain(reachable.iter().copied())

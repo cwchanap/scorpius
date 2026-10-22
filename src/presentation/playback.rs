@@ -283,7 +283,7 @@ pub(crate) fn play_battle_events(
             // Wake `sync_map_view`: the arrival's minimap marker stays hidden
             // only while its event is still queued.
             view.set_changed();
-            if view.is_regional() && !view.visible_cells().contains(position) {
+            if view.is_regional() && !view.shows(*position) {
                 cut_to(&mut cutaway, view, *position);
             }
         }
@@ -294,6 +294,7 @@ pub(crate) fn play_battle_events(
         restore_cutaway(&mut cutaway, &mut view);
     }
     animate_unit_event(&event, 0.0, &mut unit_queries);
+    playback.started += 1;
     playback.current = Some((
         event.clone(),
         Timer::new(event_duration(&event), TimerMode::Once),
@@ -1016,7 +1017,7 @@ mod tests {
         };
         let mut view = MapView::new(battle.board());
         view.focus(crate::domain::board::GridPos::new(60, 60));
-        assert!(!view.visible_cells().contains(&north_cell));
+        assert!(!view.shows(north_cell));
         let watching = view.center;
 
         let mut queue: std::collections::VecDeque<_> = arrivals.into();
