@@ -542,6 +542,7 @@ impl BattleState {
 
     /// Bring in every wave whose round has come, or the next wave when no
     /// deployed enemy is left. Called from enemy planning for `self.round + 1`.
+    /// A unit with no open cell to arrive on waits for the next planning.
     pub(super) fn deploy_due_reinforcements(&mut self) -> Vec<BattleEvent> {
         let planning = self.round.saturating_add(1);
         let board_clear = !self
@@ -558,9 +559,13 @@ impl BattleState {
         }
 
         let mut events = Vec::new();
+        let mut held = Vec::new();
         for wave in self.reinforcements.drain(..due).collect::<Vec<_>>() {
             for mut unit in wave.units {
-                let position = self.arrival_cell(unit.position);
+                let Some(position) = self.arrival_cell(unit.position) else {
+                    held.push(unit);
+                    continue;
+                };
                 unit.position = position;
                 events.push(BattleEvent::ReinforcementArrived {
                     unit: unit.id,
@@ -569,12 +574,22 @@ impl BattleState {
                 self.units.insert(unit.id, unit);
             }
         }
+        if !held.is_empty() {
+            self.reinforcements.insert(
+                0,
+                Reinforcement {
+                    round: planning,
+                    units: held,
+                },
+            );
+        }
         events
     }
 
     /// The authored arrival cell, or the nearest open cell reachable from it
-    /// over passable ground when someone is standing there.
-    fn arrival_cell(&self, preferred: GridPos) -> GridPos {
+    /// over passable ground when someone is standing there. `None` when every
+    /// cell it can reach is taken.
+    fn arrival_cell(&self, preferred: GridPos) -> Option<GridPos> {
         let open = |cell: GridPos| {
             !self.board.is_blocking(cell)
                 && !self.board.has_live_explosive(cell)
@@ -585,7 +600,7 @@ impl BattleState {
         let mut frontier = std::collections::VecDeque::from([preferred]);
         while let Some(cell) = frontier.pop_front() {
             if open(cell) {
-                return cell;
+                return Some(cell);
             }
             for next in cell.orthogonal_neighbors(self.board.width(), self.board.height()) {
                 if !self.board.is_blocking(next) && seen.insert(next) {
@@ -593,7 +608,7 @@ impl BattleState {
                 }
             }
         }
-        preferred
+        None
     }
 
     /// A full enemy round `round` is complete once the battle is back in

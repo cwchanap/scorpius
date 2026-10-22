@@ -87,7 +87,7 @@ logic lives in the domain (`completed_enemy_round`). Each `MissionDefinition` al
 reads only public `BattleState` accessors. `BattleState::with_reinforcements` holds typed
 `Reinforcement` waves off the board: a wave arrives at its round's enemy planning (or as soon as the
 deployed enemies are all down), emits `ReinforcementArrived`, holds its arrival cell that planning,
-and counts as a living enemy until it arrives. Mission 1's two-Rifleman road patrol is the only wave.
+and counts as a living enemy until it arrives. A unit whose arrival cell and every cell reachable from it are taken waits for the next planning instead of stacking. Mission 1's two-Rifleman road patrol is the only wave.
 
 ### `src/presentation/` — Bevy adapters
 

@@ -159,6 +159,9 @@ pub struct BattleEventQueue(pub VecDeque<BattleEvent>);
 pub struct EventPlayback {
     pub current: Option<(BattleEvent, Timer)>,
     pub input_locked: bool,
+    /// How many events playback has started, so two identical events in a
+    /// row still read as separate events.
+    pub started: u64,
 }
 
 /// Six newest playback messages, stored newest-first.

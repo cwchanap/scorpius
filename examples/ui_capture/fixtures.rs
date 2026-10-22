@@ -937,7 +937,12 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
     },
     CaptureFixture {
         id: "m7-victory-by-round",
-        profile: battle_profile(MissionId::Seven),
+        // A squad reaching Mission 7 has its upgrades; an unupgraded one that
+        // only guards falls to the Regent before round 6.
+        profile: CaptureProfile {
+            upgrades: UpgradePreset::MAXED,
+            ..battle_profile(MissionId::Seven)
+        },
         actions: &[CaptureAction::AdvanceRounds(5)],
         expect: &[
             ExpectedFact::Screen(GameScreen::Battle),
