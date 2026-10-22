@@ -130,6 +130,7 @@ aftermath, or upgrade screens. These keys mirror the battle command buttons:
 | `V` | Turn battle cut-ins off or on |
 | `Enter` | Dismiss the field tip on screen during an idle Player phase |
 | `H` | Turn field tips off or on |
+| `N` | Turn sound and music off or on, on any screen |
 
 ### Native UI capture
 

@@ -32,6 +32,7 @@ use crate::{
             setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
             update_upgrade_screen,
         },
+        sound::SoundPlugin,
         sync::{
             apply_prop_visibility, apply_unit_transforms, pulse_telegraphs,
             reconcile_extraction_marker, reconcile_intent_guides, reconcile_reaction_markers,
@@ -72,6 +73,7 @@ impl Plugin for ScorpiusPlugin {
                 }),
                 ..default()
             }),))
+            .add_plugins(SoundPlugin)
             .insert_resource(ClearColor(Color::srgb(0.025, 0.035, 0.055)))
             .insert_resource(UiPickingSettings {
                 require_markers: true,

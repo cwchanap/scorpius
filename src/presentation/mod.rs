@@ -9,7 +9,9 @@ pub mod layout;
 pub mod map_view;
 pub mod playback;
 pub mod screens;
+pub mod sound;
 pub mod sync;
+pub mod synth;
 pub mod theme;
 pub mod ui;
 
