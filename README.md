@@ -106,9 +106,10 @@ restart does not repeat it. Tips never block input. **GOT IT** or `Enter` dismis
 
 ### Sound
 
-The 19 sound effects in `assets/audio/sfx/` were generated with ElevenLabs sound effects, then
-trimmed and loudness-matched into short mono Ogg files. The title and battle music loops are
-synthesized in code at startup (`src/presentation/synth.rs`). `N` turns all sound off or on.
+The 17 sound effects in `assets/audio/sfx/` were generated with ElevenLabs sound effects, then
+trimmed and loudness-matched into short mono Ogg files. The title and battle music loops, and the
+five-second victory and defeat jingles built from them, are synthesized in code at startup
+(`src/presentation/synth.rs`). `N` turns all sound off or on.
 
 ### Keyboard mirrors
 

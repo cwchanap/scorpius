@@ -1,9 +1,10 @@
 //! Plain-Rust synthesizer for the game's music.
 //!
-//! Both tracks are typed recipes rendered to mono samples at startup, so no
-//! music files ship and the output is identical on every run. Nothing here
-//! touches Bevy; `sound.rs` wraps the samples as an asset. Sound effects are
-//! recorded files instead (`assets/audio/sfx/`).
+//! Both looping tracks and the victory and defeat jingles are typed recipes
+//! rendered to mono samples at startup, so no music files ship and the output
+//! is identical on every run. Nothing here touches Bevy; `sound.rs` wraps the
+//! samples as an asset. Sound effects are recorded files instead
+//! (`assets/audio/sfx/`).
 
 use std::f32::consts::TAU;
 
@@ -24,6 +25,19 @@ impl Track {
         let song = self.song();
         song.bars() * 16 * song.step_samples()
     }
+}
+
+/// One-shot music for a battle's end, about five seconds long.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Jingle {
+    /// "Turnabout"'s opening phrase over Bb and C, landing on a bright D major.
+    Victory,
+    /// "Relay Nine"'s opening phrase slowed down, sinking to a low A minor.
+    Defeat,
+}
+
+impl Jingle {
+    pub const ALL: [Jingle; 2] = [Jingle::Victory, Jingle::Defeat];
 }
 
 #[derive(Clone, Copy)]
@@ -543,6 +557,212 @@ pub fn render_track(track: Track) -> Vec<f32> {
     b.finish()
 }
 
+/// Renders a jingle, with a tail that rings out to silence.
+pub fn render_jingle(jingle: Jingle) -> Vec<f32> {
+    use Envelope::{Pad, Pluck};
+    use Wave::{Saw, Sine, Square, Triangle};
+    let mut b = Buffer::new((5.2 * SAMPLE_RATE as f32) as usize, false);
+    match jingle {
+        Jingle::Victory => {
+            // Battle tempo: a sixteenth is 1/9.6 s, so the pickup bar lasts 1.67 s.
+            let step = 60.0 / BATTLE.bpm / 4.0;
+            let bar = 16.0 * step;
+            let pickup = [(0.0, major(BB1)), (8.0 * step, major(C2))];
+            for (at, chord) in pickup {
+                for hit in [0.0, 3.0, 6.0] {
+                    for pitch in [chord.root + 24, chord.root + 31] {
+                        b.tone(
+                            at + hit * step,
+                            2.5 * step,
+                            Voice::new(Square, midi(pitch), midi(pitch), 0.05).cutoff(1800.0),
+                        );
+                    }
+                }
+                for (i, offset) in [0, 12, 0, 12].into_iter().enumerate() {
+                    let pitch = chord.root + offset;
+                    b.tone(
+                        at + i as f32 * 2.0 * step,
+                        2.0 * step,
+                        Voice::new(Saw, midi(pitch), midi(pitch), 0.2).cutoff(900.0),
+                    );
+                }
+                for kick in [0.0, 4.0] {
+                    b.tone(at + kick * step, 0.16, Voice::new(Sine, 140.0, 42.0, 0.5));
+                }
+            }
+            // A snare roll into the landing.
+            for i in 0..8 {
+                let gain = 0.12 + 0.03 * i as f32;
+                b.noise(
+                    bar - (8 - i) as f32 * step / 2.0,
+                    0.07,
+                    gain,
+                    Pluck { attack: 0.001 },
+                    Filter::Low(5000.0),
+                    401 + i,
+                );
+            }
+            // The battle theme's opening line, then up to the high tonic.
+            let lead = [
+                (0.0, 4.0, 74),
+                (4.0, 4.0, 77),
+                (8.0, 4.0, 81),
+                (12.0, 4.0, 84),
+            ];
+            for (at, len, pitch) in lead {
+                b.tone(
+                    at * step,
+                    len * step,
+                    Voice::new(Square, midi(pitch), midi(pitch), 0.06)
+                        .envelope(Pad {
+                            attack: 0.01,
+                            release: 0.05,
+                        })
+                        .cutoff(3200.0),
+                );
+            }
+            // The landing: D major, held and ringing out.
+            let ring = 5.2 - bar;
+            b.tone(bar, 0.4, Voice::new(Sine, 120.0, 38.0, 0.6));
+            b.noise(
+                bar,
+                1.2,
+                0.12,
+                Pluck { attack: 0.002 },
+                Filter::High(6000.0),
+                499,
+            );
+            for pitch in [D2, D2 + 12] {
+                b.tone(
+                    bar,
+                    ring,
+                    Voice::new(Saw, midi(pitch), midi(pitch), 0.16)
+                        .envelope(Pluck { attack: 0.01 })
+                        .cutoff(700.0),
+                );
+            }
+            for pitch in major(D2).triad(2).into_iter().chain([D2 + 36]) {
+                b.tone(
+                    bar,
+                    ring,
+                    Voice::new(Square, midi(pitch), midi(pitch), 0.035)
+                        .envelope(Pad {
+                            attack: 0.01,
+                            release: 2.2,
+                        })
+                        .cutoff(2400.0),
+                );
+            }
+            // A bright arpeggio climbs over the held chord.
+            for (i, pitch) in [74, 78, 81, 86, 90, 93].into_iter().enumerate() {
+                b.tone(
+                    bar + i as f32 * step,
+                    0.5,
+                    Voice::new(Triangle, midi(pitch), midi(pitch), 0.06),
+                );
+            }
+            b.tone(
+                bar + 6.0 * step,
+                ring - 6.0 * step,
+                Voice::new(Square, midi(86), midi(86), 0.06)
+                    .envelope(Pad {
+                        attack: 0.02,
+                        release: 2.0,
+                    })
+                    .vibrato(5.5, 0.25)
+                    .cutoff(3200.0),
+            );
+        }
+        Jingle::Defeat => {
+            // The theme's own tempo: each note of the phrase is a quarter.
+            let step = 60.0 / THEME.bpm / 4.0;
+            let chords = [
+                (0.0, 8.0, minor(A1 + 12)),
+                (8.0, 8.0, major(F2)),
+                (16.0, 8.0, minor(D2)),
+            ];
+            for (at, len, chord) in chords {
+                for pitch in chord.triad(3) {
+                    b.tone(
+                        at * step,
+                        len * step + 0.3,
+                        Voice::new(Triangle, midi(pitch), midi(pitch), 0.05).envelope(Pad {
+                            attack: 0.3,
+                            release: 0.5,
+                        }),
+                    );
+                }
+                b.tone(
+                    at * step,
+                    len * step,
+                    Voice::new(Saw, midi(chord.root), midi(chord.root), 0.15)
+                        .envelope(Pad {
+                            attack: 0.03,
+                            release: 0.3,
+                        })
+                        .cutoff(450.0),
+                );
+            }
+            // "Relay Nine" opens E D C B; here it keeps falling, A then G#.
+            let lead = [
+                (0.0, 4.0, 76),
+                (4.0, 4.0, 74),
+                (8.0, 4.0, 72),
+                (12.0, 4.0, 71),
+                (16.0, 4.0, 69),
+                (20.0, 4.0, 68),
+            ];
+            for (at, len, pitch) in lead {
+                b.tone(
+                    at * step,
+                    len * step,
+                    Voice::new(Triangle, midi(pitch), midi(pitch), 0.11)
+                        .envelope(Pad {
+                            attack: 0.02,
+                            release: 0.12,
+                        })
+                        .vibrato(5.0, 0.2),
+                );
+            }
+            // It settles on a dark, low A minor that fades away.
+            let end = 24.0 * step;
+            let ring = 5.2 - end;
+            for pitch in minor(A1).triad(1) {
+                b.tone(
+                    end,
+                    ring,
+                    Voice::new(Triangle, midi(pitch), midi(pitch), 0.07).envelope(Pad {
+                        attack: 0.05,
+                        release: ring - 0.1,
+                    }),
+                );
+            }
+            b.tone(
+                end,
+                ring,
+                Voice::new(Saw, midi(A1), midi(A1 - 1), 0.18)
+                    .envelope(Pad {
+                        attack: 0.02,
+                        release: ring - 0.1,
+                    })
+                    .cutoff(300.0),
+            );
+            b.tone(
+                end,
+                ring,
+                Voice::new(Triangle, midi(69), midi(69), 0.08)
+                    .envelope(Pad {
+                        attack: 0.05,
+                        release: ring - 0.1,
+                    })
+                    .vibrato(4.0, 0.15),
+            );
+            b.tone(end, 0.5, Voice::new(Sine, 90.0, 35.0, 0.45));
+        }
+    }
+    b.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,7 +796,29 @@ mod tests {
     }
 
     #[test]
+    fn jingles_last_about_five_seconds_and_ring_out() {
+        for jingle in Jingle::ALL {
+            let samples = render_jingle(jingle);
+            let seconds = samples.len() as f32 / SAMPLE_RATE as f32;
+            assert!((4.5..5.5).contains(&seconds), "{jingle:?} lasts {seconds}s");
+            assert!(samples.iter().all(|s| s.is_finite()));
+            let loudest = peak(&samples);
+            assert!(
+                (0.2..1.0).contains(&loudest),
+                "{jingle:?} peaks at {loudest}"
+            );
+            let tail = peak(&samples[samples.len() - SAMPLE_RATE as usize / 20..]);
+            assert!(tail < 0.02, "{jingle:?} is still ringing at {tail}");
+            assert!(samples[0].abs() < 0.05, "{jingle:?} starts with a click");
+        }
+    }
+
+    #[test]
     fn rendering_is_deterministic() {
         assert_eq!(render_track(Track::Theme), render_track(Track::Theme));
+        assert_eq!(
+            render_jingle(Jingle::Victory),
+            render_jingle(Jingle::Victory)
+        );
     }
 }
