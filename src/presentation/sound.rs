@@ -1,7 +1,7 @@
 //! Sound effects and music. Effects are Ogg files in `assets/audio/sfx/`,
 //! generated with ElevenLabs sound effects; `synth.rs` renders the two music
-//! tracks at startup, and this module wraps those samples as a Bevy audio
-//! source. It plays effects for the cues that battle playback, cut-ins and
+//! tracks and the victory and defeat jingles at startup, and this module
+//! wraps those samples as a Bevy audio source. It plays effects for the cues that battle playback, cut-ins and
 //! buttons leave in [`SoundCues`], and keeps the right music track looping
 //! for the current screen.
 //!
@@ -23,10 +23,12 @@ use crate::app::GameScreen;
 use crate::domain::model::BattleEvent;
 
 use super::interaction::StatusMessage;
-use super::synth::{SAMPLE_RATE, Track, render_track};
+use super::synth::{Jingle, SAMPLE_RATE, Track, render_jingle, render_track};
 use super::{BattleEventQueue, BattleRuntime, EventPlayback};
 
 const SFX_VOLUME: f32 = 0.7;
+/// The jingles sit a little above the effects, since nothing plays under them.
+const JINGLE_VOLUME: f32 = 1.0;
 const MUSIC_VOLUME: f32 = 0.35;
 
 /// One-shot sound effects, each tied to a battle event or UI action.
@@ -76,9 +78,10 @@ impl Sfx {
         Sfx::Defeat,
     ];
 
-    /// The effect's file, relative to the `assets` folder.
-    pub fn asset_path(self) -> &'static str {
-        match self {
+    /// The effect's file, relative to the `assets` folder. Victory and
+    /// defeat play a synthesized [`Jingle`] instead.
+    pub fn asset_path(self) -> Option<&'static str> {
+        Some(match self {
             Sfx::Select => "audio/sfx/select.ogg",
             Sfx::Hover => "audio/sfx/hover.ogg",
             Sfx::Move => "audio/sfx/move.ogg",
@@ -96,8 +99,15 @@ impl Sfx {
             Sfx::CutIn => "audio/sfx/cut_in.ogg",
             Sfx::Reinforcement => "audio/sfx/reinforcement.ogg",
             Sfx::Objective => "audio/sfx/objective.ogg",
-            Sfx::Victory => "audio/sfx/victory.ogg",
-            Sfx::Defeat => "audio/sfx/defeat.ogg",
+            Sfx::Victory | Sfx::Defeat => return None,
+        })
+    }
+
+    pub fn jingle(self) -> Option<Jingle> {
+        match self {
+            Sfx::Victory => Some(Jingle::Victory),
+            Sfx::Defeat => Some(Jingle::Defeat),
+            _ => None,
         }
     }
 }
@@ -247,10 +257,11 @@ pub fn track_for(screen: GameScreen, battle_over: bool) -> Option<Track> {
     }
 }
 
-/// Handles to every effect file and rendered music track.
+/// Handles to every effect file, rendered jingle and music track.
 #[derive(Resource, Clone, Debug)]
 pub struct SoundBank {
     pub sfx: HashMap<Sfx, Handle<AudioSource>>,
+    pub jingles: HashMap<Sfx, Handle<SynthSound>>,
     pub tracks: HashMap<Track, Handle<SynthSound>>,
 }
 
@@ -259,7 +270,14 @@ impl SoundBank {
         Self {
             sfx: Sfx::ALL
                 .into_iter()
-                .map(|sfx| (sfx, assets.load(sfx.asset_path())))
+                .filter_map(|sfx| Some((sfx, assets.load(sfx.asset_path()?))))
+                .collect(),
+            jingles: Sfx::ALL
+                .into_iter()
+                .filter_map(|sfx| {
+                    let samples = render_jingle(sfx.jingle()?);
+                    Some((sfx, sounds.add(SynthSound::new(samples))))
+                })
                 .collect(),
             tracks: Track::ALL
                 .into_iter()
@@ -352,13 +370,14 @@ pub fn play_sound_cues(
     };
     due.dedup();
     for sfx in due {
+        let playback = |volume| PlaybackSettings::DESPAWN.with_volume(Volume::Linear(volume));
+        let mut player = commands.spawn((Name::new("Sound effect"), SfxPlayer(sfx)));
         if let Some(handle) = bank.sfx.get(&sfx) {
-            commands.spawn((
-                Name::new("Sound effect"),
-                SfxPlayer(sfx),
-                AudioPlayer(handle.clone()),
-                PlaybackSettings::DESPAWN.with_volume(Volume::Linear(SFX_VOLUME)),
-            ));
+            player.insert((AudioPlayer(handle.clone()), playback(SFX_VOLUME)));
+        } else if let Some(handle) = bank.jingles.get(&sfx) {
+            player.insert((AudioPlayer(handle.clone()), playback(JINGLE_VOLUME)));
+        } else {
+            player.despawn();
         }
     }
 }
@@ -527,7 +546,11 @@ mod tests {
     #[test]
     fn every_effect_file_is_a_short_mono_ogg() {
         for sfx in Sfx::ALL {
-            let path = format!("{ASSETS}/{}", sfx.asset_path());
+            let Some(file) = sfx.asset_path() else {
+                assert!(sfx.jingle().is_some(), "{sfx:?} has no sound");
+                continue;
+            };
+            let path = format!("{ASSETS}/{file}");
             let bytes = std::fs::read(&path).unwrap_or_else(|_| panic!("{path} is missing"));
             let decoder = AudioSource {
                 bytes: bytes.into(),
@@ -714,7 +737,8 @@ mod tests {
         app.update();
         app.update();
         let bank = app.world().resource::<SoundBank>();
-        assert_eq!(bank.sfx.len(), Sfx::ALL.len());
+        assert_eq!(bank.sfx.len() + bank.jingles.len(), Sfx::ALL.len());
+        assert_eq!(bank.jingles.len(), Jingle::ALL.len());
         assert_eq!(bank.tracks.len(), Track::ALL.len());
         assert_eq!(music(&mut app), vec![Track::Theme]);
     }
@@ -759,6 +783,22 @@ mod tests {
         app.update();
         assert_eq!(effects(&mut app), vec![Sfx::Select]);
         assert_eq!(app.world().resource::<SoundCues>().0.len(), 1);
+    }
+
+    #[test]
+    fn victory_plays_its_jingle_louder_than_the_effects() {
+        let mut app = sound_app();
+        app.update();
+        app.world_mut()
+            .resource_mut::<SoundCues>()
+            .play(Sfx::Victory);
+        app.update();
+        let mut query = app
+            .world_mut()
+            .query::<(&SfxPlayer, &AudioPlayer<SynthSound>, &PlaybackSettings)>();
+        let (player, _, settings) = query.single(app.world()).expect("the jingle plays");
+        assert_eq!(player.0, Sfx::Victory);
+        assert_eq!(settings.volume, Volume::Linear(JINGLE_VOLUME));
     }
 
     #[test]
