@@ -437,6 +437,12 @@ fn cue_button_hover(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::camera::NormalizedRenderTarget;
+    use bevy::picking::backend::HitData;
+    use bevy::picking::pointer::{Location, PointerId};
+
+    use crate::domain::board::GridPos;
+    use crate::domain::combat::DamageSource;
     use crate::domain::model::{MissionResult, UnitId, WeaponId};
 
     const ASSETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets");
@@ -538,6 +544,182 @@ mod tests {
     }
 
     #[test]
+    fn every_battle_event_plays_its_effect() {
+        let unit = UnitId(1);
+        let weapon = WeaponId(1);
+        let cell = GridPos { x: 1, y: 2 };
+        let result = MissionResult {
+            victory: false,
+            optional_complete: false,
+            rounds: 4,
+        };
+        let cases = [
+            (
+                BattleEvent::UnitMoved {
+                    unit,
+                    from: cell,
+                    to: cell,
+                },
+                Sfx::Move,
+            ),
+            (
+                BattleEvent::AttackHitEmpty {
+                    attacker: unit,
+                    weapon,
+                    cell,
+                },
+                Sfx::Miss,
+            ),
+            (
+                BattleEvent::DamageApplied {
+                    target: unit,
+                    amount: 3,
+                    remaining_hp: 5,
+                    source: DamageSource::Collision,
+                },
+                Sfx::Impact,
+            ),
+            (
+                BattleEvent::ExplosiveDamaged {
+                    position: cell,
+                    amount: 3,
+                    remaining_hp: 0,
+                    source: DamageSource::Hazard,
+                },
+                Sfx::Impact,
+            ),
+            (
+                BattleEvent::UnitKnockedOut {
+                    unit,
+                    position: cell,
+                },
+                Sfx::KnockOut,
+            ),
+            (
+                BattleEvent::UnitPushed {
+                    unit,
+                    from: cell,
+                    to: cell,
+                },
+                Sfx::Push,
+            ),
+            (
+                BattleEvent::CollisionOccurred {
+                    unit,
+                    blocked_at: cell,
+                },
+                Sfx::Collision,
+            ),
+            (
+                BattleEvent::HazardTriggered {
+                    unit,
+                    position: cell,
+                },
+                Sfx::Hazard,
+            ),
+            (
+                BattleEvent::ExplosionTriggered {
+                    position: cell,
+                    footprint: vec![cell],
+                },
+                Sfx::Explosion,
+            ),
+            (
+                BattleEvent::IntentCommitted {
+                    attacker: unit,
+                    weapon,
+                    footprint: vec![cell],
+                    intended_occupant: None,
+                },
+                Sfx::Telegraph,
+            ),
+            (
+                BattleEvent::CounterFired {
+                    defender: unit,
+                    attacker: UnitId(2),
+                    weapon,
+                },
+                Sfx::Counter,
+            ),
+            (
+                BattleEvent::ReinforcementArrived {
+                    unit,
+                    position: cell,
+                },
+                Sfx::Reinforcement,
+            ),
+            (BattleEvent::OptionalObjectiveCompleted, Sfx::Objective),
+            (BattleEvent::MissionFailed { result }, Sfx::Defeat),
+        ];
+        for (event, sfx) in cases {
+            assert_eq!(sfx_for_event(&event), Some(sfx), "{event:?}");
+        }
+    }
+
+    #[test]
+    fn buttons_click_and_tick_on_hover() {
+        let mut app = sound_app();
+        app.add_observer(cue_button_click)
+            .add_observer(cue_button_hover);
+        app.update();
+        let button = app.world_mut().spawn(Button).id();
+        let label = app.world_mut().spawn_empty().id();
+        let location = Location {
+            target: NormalizedRenderTarget::None {
+                width: 1920,
+                height: 1080,
+            },
+            position: Vec2::ZERO,
+        };
+        let hit = HitData::new(Entity::PLACEHOLDER, 0.0, None, None);
+        for target in [label, button] {
+            app.world_mut().trigger(Pointer::new(
+                PointerId::Mouse,
+                location.clone(),
+                Click {
+                    button: PointerButton::Primary,
+                    hit: hit.clone(),
+                    duration: Duration::ZERO,
+                    count: 1,
+                },
+                target,
+            ));
+            app.world_mut().trigger(Pointer::new(
+                PointerId::Mouse,
+                location.clone(),
+                Over { hit: hit.clone() },
+                target,
+            ));
+        }
+        assert_eq!(
+            app.world().resource::<SoundCues>().0,
+            vec![(Sfx::Select, 0.0), (Sfx::Hover, 0.0)]
+        );
+    }
+
+    #[test]
+    fn the_plugin_loads_the_bank_and_plays_the_theme() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin {
+                file_path: ASSETS.into(),
+                ..default()
+            },
+            bevy::state::app::StatesPlugin,
+            bevy::audio::AudioPlugin::default(),
+            SoundPlugin,
+        ))
+        .init_state::<GameScreen>();
+        app.update();
+        app.update();
+        let bank = app.world().resource::<SoundBank>();
+        assert_eq!(bank.sfx.len(), Sfx::ALL.len());
+        assert_eq!(bank.tracks.len(), Track::ALL.len());
+        assert_eq!(music(&mut app), vec![Track::Theme]);
+    }
+
+    #[test]
     fn music_decodes_as_mono_at_the_synth_rate() {
         let decoder = SynthSound::new(vec![0.25; SAMPLE_RATE as usize / 2]).decoder();
         assert_eq!(decoder.channels().get(), 1);
@@ -604,6 +786,13 @@ mod tests {
         let (player, settings) = query.single(app.world()).expect("theme plays muted");
         assert_eq!(player.0, Track::Theme);
         assert!(settings.muted);
+
+        press_n(&mut app);
+        assert!(app.world().resource::<SoundSettings>().enabled);
+        assert_eq!(
+            app.world().resource::<StatusMessage>().0,
+            "Sound on (N to mute)."
+        );
     }
 
     #[test]
