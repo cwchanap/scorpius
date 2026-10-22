@@ -159,8 +159,12 @@ impl Buffer {
         for i in 0..count {
             let t = i as f32 / rate;
             let progress = t / len;
-            // Exponential glide sounds even across octaves.
-            let mut freq = voice.from * (voice.to / voice.from).powf(progress);
+            // Exponential glide sounds even across octaves; held notes skip it.
+            let mut freq = if voice.from == voice.to {
+                voice.from
+            } else {
+                voice.from * (voice.to / voice.from).powf(progress)
+            };
             let (vib_rate, vib_depth) = voice.vibrato;
             if vib_depth > 0.0 {
                 // Vibrato eases in so short notes stay steady.
