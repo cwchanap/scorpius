@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, HPA-524 authored Mission 6 and the single-cell Dreadnought boss, and HPA-386 authored Mission 7, the Regent boss, and the campaign ending. The campaign runs authored One→Seven: Mission 7 → Campaign Complete → Return to Title, and a completed Continue resumes at the Ending screen. The MVP has no mission select and no New Game+. Post-MVP, Mission 1 gained a road-patrol reinforcement wave on its regional map, attacks play skippable SRW-style battle cut-ins (`cut_in.rs`), and Control's field tips teach each Act 1 mechanic in battle the first time it matters (`field_tips.rs`).
+Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, HPA-524 authored Mission 6 and the single-cell Dreadnought boss, and HPA-386 authored Mission 7, the Regent boss, and the campaign ending. The campaign runs authored One→Seven: Mission 7 → Campaign Complete → Return to Title, and a completed Continue resumes at the Ending screen. The MVP has no mission select and no New Game+. Post-MVP, Mission 1 gained a road-patrol reinforcement wave on its regional map, attacks play skippable SRW-style battle cut-ins (`cut_in.rs`), and Control's field tips teach each Act 1 mechanic in battle the first time it matters (`field_tips.rs`). All sound effects and music are synthesized in code (`synth.rs`, `sound.rs`).
 
 ## Commands
 
@@ -113,6 +113,12 @@ grid to the authored 2.5D stage.
   battle visit: `enter_battle` resets `FieldTips`; a restart forgets undismissed tips, which queue again when their trigger next holds, but keeps what was taught. Presentation only, never
   modal. The `TipSettings` resource gates it; the `ui_capture` fixtures turn it off unless a fixture
   uses `CaptureAction::ShowTip`.
+- `synth.rs` / `sound.rs` — all sound is synthesized in code at startup (`synth.rs` is plain Rust:
+  typed `Sfx` recipes and two looping `Track`s); no audio files ship. `sound.rs` wraps the samples as
+  the `SynthSound` audio source, plays the cues playback, cut-ins and `Button` clicks leave in
+  `SoundCues`, and loops the Theme or Battle track for the current screen (battle music stops once a
+  finished battle's events have played). A cut-in holds its strike's hit/miss sound until the blow
+  lands. Bare test apps without `SoundPlugin` stay silent. `N` mutes on any screen.
 - `sync.rs` — reconciles marker entities against current state each frame (spawn/despawn diffing).
 - `ui.rs` — native Bevy UI. `HudSnapshot::from_battle` derives all HUD text from state, so HUD logic
   is testable without a renderer; the sidebar, Inspector, Preview, Threat, Log, and Result regions
@@ -132,7 +138,7 @@ the active unit, and **RESOLVE** becomes available after surviving units finish.
 the existing Cancel action for menus and targeting. `R` invokes the guarded Restart action during
 an idle Player phase or after defeat; it remains guarded during activation/loading/playback/planning/
 resolution/victory/pending transitions. Victory exposes Continue. During a battle cut-in, `Space`,
-`Enter`, `Escape`, or a left click skips it, and `V` turns cut-ins off or on at any time. During an
+`Enter`, `Escape`, or a left click skips it, and `V` turns cut-ins off or on at any time. `N` turns sound off or on on any screen. During an
 idle Player phase, `Enter` dismisses the field tip on screen, and `H` turns field tips off or on. The campaign **SKIP** button is created only for
 `GameScreen::PreMissionStory`. Keep these bindings in the existing command/action types.
 

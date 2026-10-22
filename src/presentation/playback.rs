@@ -17,6 +17,7 @@ use super::{
         selection_top_left, stage_effect_depth, token_depth, unit_root_top_left,
     },
     map_view::MapView,
+    sound::SoundCues,
     theme,
     ui::format_event,
 };
@@ -211,6 +212,7 @@ pub(crate) fn play_battle_events(
     mut damage_numbers: DamageNumberQuery,
     mut view: Option<ResMut<MapView>>,
     mut status: Option<ResMut<StatusMessage>>,
+    mut cues: Option<ResMut<SoundCues>>,
     mut cutaway: Local<Option<Cutaway>>,
 ) {
     let finished = if let Some((event, timer)) = playback.current.as_mut() {
@@ -240,6 +242,9 @@ pub(crate) fn play_battle_events(
     // The queue is the single playback boundary. Logging here means every
     // event is recorded once, even when a timer spans multiple frames.
     recent_log.push(format_event(&event, &battle.0));
+    if let Some(cues) = cues.as_deref_mut() {
+        cues.battle_event(&event);
+    }
 
     if let Some(parent) = stage_parent(&stages, &roots) {
         spawn_event_effect(

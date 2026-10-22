@@ -18,11 +18,13 @@ use crate::domain::model::{BattleEvent, Faction, UnitArchetype, UnitId, WeaponId
 
 use super::{
     BattleEventQueue, BattleRuntime, BattleStage, EventPlayback, assets::UiAssets,
-    interaction::StatusMessage, layout::BATTLE_STAGE_SIZE, theme,
+    interaction::StatusMessage, layout::BATTLE_STAGE_SIZE, sound::SoundCues, theme,
 };
 
 /// How long one cut-in holds the attack's playback event.
 pub const CUT_IN_SECONDS: f32 = 1.8;
+/// Share of a cut-in that passes before the blow lands on the target.
+pub const CUT_IN_IMPACT: f32 = 0.55;
 
 const BAND_TOP: f32 = 172.0;
 const BAND_HEIGHT: f32 = 420.0;
@@ -203,6 +205,7 @@ pub(crate) fn stage_cut_ins(
     keyboard: Option<Res<ButtonInput<KeyCode>>>,
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     mut status: Option<ResMut<StatusMessage>>,
+    mut cues: Option<ResMut<SoundCues>>,
     stages: Query<Entity, With<BattleStage>>,
     roots: Query<Entity, With<CutInRoot>>,
 ) {
@@ -234,6 +237,9 @@ pub(crate) fn stage_cut_ins(
         if skip && let Some((_, timer)) = playback.current.as_mut() {
             let duration = timer.duration();
             timer.set_elapsed(duration);
+            if let Some(cues) = cues.as_deref_mut() {
+                cues.release_held();
+            }
         }
         return;
     }
@@ -283,6 +289,9 @@ pub(crate) fn stage_cut_ins(
             spawn_cut_in(&mut commands, stage, &ui_assets, &snapshot);
             if let Some((_, timer)) = playback.current.as_mut() {
                 timer.set_duration(Duration::from_secs_f32(CUT_IN_SECONDS));
+            }
+            if let Some(cues) = cues.as_deref_mut() {
+                cues.hold_strike_for_cut_in(CUT_IN_IMPACT * CUT_IN_SECONDS);
             }
             active.snapshot = Some(snapshot);
             active.event = Some(event);
@@ -671,7 +680,7 @@ pub(crate) fn animate_cut_in(
     let p = timer.fraction();
     let open = smooth(p / 0.12).min(1.0 - smooth((p - 0.92) / 0.08));
     let strike = smooth((p - 0.42) / 0.12);
-    let landed = p >= 0.55;
+    let landed = p >= CUT_IN_IMPACT;
     let drain = smooth((p - 0.56) / 0.22);
     let hp_now = if snapshot.hit {
         f32::from(snapshot.hp_before)
