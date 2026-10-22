@@ -1,7 +1,9 @@
-//! Sound effects and music. `synth.rs` renders every sound at startup; this
-//! module wraps the samples as a Bevy audio source, plays effects for the
-//! cues that battle playback, cut-ins and buttons leave in [`SoundCues`], and
-//! keeps the right music track looping for the current screen.
+//! Sound effects and music. Effects are Ogg files in `assets/audio/sfx/`,
+//! generated with ElevenLabs sound effects; `synth.rs` renders the two music
+//! tracks at startup, and this module wraps those samples as a Bevy audio
+//! source. It plays effects for the cues that battle playback, cut-ins and
+//! buttons leave in [`SoundCues`], and keeps the right music track looping
+//! for the current screen.
 //!
 //! Presentation only: no domain state or RNG changes. Bare test apps without
 //! [`SoundPlugin`] have no `SoundCues`, so playback stays silent there.
@@ -12,8 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::audio::{
-    AddAudioSource, AudioSink, AudioSinkPlayback, ChannelCount, Decodable, SampleRate, Source,
-    Volume,
+    AddAudioSource, AudioSink, AudioSinkPlayback, AudioSource, ChannelCount, Decodable, SampleRate,
+    Source, Volume,
 };
 use bevy::prelude::*;
 
@@ -21,13 +23,86 @@ use crate::app::GameScreen;
 use crate::domain::model::BattleEvent;
 
 use super::interaction::StatusMessage;
-use super::synth::{SAMPLE_RATE, Sfx, Track, render_sfx, render_track};
+use super::synth::{SAMPLE_RATE, Track, render_track};
 use super::{BattleEventQueue, BattleRuntime, EventPlayback};
 
 const SFX_VOLUME: f32 = 0.7;
 const MUSIC_VOLUME: f32 = 0.35;
 
-/// Rendered mono samples, played through Bevy's audio output.
+/// One-shot sound effects, each tied to a battle event or UI action.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Sfx {
+    Select,
+    Hover,
+    Move,
+    Hit,
+    Critical,
+    Miss,
+    Impact,
+    KnockOut,
+    Push,
+    Collision,
+    Hazard,
+    Explosion,
+    Telegraph,
+    Counter,
+    CutIn,
+    Reinforcement,
+    Objective,
+    Victory,
+    Defeat,
+}
+
+impl Sfx {
+    pub const ALL: [Sfx; 19] = [
+        Sfx::Select,
+        Sfx::Hover,
+        Sfx::Move,
+        Sfx::Hit,
+        Sfx::Critical,
+        Sfx::Miss,
+        Sfx::Impact,
+        Sfx::KnockOut,
+        Sfx::Push,
+        Sfx::Collision,
+        Sfx::Hazard,
+        Sfx::Explosion,
+        Sfx::Telegraph,
+        Sfx::Counter,
+        Sfx::CutIn,
+        Sfx::Reinforcement,
+        Sfx::Objective,
+        Sfx::Victory,
+        Sfx::Defeat,
+    ];
+
+    /// The effect's file, relative to the `assets` folder.
+    pub fn asset_path(self) -> &'static str {
+        match self {
+            Sfx::Select => "audio/sfx/select.ogg",
+            Sfx::Hover => "audio/sfx/hover.ogg",
+            Sfx::Move => "audio/sfx/move.ogg",
+            Sfx::Hit => "audio/sfx/hit.ogg",
+            Sfx::Critical => "audio/sfx/critical.ogg",
+            Sfx::Miss => "audio/sfx/miss.ogg",
+            Sfx::Impact => "audio/sfx/impact.ogg",
+            Sfx::KnockOut => "audio/sfx/knock_out.ogg",
+            Sfx::Push => "audio/sfx/push.ogg",
+            Sfx::Collision => "audio/sfx/collision.ogg",
+            Sfx::Hazard => "audio/sfx/hazard.ogg",
+            Sfx::Explosion => "audio/sfx/explosion.ogg",
+            Sfx::Telegraph => "audio/sfx/telegraph.ogg",
+            Sfx::Counter => "audio/sfx/counter.ogg",
+            Sfx::CutIn => "audio/sfx/cut_in.ogg",
+            Sfx::Reinforcement => "audio/sfx/reinforcement.ogg",
+            Sfx::Objective => "audio/sfx/objective.ogg",
+            Sfx::Victory => "audio/sfx/victory.ogg",
+            Sfx::Defeat => "audio/sfx/defeat.ogg",
+        }
+    }
+}
+
+/// Rendered mono music samples, played through Bevy's audio output.
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct SynthSound {
     samples: Arc<[f32]>,
@@ -172,19 +247,19 @@ pub fn track_for(screen: GameScreen, battle_over: bool) -> Option<Track> {
     }
 }
 
-/// Handles to every rendered sound.
+/// Handles to every effect file and rendered music track.
 #[derive(Resource, Clone, Debug)]
 pub struct SoundBank {
-    pub sfx: HashMap<Sfx, Handle<SynthSound>>,
+    pub sfx: HashMap<Sfx, Handle<AudioSource>>,
     pub tracks: HashMap<Track, Handle<SynthSound>>,
 }
 
 impl SoundBank {
-    pub fn render(sounds: &mut Assets<SynthSound>) -> Self {
+    pub fn load(assets: &AssetServer, sounds: &mut Assets<SynthSound>) -> Self {
         Self {
             sfx: Sfx::ALL
                 .into_iter()
-                .map(|sfx| (sfx, sounds.add(SynthSound::new(render_sfx(sfx)))))
+                .map(|sfx| (sfx, assets.load(sfx.asset_path())))
                 .collect(),
             tracks: Track::ALL
                 .into_iter()
@@ -217,8 +292,12 @@ impl Plugin for SoundPlugin {
     }
 }
 
-pub fn setup_sound_bank(mut commands: Commands, mut sounds: ResMut<Assets<SynthSound>>) {
-    commands.insert_resource(SoundBank::render(&mut sounds));
+pub fn setup_sound_bank(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    mut sounds: ResMut<Assets<SynthSound>>,
+) {
+    commands.insert_resource(SoundBank::load(&assets, &mut sounds));
 }
 
 pub fn toggle_sound(
@@ -360,6 +439,8 @@ mod tests {
     use super::*;
     use crate::domain::model::{MissionResult, UnitId, WeaponId};
 
+    const ASSETS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets");
+
     fn attack(hit: bool, critical: bool) -> BattleEvent {
         BattleEvent::AttackRolled {
             attacker: UnitId(1),
@@ -376,10 +457,15 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
-            AssetPlugin::default(),
+            AssetPlugin {
+                file_path: ASSETS.into(),
+                ..default()
+            },
             bevy::state::app::StatesPlugin,
         ))
         .init_asset::<SynthSound>()
+        .init_asset::<AudioSource>()
+        .init_asset_loader::<bevy::audio::AudioLoader>()
         .init_resource::<SoundSettings>()
         .init_resource::<SoundCues>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -433,6 +519,35 @@ mod tests {
     }
 
     #[test]
+    fn every_effect_file_is_a_short_mono_ogg() {
+        for sfx in Sfx::ALL {
+            let path = format!("{ASSETS}/{}", sfx.asset_path());
+            let bytes = std::fs::read(&path).unwrap_or_else(|_| panic!("{path} is missing"));
+            let decoder = AudioSource {
+                bytes: bytes.into(),
+            }
+            .decoder();
+            assert_eq!(decoder.channels().get(), 1, "{sfx:?} is not mono");
+            let rate = decoder.sample_rate().get() as f32;
+            let samples: Vec<f32> = decoder.collect();
+            let seconds = samples.len() as f32 / rate;
+            assert!((0.05..2.0).contains(&seconds), "{sfx:?} lasts {seconds}s");
+            let peak = samples.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+            assert!((0.05..=1.0).contains(&peak), "{sfx:?} peaks at {peak}");
+        }
+    }
+
+    #[test]
+    fn music_decodes_as_mono_at_the_synth_rate() {
+        let decoder = SynthSound::new(vec![0.25; SAMPLE_RATE as usize / 2]).decoder();
+        assert_eq!(decoder.channels().get(), 1);
+        assert_eq!(decoder.sample_rate().get(), SAMPLE_RATE);
+        assert_eq!(decoder.current_span_len(), None);
+        assert_eq!(decoder.total_duration(), Some(Duration::from_millis(500)));
+        assert_eq!(decoder.count(), SAMPLE_RATE as usize / 2);
+    }
+
+    #[test]
     fn battle_music_stops_once_the_battle_has_played_out() {
         assert_eq!(track_for(GameScreen::Title, false), Some(Track::Theme));
         assert_eq!(track_for(GameScreen::Upgrade, true), Some(Track::Theme));
@@ -467,9 +582,14 @@ mod tests {
     #[test]
     fn muting_drops_effects_and_mutes_new_music() {
         let mut app = sound_app();
+        app.init_resource::<StatusMessage>();
         app.update();
         press_n(&mut app);
         assert!(!app.world().resource::<SoundSettings>().enabled);
+        assert_eq!(
+            app.world().resource::<StatusMessage>().0,
+            "Sound off (N to turn on)."
+        );
         app.world_mut()
             .resource_mut::<SoundCues>()
             .play(Sfx::Select);

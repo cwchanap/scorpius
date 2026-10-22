@@ -104,6 +104,12 @@ weapon switch) and one pilot skill each in Missions 2–4. Each tip shows once p
 restart does not repeat it. Tips never block input. **GOT IT** or `Enter` dismisses the tip on screen
 (**NEXT** when more are waiting), and `H` turns tips off or back on.
 
+### Sound
+
+The 19 sound effects in `assets/audio/sfx/` were generated with ElevenLabs sound effects, then
+trimmed and loudness-matched into short mono Ogg files. The title and battle music loops are
+synthesized in code at startup (`src/presentation/synth.rs`). `N` turns all sound off or on.
+
 ### Keyboard mirrors
 
 Pointer input selects mechs, destinations, and targets. **CANCEL** and `Escape`
