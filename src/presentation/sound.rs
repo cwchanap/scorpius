@@ -24,7 +24,7 @@ use crate::domain::model::BattleEvent;
 
 use super::interaction::StatusMessage;
 use super::synth::{Jingle, SAMPLE_RATE, Track, render_jingle, render_track};
-use super::{BattleEventQueue, BattleRuntime, EventPlayback};
+use super::{BattleEventQueue, BattleRuntime};
 
 const SFX_VOLUME: f32 = 0.7;
 /// The jingles sit a little above the effects, since nothing plays under them.
@@ -322,12 +322,18 @@ pub fn toggle_sound(
     keyboard: Option<Res<ButtonInput<KeyCode>>>,
     mut settings: ResMut<SoundSettings>,
     mut sinks: Query<&mut AudioSink>,
+    mut pending: Query<&mut PlaybackSettings, Without<AudioSink>>,
     mut status: Option<ResMut<StatusMessage>>,
 ) {
     if !keyboard.is_some_and(|input| input.just_pressed(KeyCode::KeyN)) {
         return;
     }
     settings.enabled = !settings.enabled;
+    // A player whose asset is still loading has no sink yet; it starts
+    // from its playback settings once the asset is ready.
+    for mut playback in &mut pending {
+        playback.muted = !settings.enabled;
+    }
     for mut sink in &mut sinks {
         if settings.enabled {
             sink.unmute();
@@ -390,15 +396,16 @@ pub fn sync_music(
     screen: Option<Res<State<GameScreen>>>,
     battle: Option<Res<BattleRuntime>>,
     queue: Option<Res<BattleEventQueue>>,
-    playback: Option<Res<EventPlayback>>,
     players: Query<(Entity, &MusicPlayer)>,
+    effects: Query<(Entity, &SfxPlayer)>,
 ) {
     let (Some(bank), Some(screen)) = (bank, screen) else {
         return;
     };
+    // The result event is always the last one queued, so an empty queue
+    // means its jingle has just started: the battle music stops with it.
     let battle_over = battle.is_some_and(|battle| battle.0.result().is_some())
-        && queue.is_none_or(|queue| queue.0.is_empty())
-        && playback.is_none_or(|playback| playback.current.is_none());
+        && queue.is_none_or(|queue| queue.0.is_empty());
     let wanted = track_for(*screen.get(), battle_over);
     let mut playing = false;
     for (entity, player) in &players {
@@ -417,6 +424,13 @@ pub fn sync_music(
     let Some(handle) = bank.tracks.get(&track) else {
         return;
     };
+    // New music retires a result jingle, so a quick retry or continue
+    // doesn't play the next screen's track over it.
+    for (entity, effect) in &effects {
+        if effect.0.jingle().is_some() {
+            commands.entity(entity).try_despawn();
+        }
+    }
     let mut playback = PlaybackSettings::LOOP.with_volume(Volume::Linear(MUSIC_VOLUME));
     if !settings.enabled {
         playback = playback.muted();
@@ -836,6 +850,81 @@ mod tests {
     }
 
     #[test]
+    fn toggling_off_mutes_music_that_is_still_loading() {
+        let mut app = sound_app();
+        app.init_state::<GameScreen>();
+        app.update();
+        app.update();
+        let muted = |app: &mut App| {
+            let mut query = app
+                .world_mut()
+                .query_filtered::<&PlaybackSettings, With<MusicPlayer>>();
+            query.single(app.world()).expect("theme is queued").muted
+        };
+        assert!(!muted(&mut app));
+        press_n(&mut app);
+        assert!(muted(&mut app));
+        press_n(&mut app);
+        assert!(!muted(&mut app));
+    }
+
+    #[test]
+    fn a_result_jingle_plays_alone_until_the_next_music_starts() {
+        use crate::mission::mission_one::{ids, mission_one};
+
+        let mut app = sound_app();
+        app.init_state::<GameScreen>()
+            .insert_resource(BattleRuntime(mission_one(7)))
+            .init_resource::<BattleEventQueue>();
+        app.world_mut()
+            .resource_mut::<NextState<GameScreen>>()
+            .set(GameScreen::Battle);
+        app.update();
+        app.update();
+        assert_eq!(music(&mut app), vec![Track::Battle]);
+
+        let mut events = {
+            let battle = &mut app.world_mut().resource_mut::<BattleRuntime>().0;
+            battle.clear_reinforcements_for_test();
+            let mut events = Vec::new();
+            for enemy in [
+                ids::RIFLEMAN_LEFT,
+                ids::RIFLEMAN_RIGHT,
+                ids::STRIKER,
+                ids::ARTILLERY,
+            ] {
+                events.extend(battle.apply_direct_damage(enemy, 99, DamageSource::Hazard));
+            }
+            events
+        };
+        let result = events.pop().expect("the battle ends");
+        assert!(matches!(result, BattleEvent::MissionCompleted { .. }));
+        // The battle music keeps playing until the result event plays.
+        app.world_mut()
+            .resource_mut::<BattleEventQueue>()
+            .0
+            .push_back(result.clone());
+        app.update();
+        assert_eq!(music(&mut app), vec![Track::Battle]);
+
+        app.world_mut().resource_mut::<BattleEventQueue>().0.clear();
+        app.world_mut()
+            .resource_mut::<SoundCues>()
+            .battle_event(&result);
+        app.update();
+        assert!(music(&mut app).is_empty());
+        assert_eq!(effects(&mut app), vec![Sfx::Victory]);
+
+        // A quick retry starts the battle music and retires the jingle.
+        app.insert_resource(BattleRuntime(mission_one(8)));
+        app.world_mut().resource_mut::<SoundCues>().play(Sfx::Hit);
+        app.update();
+        app.update();
+        assert_eq!(music(&mut app), vec![Track::Battle]);
+        assert_eq!(effects(&mut app), vec![Sfx::Hit]);
+    }
+
+    #[test]
     fn music_follows_the_screen() {
         let mut app = sound_app();
         app.init_state::<GameScreen>();
@@ -845,8 +934,7 @@ mod tests {
 
         let battle = crate::domain::battle::BattleState::viability_fixture();
         app.insert_resource(BattleRuntime(battle))
-            .init_resource::<BattleEventQueue>()
-            .init_resource::<EventPlayback>();
+            .init_resource::<BattleEventQueue>();
         app.world_mut()
             .resource_mut::<NextState<GameScreen>>()
             .set(GameScreen::Battle);
