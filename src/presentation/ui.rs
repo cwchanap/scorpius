@@ -13,6 +13,7 @@ use crate::domain::{
         BattleEvent, BattlePhase, Faction, MAX_WEAPONS_PER_UNIT, MissionResult, OptionalObjective,
         PrimaryObjective, Reaction, UnitArchetype, UnitId, WeaponId, WeaponShape,
     },
+    spirit::SpiritCommand,
 };
 use crate::mission::MissionDefinition;
 
@@ -78,6 +79,7 @@ pub struct InspectorSnapshot {
     pub armor: Option<i16>,
     pub movement: Option<u8>,
     pub evasion: Option<i16>,
+    pub sp: Option<i16>,
     pub moved: bool,
     pub acted: bool,
     pub finished: bool,
@@ -98,6 +100,7 @@ impl InspectorSnapshot {
             armor: Some(unit.stats.armor),
             movement: Some(unit.stats.movement),
             evasion: Some(unit.stats.evasion),
+            sp: None,
             moved: unit.activation.moved,
             acted: unit.activation.acted,
             finished: unit.activation.finished,
@@ -177,6 +180,10 @@ pub struct HudSnapshot {
     pub weapon_enabled: [bool; 3],
     pub can_move: bool,
     pub can_pilot: bool,
+    /// Per [`SpiritCommand::ALL`]: whether the active pilot can cast it now.
+    pub spirit_enabled: [bool; 3],
+    /// Per [`SpiritCommand::ALL`]: whether it waits on the active pilot.
+    pub spirit_waiting: [bool; 3],
     pub can_choose_reaction: bool,
     pub can_finish: bool,
     pub can_resolve: bool,
@@ -255,8 +262,20 @@ impl HudSnapshot {
                 }
             }
         }
-        let inspector =
+        let mut inspector =
             selected_unit.map_or_else(InspectorSnapshot::default, InspectorSnapshot::from_unit);
+        inspector.sp = selected
+            .and_then(|unit| battle.spirit(unit))
+            .map(|spirit| spirit.sp);
+        let active_spirit = active.and_then(|unit| battle.spirit(unit.id));
+        let spirit_enabled = SpiritCommand::ALL.map(|command| battle.can_use_spirit(command));
+        let spirit_waiting = SpiritCommand::ALL.map(|command| {
+            active_spirit.is_some_and(|spirit| match command {
+                SpiritCommand::Valor => spirit.valor,
+                SpiritCommand::Alert => spirit.alert,
+                SpiritCommand::Guts => false,
+            })
+        });
 
         let pilot = battle.pilot_skills();
         let pilot_status = |used: bool, active_now: bool| {
@@ -403,6 +422,8 @@ impl HudSnapshot {
                 | UnitArchetype::Dreadnought
                 | UnitArchetype::Regent => false,
             }),
+            spirit_enabled,
+            spirit_waiting,
             can_choose_reaction: active.is_some_and(|unit| !unit.activation.finished),
             can_finish: active.is_some_and(|unit| unit.reaction.is_some()),
             can_resolve: battle.ready_to_resolve(),
@@ -562,6 +583,7 @@ pub enum InspectorTextKind {
     Armor,
     Movement,
     Evasion,
+    Sp,
 }
 
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
@@ -1240,6 +1262,14 @@ pub fn setup_mission_ui(
         &ui_assets,
         theme::INSPECTOR_EVASION_RECT,
         InspectorTextKind::Evasion,
+        "—",
+    );
+    spawn_inspector_stat(
+        &mut commands,
+        inspector_stats,
+        &ui_assets,
+        theme::ICON_SKILL,
+        InspectorTextKind::Sp,
         "—",
     );
     commands.spawn((
@@ -2966,6 +2996,10 @@ pub fn update_hud(
                     .inspector
                     .evasion
                     .map_or_else(|| "—".to_owned(), |evasion| format!("{evasion}%")),
+                InspectorTextKind::Sp => hud
+                    .inspector
+                    .sp
+                    .map_or_else(|| "—".to_owned(), |sp| format!("SP {sp}")),
             };
         } else if let Some(weapon_text) = weapon_text {
             let weapon = hud
@@ -3379,6 +3413,7 @@ pub fn update_hud(
         let armed = match (button.0, interaction.mode) {
             (CommandAction::Move, InteractionMode::Move) => true,
             (CommandAction::PilotSkill, InteractionMode::AegisTarget) => true,
+            (CommandAction::Spirit(command), _) => hud.spirit_waiting[spirit_slot(command)],
             (CommandAction::WeaponSlot(slot), InteractionMode::Attack(weapon)) => {
                 hud.weapon_names
                     .get(slot)
@@ -3524,11 +3559,19 @@ fn spawn_command_button(
     button
 }
 
+fn spirit_slot(command: SpiritCommand) -> usize {
+    SpiritCommand::ALL
+        .iter()
+        .position(|candidate| *candidate == command)
+        .expect("ALL lists every spirit command")
+}
+
 fn command_enabled(action: CommandAction, hud: &HudSnapshot) -> bool {
     match action {
         CommandAction::Move => hud.can_move,
         CommandAction::WeaponSlot(slot) => hud.weapon_enabled.get(slot).copied().unwrap_or(false),
         CommandAction::PilotSkill => hud.can_pilot,
+        CommandAction::Spirit(command) => hud.spirit_enabled[spirit_slot(command)],
         CommandAction::Reaction(_) => hud.can_choose_reaction,
         CommandAction::FinishUnit => hud.can_finish,
         CommandAction::ResolveAttacks => hud.can_resolve,
@@ -3625,6 +3668,12 @@ pub fn format_event(event: &BattleEvent, battle: &BattleState) -> String {
         }
         BattleEvent::ReinforcementArrived { unit, .. } => {
             format!("REINFORCEMENTS\n{}", unit_name(battle, *unit))
+        }
+        BattleEvent::SpiritInvoked { unit, command } => {
+            format!("{} SPIRIT\n{}", unit_name(battle, *unit), command.name())
+        }
+        BattleEvent::UnitRepaired { unit, amount, .. } => {
+            format!("{}\n+{amount} HP", unit_name(battle, *unit))
         }
         BattleEvent::OptionalObjectiveCompleted => "BONUS ACHIEVED".to_owned(),
         BattleEvent::MissionCompleted { .. } => "MISSION COMPLETE".to_owned(),

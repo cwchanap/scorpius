@@ -11,6 +11,7 @@ use crate::domain::{
     model::{
         BattleError, BattleEvent, BattlePhase, Faction, Reaction, UnitArchetype, UnitId, WeaponId,
     },
+    spirit::SpiritCommand,
 };
 
 use super::{
@@ -59,6 +60,7 @@ pub enum CommandAction {
     Move,
     WeaponSlot(usize),
     PilotSkill,
+    Spirit(SpiritCommand),
     Reaction(Reaction),
     FinishUnit,
     ResolveAttacks,
@@ -474,6 +476,8 @@ pub(crate) fn handle_keyboard_shortcuts(
         Some(MenuAction::Open(MenuState::Weapons))
     } else if keyboard.just_pressed(KeyCode::KeyS) {
         Some(MenuAction::Open(MenuState::Stances))
+    } else if keyboard.just_pressed(KeyCode::KeyQ) {
+        Some(MenuAction::Open(MenuState::Spirits))
     } else if keyboard.just_pressed(KeyCode::Backspace) {
         Some(MenuAction::Back)
     } else {
@@ -625,6 +629,12 @@ pub fn execute_command(
                 }
             }
             Ok(Vec::new())
+        }
+        CommandAction::Spirit(command) => {
+            require_active_unit(battle)?;
+            let events = battle.use_spirit(command)?;
+            interaction.menu = MenuState::Root;
+            Ok(events)
         }
         CommandAction::Reaction(reaction) => {
             let unit = require_active_unit(battle)?;
@@ -809,6 +819,11 @@ fn command_success_message(action: CommandAction, mode: InteractionMode) -> &'st
                 "Pilot skill engaged."
             }
         }
+        CommandAction::Spirit(SpiritCommand::Valor) => {
+            "VALOR — the next attack deals double damage."
+        }
+        CommandAction::Spirit(SpiritCommand::Alert) => "ALERT — the next enemy hit will miss.",
+        CommandAction::Spirit(SpiritCommand::Guts) => "GUTS — armor repaired.",
         CommandAction::Reaction(Reaction::Counter) => "COUNTER stance selected.",
         CommandAction::Reaction(Reaction::Guard) => "GUARD stance selected.",
         CommandAction::Reaction(Reaction::Evade) => "EVADE stance selected.",

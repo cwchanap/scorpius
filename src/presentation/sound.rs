@@ -51,12 +51,13 @@ pub enum Sfx {
     CutIn,
     Reinforcement,
     Objective,
+    Spirit,
     Victory,
     Defeat,
 }
 
 impl Sfx {
-    pub const ALL: [Sfx; 19] = [
+    pub const ALL: [Sfx; 20] = [
         Sfx::Select,
         Sfx::Hover,
         Sfx::Move,
@@ -74,6 +75,7 @@ impl Sfx {
         Sfx::CutIn,
         Sfx::Reinforcement,
         Sfx::Objective,
+        Sfx::Spirit,
         Sfx::Victory,
         Sfx::Defeat,
     ];
@@ -99,6 +101,7 @@ impl Sfx {
             Sfx::CutIn => "audio/sfx/cut_in.ogg",
             Sfx::Reinforcement => "audio/sfx/reinforcement.ogg",
             Sfx::Objective => "audio/sfx/objective.ogg",
+            Sfx::Spirit => "audio/sfx/spirit.ogg",
             Sfx::Victory | Sfx::Defeat => return None,
         })
     }
@@ -236,9 +239,10 @@ pub fn sfx_for_event(event: &BattleEvent) -> Option<Sfx> {
         BattleEvent::CounterFired { .. } => Sfx::Counter,
         BattleEvent::ReinforcementArrived { .. } => Sfx::Reinforcement,
         BattleEvent::OptionalObjectiveCompleted => Sfx::Objective,
+        BattleEvent::SpiritInvoked { .. } => Sfx::Spirit,
         BattleEvent::MissionCompleted { .. } => Sfx::Victory,
         BattleEvent::MissionFailed { .. } => Sfx::Defeat,
-        BattleEvent::IntentCanceled { .. } => return None,
+        BattleEvent::IntentCanceled { .. } | BattleEvent::UnitRepaired { .. } => return None,
     })
 }
 
@@ -686,6 +690,13 @@ mod tests {
                 Sfx::Reinforcement,
             ),
             (BattleEvent::OptionalObjectiveCompleted, Sfx::Objective),
+            (
+                BattleEvent::SpiritInvoked {
+                    unit,
+                    command: crate::domain::spirit::SpiritCommand::Valor,
+                },
+                Sfx::Spirit,
+            ),
             (BattleEvent::MissionFailed { result }, Sfx::Defeat),
         ];
         for (event, sfx) in cases {

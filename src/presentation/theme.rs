@@ -109,6 +109,8 @@ pub const ICON_GUARD: Rect = icon_rect(57);
 pub const ICON_COUNTER: Rect = icon_rect(58);
 pub const ICON_EVADE: Rect = icon_rect(59);
 pub const ICON_SKILL: Rect = icon_rect(60);
+/// The small energy bolt in slot 25, cropped square so it fills a row icon.
+pub const ICON_SPIRIT: Rect = Rect::new(86.0, 215.0, 104.0, 233.0);
 pub const ICON_WAIT: Rect = icon_rect(61);
 pub const ICON_BACK: Rect = icon_rect(62);
 
@@ -319,6 +321,7 @@ mod tests {
             ICON_COUNTER,
             ICON_EVADE,
             ICON_SKILL,
+            ICON_SPIRIT,
             ICON_WAIT,
             ICON_BACK,
             ICON_SKIP,

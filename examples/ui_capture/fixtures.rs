@@ -4,6 +4,7 @@ use scorpius::{
     domain::{
         board::GridPos,
         model::{BattlePhase, MissionResult, PrimaryObjective, Reaction, UnitId, WeaponId},
+        spirit::SpiritCommand,
     },
     mission::{
         MissionId,
@@ -529,6 +530,32 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         ],
     },
     CaptureFixture {
+        id: "battle-menu-spirits",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::Inspect(m1::VANGUARD),
+            CaptureAction::Menu(MenuAction::Open(MenuState::Spirits)),
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::Menu(MenuState::Spirits),
+        ],
+    },
+    CaptureFixture {
+        id: "battle-spirit-valor",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::Inspect(m1::VANGUARD),
+            CaptureAction::Command(CommandAction::Spirit(SpiritCommand::Valor)),
+            CaptureAction::KeepPlayback,
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::Mode(InteractionMode::Inspect),
+            ExpectedFact::PlaybackActive(true),
+        ],
+    },
+    CaptureFixture {
         id: "battle-move-targeting",
         profile: battle_profile(MissionId::One),
         actions: &[
@@ -651,6 +678,20 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
             ExpectedFact::Screen(GameScreen::Battle),
             ExpectedFact::Mode(InteractionMode::Attack(m1::REPULSOR_RAM)),
             ExpectedFact::FieldTip(Some("PUSH")),
+        ],
+    },
+    CaptureFixture {
+        id: "battle-tip-spirit",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::AdvanceRounds(1),
+            CaptureAction::Inspect(m1::VANGUARD),
+            CaptureAction::ShowTip("SPIRIT COMMANDS"),
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::Round(2),
+            ExpectedFact::FieldTip(Some("SPIRIT COMMANDS")),
         ],
     },
     CaptureFixture {

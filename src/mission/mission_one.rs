@@ -243,7 +243,7 @@ static AFTERMATH_LINES: [DialogueLine; 2] = [
     },
 ];
 
-static FIELD_TIPS: [FieldTip; 6] = [
+static FIELD_TIPS: [FieldTip; 7] = [
     FieldTip {
         trigger: TipTrigger::Opening,
         title: "LOCKED ATTACKS",
@@ -268,6 +268,11 @@ static FIELD_TIPS: [FieldTip; 6] = [
         trigger: TipTrigger::ReadyToResolve,
         title: "RESOLVE",
         text: "Every mech is set. Press RESOLVE: the locked attacks fire, then the enemies move and lock their next attacks before your turn comes back.",
+    },
+    FieldTip {
+        trigger: TipTrigger::ActivationFromRound(2),
+        title: "SPIRIT COMMANDS",
+        text: "Pilots spend SP on SPIRIT commands: VALOR doubles the next attack's damage, ALERT dodges the next hit, GUTS repairs 12 HP. Each pilot starts with 30 SP and gains 5 a round.",
     },
     FieldTip {
         trigger: TipTrigger::Deployed(ids::ROAD_RIFLEMAN_NORTH),

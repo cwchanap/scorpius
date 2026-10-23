@@ -186,6 +186,9 @@ the rubric.
   road outside the relay gate, where the patrol arrives, but not the rest of the 128×128 region.
 - Bonus rates for Swift Intercept (Mission 3) and Final Push (Mission 7) depend on how aggressively
   a player chases. The bots' aggression is a guess.
+- Spirit Commands (2026-10-23) came after this pass, and no bot casts them. They only help the
+  player and never draw from the battle RNG, so every table here still reproduces exactly; a player
+  who spends SP has an easier time than these numbers show.
 - A human playtest of Act 1 is still the real test. The rubric above is what to watch for.
 
 ## Full tables: before

@@ -1,6 +1,6 @@
 use crate::domain::board::GridPos;
 
-use super::combat::DamageSource;
+use super::{combat::DamageSource, spirit::SpiritCommand};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnitId(pub u16);
@@ -255,6 +255,15 @@ pub enum BattleEvent {
         unit: UnitId,
         position: GridPos,
     },
+    SpiritInvoked {
+        unit: UnitId,
+        command: SpiritCommand,
+    },
+    UnitRepaired {
+        unit: UnitId,
+        amount: i16,
+        remaining_hp: i16,
+    },
     OptionalObjectiveCompleted,
     MissionCompleted {
         result: MissionResult,
@@ -316,6 +325,15 @@ pub enum BattleError {
     PilotSkillAlreadyUsed,
     InvalidAegisTarget(UnitId),
     PilotSkillRequiresMoveAvailable(UnitId),
+    InsufficientSp {
+        unit: UnitId,
+        required: i16,
+        available: i16,
+    },
+    SpiritNoEffect {
+        unit: UnitId,
+        command: SpiritCommand,
+    },
 }
 
 impl std::fmt::Display for BattleError {
@@ -437,6 +455,26 @@ impl std::fmt::Display for BattleError {
                     unit.0
                 )
             }
+            Self::InsufficientSp {
+                unit,
+                required,
+                available,
+            } => write!(
+                formatter,
+                "Unit {} needs {required} SP but has {available}.",
+                unit.0
+            ),
+            Self::SpiritNoEffect { unit, command } => match command {
+                SpiritCommand::Guts => {
+                    write!(formatter, "Unit {} is already at full HP.", unit.0)
+                }
+                SpiritCommand::Valor | SpiritCommand::Alert => write!(
+                    formatter,
+                    "{} is already waiting on unit {}.",
+                    command.name(),
+                    unit.0
+                ),
+            },
         }
     }
 }

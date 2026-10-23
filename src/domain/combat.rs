@@ -55,10 +55,13 @@ impl BattleState {
     ) -> Result<AttackPreview, BattleError> {
         let context = self.attack_context(attacker, weapon, target)?;
         let force_hit = self.focus_forces_hit(&context.attacker);
+        let valor = self.valor_pending(attacker);
         let values = context
             .target_unit
             .as_ref()
-            .map(|target| attack_values(&context.attacker, &context.weapon, target, force_hit))
+            .map(|target| {
+                attack_values(&context.attacker, &context.weapon, target, force_hit).valor(valor)
+            })
             .unwrap_or_else(|| prop_attack_values(&context.weapon));
 
         Ok(AttackPreview {
@@ -82,6 +85,7 @@ impl BattleState {
     ) -> Result<Vec<BattleEvent>, BattleError> {
         let context = self.attack_context(attacker, weapon, target)?;
         let force_hit = self.focus_forces_hit(&context.attacker);
+        let valor = self.valor_pending(attacker);
         let targets: Vec<_> = context
             .footprint
             .iter()
@@ -100,6 +104,9 @@ impl BattleState {
         if force_hit {
             self.clear_focus_pending();
         }
+        if !targets.is_empty() {
+            self.clear_valor(attacker);
+        }
 
         let mut events = Vec::new();
         for target_id in targets {
@@ -107,7 +114,8 @@ impl BattleState {
                 .unit(target_id)
                 .expect("target collected from living units")
                 .clone();
-            let values = attack_values(&context.attacker, &context.weapon, &defender, force_hit);
+            let values = attack_values(&context.attacker, &context.weapon, &defender, force_hit)
+                .valor(valor);
             let roll = self.roll_percent();
             let hit = roll <= values.hit_chance;
             let critical_roll = hit.then(|| self.roll_percent());
@@ -180,7 +188,8 @@ impl BattleState {
             self.pilot_skills().aegis_target == Some(target),
         );
         let roll = self.roll_percent();
-        let hit = roll <= values.hit_chance;
+        // Alert dodges the shot after the roll, so the RNG stream is unchanged.
+        let hit = roll <= values.hit_chance && !self.take_alert(target);
         let critical_roll = hit.then(|| self.roll_percent());
         let critical = critical_roll.is_some_and(|roll| roll <= profile.crit_chance);
         let mut events = vec![BattleEvent::AttackRolled {
@@ -484,6 +493,20 @@ fn attack_values(
         hit_chance,
         normal_damage,
         critical_damage,
+    }
+}
+
+impl AttackValues {
+    /// Valor doubles the damage a hit deals, after armor.
+    const fn valor(self, valor: bool) -> Self {
+        if !valor {
+            return self;
+        }
+        Self {
+            hit_chance: self.hit_chance,
+            normal_damage: self.normal_damage * 2,
+            critical_damage: self.critical_damage * 2,
+        }
     }
 }
 

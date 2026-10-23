@@ -462,7 +462,8 @@ fn battle_snapshot_spawns_source_fixed_header_sidebar_and_menu_regions() {
             .query::<&MenuRegion>()
             .iter(app.world())
             .count(),
-        3
+        4,
+        "Root, Weapons, Stances and Spirits"
     );
     assert_eq!(
         app.world_mut()

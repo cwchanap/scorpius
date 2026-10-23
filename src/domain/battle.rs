@@ -14,6 +14,7 @@ use super::{
         WeaponId, WeaponSpec,
     },
     rng::BattleRng,
+    spirit::SpiritState,
 };
 
 #[derive(Clone, Debug)]
@@ -31,6 +32,7 @@ pub struct BattleState {
     result: Option<MissionResult>,
     rng: BattleRng,
     reinforcements: Vec<Reinforcement>,
+    pub(super) spirits: BTreeMap<UnitId, SpiritState>,
 }
 
 impl BattleState {
@@ -52,6 +54,11 @@ impl BattleState {
                 unit.weapons.len()
             );
         }
+        let spirits = units
+            .values()
+            .filter(|unit| unit.faction == Faction::Player)
+            .map(|unit| (unit.id, SpiritState::default()))
+            .collect();
         Self {
             board,
             units,
@@ -69,6 +76,7 @@ impl BattleState {
             result: None,
             rng: BattleRng::seeded(seed),
             reinforcements: Vec::new(),
+            spirits,
         }
     }
 
@@ -459,7 +467,7 @@ impl BattleState {
                 .all(|unit| unit.is_knocked_out() || unit.activation.finished)
     }
 
-    fn require_player_phase(&self) -> Result<(), BattleError> {
+    pub(super) fn require_player_phase(&self) -> Result<(), BattleError> {
         if self.phase != BattlePhase::Player {
             return Err(BattleError::WrongPhase {
                 expected: BattlePhase::Player,
