@@ -28,6 +28,8 @@ pub enum TipTrigger {
     AnyActivation,
     /// This mech is the active unit.
     Activation(UnitId),
+    /// Any mech is the active unit in this round or a later one.
+    ActivationFromRound(u16),
     /// The active mech stands in a committed enemy footprint.
     ActiveUnitTargeted,
     /// The active mech stands in this enemy's committed footprint.
@@ -63,6 +65,7 @@ impl TipTrigger {
             Self::Opening => true,
             Self::AnyActivation => active().is_some(),
             Self::Activation(unit) => battle.active_unit() == Some(unit),
+            Self::ActivationFromRound(round) => active().is_some() && battle.round() >= round,
             Self::ActiveUnitTargeted => active_targeted_by(None),
             Self::ActiveUnitTargetedBy(attacker) => active_targeted_by(Some(attacker)),
             Self::PushArmed => armed
@@ -162,6 +165,10 @@ mod tests {
         assert!(TipTrigger::AnyActivation.holds(&battle, None));
         assert!(TipTrigger::Activation(ids::VANGUARD).holds(&battle, None));
         assert!(!TipTrigger::Activation(ids::GUNNER).holds(&battle, None));
+        assert!(TipTrigger::ActivationFromRound(1).holds(&battle, None));
+        assert!(!TipTrigger::ActivationFromRound(2).holds(&battle, None));
+        battle.set_round_for_test(2);
+        assert!(TipTrigger::ActivationFromRound(2).holds(&battle, None));
     }
 
     #[test]

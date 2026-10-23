@@ -4,7 +4,7 @@ use bevy::{
     text::{LetterSpacing, LineHeight},
 };
 
-use crate::domain::model::MAX_WEAPONS_PER_UNIT;
+use crate::domain::{model::MAX_WEAPONS_PER_UNIT, spirit::SpiritCommand};
 
 use super::{
     BattleRuntime, EventPlayback,
@@ -24,6 +24,7 @@ pub enum MenuState {
     Root,
     Weapons,
     Stances,
+    Spirits,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -147,6 +148,14 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         "SKILL",
         19.0,
     );
+    spawn_nav_row(
+        commands,
+        root,
+        assets,
+        MenuAction::Open(MenuState::Spirits),
+        theme::ICON_SPIRIT,
+        "SPIRIT",
+    );
     spawn_command_row(
         commands,
         root,
@@ -205,6 +214,29 @@ pub fn spawn_battle_menu(commands: &mut Commands, parent: Entity, assets: &UiAss
         ),
     ] {
         spawn_command_row(commands, stances, assets, action, icon, label, 18.0);
+    }
+
+    let spirits = commands
+        .spawn((
+            MenuRegion(MenuState::Spirits),
+            menu_region_node(),
+            Visibility::Hidden,
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id();
+    spawn_back_row(commands, spirits, assets, theme::ICON_SPIRIT);
+    for command in SpiritCommand::ALL {
+        let (icon, label) = spirit_row(command);
+        spawn_command_row(
+            commands,
+            spirits,
+            assets,
+            CommandAction::Spirit(command),
+            icon,
+            label,
+            18.0,
+        );
     }
 
     let targeting = commands
@@ -417,19 +449,29 @@ pub fn update_battle_menu(
         let enabled = active
             && inspect
             && match button.0 {
-                MenuAction::Open(MenuState::Weapons | MenuState::Stances) => {
+                MenuAction::Open(MenuState::Weapons | MenuState::Stances | MenuState::Spirits) => {
                     interaction.menu == MenuState::Root
                 }
                 MenuAction::Open(MenuState::Hidden | MenuState::Root) => false,
-                MenuAction::Back => {
-                    matches!(interaction.menu, MenuState::Weapons | MenuState::Stances)
-                }
+                MenuAction::Back => matches!(
+                    interaction.menu,
+                    MenuState::Weapons | MenuState::Stances | MenuState::Spirits
+                ),
             };
         *pickable = if enabled {
             Pickable::default()
         } else {
             Pickable::IGNORE
         };
+    }
+}
+
+/// A spirit row's icon and its label with the SP cost.
+const fn spirit_row(command: SpiritCommand) -> (Rect, &'static str) {
+    match command {
+        SpiritCommand::Valor => (theme::ICON_ATTACK, "VALOR · 30 SP"),
+        SpiritCommand::Alert => (theme::ICON_EVADE, "ALERT · 15 SP"),
+        SpiritCommand::Guts => (theme::ICON_GUARD, "GUTS · 25 SP"),
     }
 }
 
@@ -835,4 +877,21 @@ fn spawn_back_row(commands: &mut Commands, parent: Entity, assets: &UiAssets, co
         Pickable::IGNORE,
         ChildOf(row),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SpiritCommand, spirit_row};
+
+    #[test]
+    fn spirit_rows_name_each_command_and_its_cost() {
+        for command in SpiritCommand::ALL {
+            let (_, label) = spirit_row(command);
+            assert_eq!(
+                label,
+                format!("{} · {} SP", command.name(), command.cost()),
+                "{command:?}"
+            );
+        }
+    }
 }

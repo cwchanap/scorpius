@@ -259,11 +259,24 @@ pub(crate) fn play_battle_events(
     // Damage numbers live under the BattleMap like the impact icons: they
     // pan, zoom, and clip with the stage instead of holding a one-time
     // screen-space origin.
-    if let BattleEvent::DamageApplied { target, amount, .. } = &event
+    // Spirit names and repairs float up from the pilot the same way.
+    let floating = match &event {
+        BattleEvent::DamageApplied { target, amount, .. } => {
+            Some((*target, format!("-{amount}"), Color::WHITE))
+        }
+        BattleEvent::UnitRepaired { unit, amount, .. } => {
+            Some((*unit, format!("+{amount}"), theme::MINT))
+        }
+        BattleEvent::SpiritInvoked { unit, command } => {
+            Some((*unit, command.name().to_owned(), theme::GOLD))
+        }
+        _ => None,
+    };
+    if let Some((target, text, color)) = floating
         && let Some(parent) = stage_parent(&stages, &roots)
-        && let Some(unit) = battle.0.unit(*target)
+        && let Some(unit) = battle.0.unit(target)
     {
-        let center = rendered_stage_center(&unit_queries.units, *target)
+        let center = rendered_stage_center(&unit_queries.units, target)
             .unwrap_or_else(|| stage_point(unit.position));
         let origin = center + Vec2::new(0.0, -(MAP_UNIT_HEIGHT + 10.0));
         spawn_damage_number(
@@ -271,7 +284,7 @@ pub(crate) fn play_battle_events(
             parent,
             &ui_assets.fonts,
             origin,
-            *amount,
+            (text, color),
             stage_effect_depth(battle.0.board().width(), battle.0.board().height()),
         );
     }
@@ -319,6 +332,8 @@ fn event_duration(event: &BattleEvent) -> Duration {
         | BattleEvent::MissionCompleted { .. }
         | BattleEvent::MissionFailed { .. } => 0.18,
         BattleEvent::ReinforcementArrived { .. } => 0.6,
+        BattleEvent::SpiritInvoked { .. } => 0.45,
+        BattleEvent::UnitRepaired { .. } => 0.3,
     };
     Duration::from_secs_f32(seconds)
 }
@@ -546,13 +561,13 @@ fn spawn_damage_number(
     map_parent: Entity,
     fonts: &super::theme::FontHandles,
     origin: Vec2,
-    amount: i16,
+    (text, color): (String, Color),
     depth: i32,
 ) {
     commands.spawn((
-        Text::new(format!("-{amount}")),
+        Text::new(text),
         theme::ibm_plex_mono(fonts, 28.0, FontWeight(600)),
-        TextColor(Color::WHITE),
+        TextColor(color),
         Node {
             position_type: PositionType::Absolute,
             left: px(origin.x),
@@ -684,7 +699,7 @@ mod tests {
             map_parent,
             &fonts,
             Vec2::new(320.0, 240.0),
-            7,
+            ("-7".to_owned(), Color::WHITE),
             stage_effect_depth(9, 9),
         );
         app.world_mut().flush();

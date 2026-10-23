@@ -8,7 +8,8 @@ use scorpius::{
     domain::{
         battle::BattleState,
         board::GridPos,
-        model::{BattlePhase, MissionResult, Reaction, UnitId},
+        model::{BattleEvent, BattlePhase, MissionResult, Reaction, UnitId},
+        spirit::SpiritCommand,
     },
     mission::mission_five::mission_five,
     mission::mission_four::mission_four,
@@ -896,6 +897,51 @@ fn vanguard_pilot_arms_aegis_and_shields_an_adjacent_ally() {
     assert_eq!(interaction.mode, InteractionMode::Inspect);
     assert_eq!(battle.pilot_skills().aegis_target, Some(ids::GUNNER));
     assert!(battle.pilot_skills().aegis_used);
+}
+
+#[test]
+fn spirit_menu_casts_from_the_active_pilots_sp() {
+    let definition = mission_definition(MissionId::One).unwrap();
+    let mut battle = mission_one(7);
+    battle.begin_round().unwrap();
+    let mut interaction = InteractionState::default();
+
+    route_cell_click(&mut battle, &mut interaction, GridPos::new(3, 8)).unwrap();
+    assert_eq!(interaction.inspected_unit, Some(ids::GUNNER));
+    let hud = HudSnapshot::from_battle(&battle, Some(ids::GUNNER), definition);
+    assert_eq!(hud.inspector.sp, Some(30));
+    assert_eq!(hud.spirit_enabled, [true, true, false], "GUTS needs damage");
+
+    interaction.menu = MenuState::Spirits;
+    let events = execute_command(
+        &mut battle,
+        &mut interaction,
+        CommandAction::Spirit(SpiritCommand::Alert),
+    )
+    .unwrap();
+    assert_eq!(
+        events,
+        vec![BattleEvent::SpiritInvoked {
+            unit: ids::GUNNER,
+            command: SpiritCommand::Alert,
+        }]
+    );
+    assert_eq!(interaction.menu, MenuState::Root);
+    let hud = HudSnapshot::from_battle(&battle, Some(ids::GUNNER), definition);
+    assert_eq!(hud.inspector.sp, Some(15));
+    assert_eq!(hud.spirit_waiting, [false, true, false]);
+    assert_eq!(
+        hud.spirit_enabled,
+        [false, false, false],
+        "15 SP buys nothing new"
+    );
+    execute_command(
+        &mut battle,
+        &mut interaction,
+        CommandAction::Spirit(SpiritCommand::Valor),
+    )
+    .unwrap_err();
+    assert_eq!(battle.spirit(ids::GUNNER).unwrap().sp, 15);
 }
 
 #[test]

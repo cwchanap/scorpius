@@ -75,6 +75,9 @@ impl BattleState {
         }
 
         let opening = self.round == 0;
+        if !opening {
+            self.regain_round_sp();
+        }
         if opening {
             events.extend(self.apply_authored_opening_movement()?);
         } else {

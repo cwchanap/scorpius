@@ -5,3 +5,4 @@ pub mod enemy;
 pub mod environment;
 pub mod model;
 pub mod rng;
+pub mod spirit;
