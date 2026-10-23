@@ -188,9 +188,12 @@ impl BattleState {
             self.pilot_skills().aegis_target == Some(target),
         );
         let roll = self.roll_percent();
-        // Alert dodges the shot after the roll, so the RNG stream is unchanged.
-        let hit = roll <= values.hit_chance && !self.take_alert(target);
-        let critical_roll = hit.then(|| self.roll_percent());
+        let would_hit = roll <= values.hit_chance;
+        // Alert dodges a shot that would hit only after both of its rolls are
+        // drawn, so the RNG stream is unchanged; the dodge reports a plain miss.
+        let critical_roll = would_hit.then(|| self.roll_percent());
+        let hit = would_hit && !self.take_alert(target);
+        let critical_roll = critical_roll.filter(|_| hit);
         let critical = critical_roll.is_some_and(|roll| roll <= profile.crit_chance);
         let mut events = vec![BattleEvent::AttackRolled {
             attacker,
