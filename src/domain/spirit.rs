@@ -352,6 +352,47 @@ mod tests {
     }
 
     #[test]
+    fn alert_leaves_the_rng_stream_unchanged() {
+        let rolls = |events: &[BattleEvent]| -> Vec<u8> {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    BattleEvent::AttackRolled { roll, .. } => Some(*roll),
+                    _ => None,
+                })
+                .collect()
+        };
+        let pilot_shot = |events: &[BattleEvent], unit| {
+            events.iter().position(|event| {
+                matches!(event, BattleEvent::AttackRolled { target, hit: true, .. }
+                    if *target == unit)
+            })
+        };
+        // A seed where a shot lands on the pilot and another shot follows it.
+        let (seed, unit, plain_rolls, index) = (1..200)
+            .find_map(|seed| {
+                let (mut plain, unit) = targeted_player(seed, SpiritCommand::Guts);
+                let events = plain.resolve_enemy_phase().unwrap();
+                let shot = pilot_shot(&events, unit)?;
+                let index = events[..shot]
+                    .iter()
+                    .filter(|event| matches!(event, BattleEvent::AttackRolled { .. }))
+                    .count();
+                let rolls = rolls(&events);
+                (rolls.len() > index + 1).then_some((seed, unit, rolls, index))
+            })
+            .expect("some seed lands a shot on the pilot before another shot");
+        let (mut alert, _) = targeted_player(seed, SpiritCommand::Alert);
+        let alert_rolls = rolls(&alert.resolve_enemy_phase().unwrap());
+        assert!(!alert.spirit(unit).unwrap().alert, "Alert dodged the shot");
+        assert_eq!(
+            alert_rolls[..=index + 1],
+            plain_rolls[..=index + 1],
+            "the shot after the dodge rolls the same value"
+        );
+    }
+
+    #[test]
     fn alert_waits_through_a_shot_that_misses_anyway() {
         // An untouchable pilot, and a seed where every shot at it misses.
         let dodgy = |seed, command| {
