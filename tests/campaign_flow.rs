@@ -21,11 +21,12 @@ use scorpius::mission::{DialogueLine, MissionId};
 use scorpius::presentation::assets::UiAssets;
 use scorpius::presentation::battlefield::setup_mission_scene;
 use scorpius::presentation::campaign_ui::{
-    BriefingSnapshot, CampaignStatus, CampaignUiAction, DialogueCursor, ScreenRoot,
-    apply_campaign_action as apply_campaign_action_for_screen, briefing_snapshot,
-    dialogue_snapshot, ending_snapshot, upgrade_row_snapshot,
+    BriefingSnapshot, CampaignStatus, CampaignUiAction, DialogueCursor, MissionSelectRow,
+    ScreenRoot, apply_campaign_action as apply_campaign_action_for_screen, briefing_snapshot,
+    dialogue_snapshot, ending_snapshot, mission_select_available, mission_select_rows,
+    upgrade_row_snapshot,
 };
-use scorpius::presentation::screens::setup_title_screen;
+use scorpius::presentation::screens::{setup_mission_select_screen, setup_title_screen};
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
     ActiveMission, AttackPreviewCells, BattleCamera2d, BattleEventQueue, BattleRuntime,
@@ -93,7 +94,10 @@ fn apply_campaign_action(
     next_state: &mut NextState<GameScreen>,
 ) {
     let current_screen = match action {
-        CampaignUiAction::NewGame | CampaignUiAction::Continue => GameScreen::Title,
+        CampaignUiAction::NewGame
+        | CampaignUiAction::Continue
+        | CampaignUiAction::OpenMissionSelect => GameScreen::Title,
+        CampaignUiAction::ReplayMission(_) => GameScreen::MissionSelect,
         CampaignUiAction::AdvanceDialogue | CampaignUiAction::SkipDialogue => {
             GameScreen::PreMissionStory
         }
@@ -172,6 +176,7 @@ fn battle_entry_builds_the_active_mission_with_campaign_upgrades() {
         }),
         save: SaveFile::new(temp_save_path("battle-entry")),
         last_completion: None,
+        replay: None,
     }));
     init_battle_transients(&mut app);
     app.add_systems(Update, enter_battle);
@@ -203,6 +208,7 @@ fn mission_two_entry_and_restart_run_the_shared_definition_path_with_upgrades() 
         }),
         save: SaveFile::new(temp_save_path("entry-restart-two")),
         last_completion: None,
+        replay: None,
     }));
     init_battle_transients(&mut app);
     app.add_systems(Update, enter_battle);
@@ -285,6 +291,7 @@ fn mission_three_entry_builds_through_the_shared_definition_path_with_upgrades()
         }),
         save: SaveFile::new(temp_save_path("entry-three")),
         last_completion: None,
+        replay: None,
     }));
     init_battle_transients(&mut app);
     app.add_systems(Update, enter_battle);
@@ -336,6 +343,7 @@ fn mission_four_entry_builds_through_the_shared_definition_path_with_upgrades() 
         }),
         save: SaveFile::new(temp_save_path("entry-four")),
         last_completion: None,
+        replay: None,
     }));
     init_battle_transients(&mut app);
     app.add_systems(Update, enter_battle);
@@ -383,6 +391,7 @@ fn mission_five_entry_builds_through_the_shared_definition_path_with_upgrades() 
         }),
         save: SaveFile::new(temp_save_path("entry-five")),
         last_completion: None,
+        replay: None,
     }));
     init_battle_transients(&mut app);
     app.add_systems(Update, enter_battle);
@@ -431,6 +440,7 @@ fn four_five_campaign_continuity_from_persisted_save_to_the_six_handoff() {
             state: Some(CampaignState::new_game()),
             save: SaveFile::new(path.clone()),
             last_completion: None,
+            replay: None,
         };
         for id in [MissionId::One, MissionId::Two, MissionId::Three] {
             complete_current_mission(
@@ -456,6 +466,7 @@ fn four_five_campaign_continuity_from_persisted_save_to_the_six_handoff() {
         state: None,
         save: SaveFile::new(path.clone()),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -683,6 +694,7 @@ fn completing_three_four_and_five_advances_to_six_then_six_advances_to_seven_at_
         }),
         save: SaveFile::new(temp_save_path("completion-through-four")),
         last_completion: None,
+        replay: None,
     };
     let victory = |optional| MissionResult {
         victory: true,
@@ -753,6 +765,7 @@ fn completing_three_four_and_five_advances_to_six_then_six_advances_to_seven_at_
         }),
         save: SaveFile::new(temp_save_path("completion-through-six-optional")),
         last_completion: None,
+        replay: None,
     };
     let receipt = complete_current_mission(
         &mut session,
@@ -807,7 +820,7 @@ fn title_is_the_default_screen_and_battle_waits_for_entry() {
 #[test]
 fn briefing_snapshot_lists_objectives_and_rewards() {
     let definition = mission_definition(MissionId::One).unwrap();
-    let snapshot = briefing_snapshot(definition, &CampaignState::new_game());
+    let snapshot = briefing_snapshot(definition, &CampaignState::new_game(), false);
     assert_eq!(
         snapshot,
         BriefingSnapshot {
@@ -822,17 +835,19 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
             base_reward: 300,
             optional_reward: 100,
             credits: 0,
+            replay: false,
         }
     );
     let mission_four = mission_definition(MissionId::Four).unwrap();
     assert_eq!(
-        briefing_snapshot(mission_four, &CampaignState::new_game()).bonus_title,
+        briefing_snapshot(mission_four, &CampaignState::new_game(), false).bonus_title,
         "Chain Reaction"
     );
     assert_eq!(
         briefing_snapshot(
             mission_definition(MissionId::Two).unwrap(),
             &CampaignState::new_game(),
+            false,
         )
         .hazard_count,
         2
@@ -841,6 +856,7 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
         briefing_snapshot(
             mission_definition(MissionId::Five).unwrap(),
             &CampaignState::new_game(),
+            false,
         )
         .hazard_count,
         0
@@ -849,6 +865,7 @@ fn briefing_snapshot_lists_objectives_and_rewards() {
         briefing_snapshot(
             mission_definition(MissionId::Seven).unwrap(),
             &CampaignState::new_game(),
+            false,
         )
         .hazard_count,
         2
@@ -902,6 +919,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
         state: None,
         save: SaveFile::new(temp_save_path("continue-two")),
         last_completion: None,
+        replay: None,
     });
     runtime
         .0
@@ -928,6 +946,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
         state: None,
         save: SaveFile::new(temp_save_path("continue-one")),
         last_completion: None,
+        replay: None,
     });
     runtime
         .0
@@ -954,6 +973,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
         state: None,
         save: SaveFile::new(temp_save_path("continue-missing")),
         last_completion: None,
+        replay: None,
     });
     let mut status = CampaignStatus::default();
     let mut next = NextState::Unchanged;
@@ -975,6 +995,7 @@ fn title_continue_routes_by_the_saved_next_mission() {
         state: None,
         save: SaveFile::new(corrupt_path),
         last_completion: None,
+        replay: None,
     });
     let mut status = CampaignStatus::default();
     let mut next = NextState::Unchanged;
@@ -996,6 +1017,7 @@ fn advancing_dialogue_walks_all_lines_then_opens_briefing() {
         state: Some(CampaignState::new_game()),
         save: SaveFile::new(temp_save_path("advance-story")),
         last_completion: None,
+        replay: None,
     });
     let mut cursor = DialogueCursor(0);
     let mut status = CampaignStatus::default();
@@ -1046,6 +1068,7 @@ fn battle_reentry_despawns_stale_battlefield_and_hud_roots() {
             state: Some(CampaignState::new_game()),
             save: SaveFile::new(temp_save_path("reentry")),
             last_completion: None,
+            replay: None,
         }));
     init_battle_transients(&mut app);
     app.init_state::<GameScreen>().add_systems(
@@ -1097,6 +1120,7 @@ fn title_battle_exit_battle_restart_keeps_one_owned_camera_and_root() {
             state: Some(CampaignState::new_game()),
             save: SaveFile::new(temp_save_path("lifecycle")),
             last_completion: None,
+            replay: None,
         }))
         .insert_resource(blank_ui_assets())
         .init_resource::<CampaignStatus>()
@@ -1216,6 +1240,7 @@ fn advancing_aftermath_walks_lines_then_opens_upgrade() {
         }),
         save: SaveFile::new(temp_save_path("advance-aftermath")),
         last_completion: Some(AFTERMATH_FIXTURE_RECEIPTS[0]),
+        replay: None,
     });
     // Aftermath must use `ActiveMission`, not `state.next_mission` (Two has
     // no definition).
@@ -1259,6 +1284,7 @@ fn purchase_upgrade_action_persists_and_reports_failures() {
         }),
         save: SaveFile::new(temp_save_path("purchase")),
         last_completion: None,
+        replay: None,
     });
     let mut cursor = DialogueCursor(0);
     let mut status = CampaignStatus::default();
@@ -1363,6 +1389,7 @@ fn proceed_with_an_authored_next_mission_opens_its_story_and_return_never_writes
         }),
         save: SaveFile::new(temp_save_path("handoff")),
         last_completion: None,
+        replay: None,
     });
     runtime
         .0
@@ -1414,6 +1441,7 @@ fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
             state: None,
             save: SaveFile::new(temp_save_path("continue-route")),
             last_completion: None,
+            replay: None,
         });
         runtime
             .0
@@ -1453,6 +1481,7 @@ fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
         }),
         save: SaveFile::new(temp_save_path("proceed-three")),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -1475,6 +1504,7 @@ fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
         }),
         save: SaveFile::new(temp_save_path("proceed-four")),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -1497,6 +1527,7 @@ fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
         }),
         save: SaveFile::new(temp_save_path("proceed-five")),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -1519,6 +1550,7 @@ fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
         }),
         save: SaveFile::new(temp_save_path("proceed-six")),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -1541,6 +1573,7 @@ fn continue_and_proceed_route_unfinished_missions_to_upgrade_and_story() {
         }),
         save: SaveFile::new(temp_save_path("proceed-seven")),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -1568,6 +1601,7 @@ fn completed_campaign_routes_continue_aftermath_and_proceed_to_ending() {
             }),
             save: SaveFile::new(path.clone()),
             last_completion: None,
+            replay: None,
         };
         complete_current_mission(
             &mut session,
@@ -1592,6 +1626,7 @@ fn completed_campaign_routes_continue_aftermath_and_proceed_to_ending() {
         state: None,
         save: SaveFile::new(path.clone()),
         last_completion: None,
+        replay: None,
     });
     let mut next = NextState::Unchanged;
     apply_campaign_action(
@@ -1665,6 +1700,7 @@ fn mission_six_briefing_and_dialogue_match_the_spec() {
             credits: 0,
             ..CampaignState::new_game()
         },
+        false,
     );
     assert_eq!(snapshot.title, definition.title);
     assert_eq!(snapshot.primary, definition.primary_objective);
@@ -1722,6 +1758,7 @@ fn dialogue_skip_is_story_only_and_duplicate_transition_is_a_noop() {
         state: Some(CampaignState::new_game()),
         save: SaveFile::new(temp_save_path("skip-guard")),
         last_completion: None,
+        replay: None,
     });
     let before = runtime.0.state.clone();
     let mut cursor = DialogueCursor(0);
@@ -1794,6 +1831,7 @@ fn assert_pending_campaign_action_is_unchanged(
         state: Some(state),
         save,
         last_completion: Some(receipt),
+        replay: None,
     });
     let before_state = runtime.0.state.clone();
     let before_receipt = runtime.0.last_completion;
@@ -1934,4 +1972,299 @@ fn vn_assets_ship_exactly_the_four_specified_png_dimensions() {
         );
         assert_eq!((actual_w, actual_h), (width, height), "{file}");
     }
+}
+
+fn replay_runtime(label: &str, saved: CampaignState) -> CampaignRuntime {
+    let runtime = CampaignRuntime(CampaignSession::new(SaveFile::new(temp_save_path(label))));
+    runtime.0.save.store(&saved).unwrap();
+    runtime
+}
+
+fn at_mission_four() -> CampaignState {
+    CampaignState {
+        next_mission: MissionId::Four,
+        credits: 650,
+        upgrades: SquadUpgrades {
+            vanguard: UpgradeLevels {
+                hp: 2,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        completed: false,
+    }
+}
+
+#[test]
+fn mission_select_lists_cleared_missions_and_locks_the_rest() {
+    let state = at_mission_four();
+    let rows = mission_select_rows(&state);
+    assert_eq!(rows.len(), 7);
+    assert_eq!(
+        rows[0],
+        MissionSelectRow {
+            mission: MissionId::One,
+            title: "Turnabout at Relay Nine",
+            cleared: true,
+        }
+    );
+    assert_eq!(rows[6].title, "Last Command");
+    let cleared: Vec<_> = rows
+        .iter()
+        .filter(|row| row.cleared)
+        .map(|row| row.mission)
+        .collect();
+    assert_eq!(cleared, [MissionId::One, MissionId::Two, MissionId::Three]);
+    assert!(mission_select_available(&state));
+    assert!(!mission_select_available(&CampaignState::new_game()));
+
+    let finished = CampaignState {
+        next_mission: MissionId::Seven,
+        completed: true,
+        ..CampaignState::new_game()
+    };
+    assert!(mission_select_rows(&finished).iter().all(|row| row.cleared));
+}
+
+#[test]
+fn replaying_a_cleared_mission_briefs_and_builds_it_with_current_upgrades() {
+    let mut runtime = replay_runtime("replay-two", at_mission_four());
+    let mut cursor = DialogueCursor::default();
+    let mut status = CampaignStatus::default();
+
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::OpenMissionSelect,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::MissionSelect));
+
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::ReplayMission(MissionId::Two),
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), Some(GameScreen::Briefing));
+    assert!(status.0.is_empty());
+    assert_eq!(runtime.0.active_mission(), Some(MissionId::Two));
+    let snapshot = briefing_snapshot(
+        mission_definition(MissionId::Two).unwrap(),
+        runtime.0.state.as_ref().unwrap(),
+        runtime.0.replay.is_some(),
+    );
+    assert!(snapshot.replay);
+
+    let mut app = App::new();
+    app.insert_resource(runtime);
+    init_battle_transients(&mut app);
+    app.add_systems(Update, enter_battle);
+    app.update();
+    assert_eq!(app.world().resource::<ActiveMission>().0.id, MissionId::Two);
+    let battle = &app.world().resource::<BattleRuntime>().0;
+    // Mission 2's Vanguard starts at 20 HP; two HP levels add 6.
+    assert_eq!(battle.unit(ids::VANGUARD).unwrap().stats.max_hp, 26);
+}
+
+#[test]
+fn locked_missions_cannot_be_replayed() {
+    let mut runtime = replay_runtime("replay-locked", at_mission_four());
+    let mut cursor = DialogueCursor::default();
+    let mut status = CampaignStatus::default();
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::OpenMissionSelect,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+
+    for locked in [MissionId::Four, MissionId::Seven] {
+        let mut next = NextState::Unchanged;
+        apply_campaign_action(
+            CampaignUiAction::ReplayMission(locked),
+            &mut runtime,
+            None,
+            &mut cursor,
+            &mut status,
+            &mut next,
+        );
+        assert_eq!(pending(&next), None);
+        assert_eq!(status.0, format!("Mission {locked} is not cleared yet"));
+        assert_eq!(runtime.0.replay, None);
+    }
+}
+
+#[test]
+fn mission_select_needs_a_save() {
+    let mut runtime = CampaignRuntime(CampaignSession::new(SaveFile::new(temp_save_path(
+        "replay-no-save",
+    ))));
+    let mut cursor = DialogueCursor::default();
+    let mut status = CampaignStatus::default();
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::OpenMissionSelect,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(pending(&next), None);
+    assert_eq!(status.0, "no active campaign");
+}
+
+#[test]
+fn a_replay_never_completes_the_campaign_mission() {
+    let mut runtime = replay_runtime("replay-complete", at_mission_four());
+    scorpius::campaign::session::open_mission_select(&mut runtime.0).unwrap();
+    scorpius::campaign::session::start_replay(&mut runtime.0, MissionId::Three).unwrap();
+    let error = complete_current_mission(
+        &mut runtime.0,
+        mission_definition(MissionId::Three).unwrap(),
+        MissionResult {
+            victory: true,
+            optional_complete: true,
+            rounds: 3,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "a replay does not change campaign progress"
+    );
+    assert_eq!(runtime.0.save.load().unwrap(), Some(at_mission_four()));
+}
+
+#[test]
+fn leaving_for_title_or_continuing_forgets_the_replay() {
+    let mut runtime = replay_runtime("replay-forget", at_mission_four());
+    let mut cursor = DialogueCursor::default();
+    let mut status = CampaignStatus::default();
+    scorpius::campaign::session::open_mission_select(&mut runtime.0).unwrap();
+    scorpius::campaign::session::start_replay(&mut runtime.0, MissionId::One).unwrap();
+
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::ReturnToTitle,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(runtime.0.replay, None);
+    assert_eq!(runtime.0.active_mission(), Some(MissionId::Four));
+
+    scorpius::campaign::session::start_replay(&mut runtime.0, MissionId::One).unwrap();
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::Continue,
+        &mut runtime,
+        None,
+        &mut cursor,
+        &mut status,
+        &mut next,
+    );
+    assert_eq!(runtime.0.replay, None);
+    assert_eq!(pending(&next), Some(GameScreen::Upgrade));
+}
+
+fn button_enabled(app: &mut App, wanted: CampaignUiAction) -> Option<bool> {
+    app.world_mut()
+        .query::<(&CampaignUiAction, &Pickable)>()
+        .iter(app.world())
+        .find(|(action, _)| **action == wanted)
+        .map(|(_, pickable)| *pickable != Pickable::IGNORE)
+}
+
+#[test]
+fn title_enables_missions_and_mission_select_enables_cleared_rows() {
+    let mut app = App::new();
+    app.add_plugins(StatesPlugin)
+        .insert_resource(replay_runtime("replay-screens", at_mission_four()))
+        .insert_resource(blank_ui_assets())
+        .init_resource::<CampaignStatus>()
+        .init_resource::<DialogueCursor>()
+        .init_state::<GameScreen>()
+        .add_systems(OnEnter(GameScreen::Title), setup_title_screen)
+        .add_systems(
+            OnExit(GameScreen::Title),
+            scorpius::presentation::campaign_ui::despawn_campaign_screen,
+        )
+        .add_systems(
+            OnEnter(GameScreen::MissionSelect),
+            setup_mission_select_screen,
+        );
+    app.update();
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::OpenMissionSelect),
+        Some(true)
+    );
+
+    let mut runtime = app
+        .world_mut()
+        .remove_resource::<CampaignRuntime>()
+        .unwrap();
+    let mut status = CampaignStatus::default();
+    let mut next = NextState::Unchanged;
+    apply_campaign_action(
+        CampaignUiAction::OpenMissionSelect,
+        &mut runtime,
+        None,
+        &mut DialogueCursor::default(),
+        &mut status,
+        &mut next,
+    );
+    app.insert_resource(runtime);
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(pending(&next).unwrap());
+    app.update();
+
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 1);
+    for mission in MissionId::ALL {
+        assert_eq!(
+            button_enabled(&mut app, CampaignUiAction::ReplayMission(mission)),
+            Some(mission < MissionId::Four),
+            "{mission}"
+        );
+    }
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::ReturnToTitle),
+        Some(true)
+    );
+}
+
+#[test]
+fn title_disables_missions_before_the_first_clear() {
+    let mut app = App::new();
+    app.add_plugins(StatesPlugin)
+        .insert_resource(replay_runtime(
+            "replay-title-new",
+            CampaignState::new_game(),
+        ))
+        .insert_resource(blank_ui_assets())
+        .init_resource::<CampaignStatus>()
+        .init_state::<GameScreen>()
+        .add_systems(OnEnter(GameScreen::Title), setup_title_screen);
+    app.update();
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::OpenMissionSelect),
+        Some(false)
+    );
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::Continue),
+        Some(true)
+    );
 }

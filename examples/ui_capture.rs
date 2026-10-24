@@ -190,6 +190,7 @@ fn main() {
         state: Some(state),
         save,
         last_completion: profile.receipt,
+        replay: profile.replay,
     };
     let definition = mission_definition(profile.mission)
         .unwrap_or_else(|| panic!("fixture mission {:?} has no definition", profile.mission));
@@ -604,7 +605,8 @@ fn screen_is_built(world: &mut World, screen: GameScreen) -> bool {
         | GameScreen::Briefing
         | GameScreen::Aftermath
         | GameScreen::Upgrade
-        | GameScreen::Ending => world
+        | GameScreen::Ending
+        | GameScreen::MissionSelect => world
             .query_filtered::<Entity, With<ScreenRoot>>()
             .iter(world)
             .next()

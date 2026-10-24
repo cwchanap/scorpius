@@ -29,8 +29,8 @@ use crate::{
         playback::{begin_restarted_round, play_battle_events},
         screens::{
             setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
-            setup_pre_mission_story, setup_title_screen, setup_upgrade_screen,
-            update_upgrade_screen,
+            setup_mission_select_screen, setup_pre_mission_story, setup_title_screen,
+            setup_upgrade_screen, update_upgrade_screen,
         },
         sound::SoundPlugin,
         sync::{
@@ -55,6 +55,7 @@ pub enum GameScreen {
     Aftermath,
     Upgrade,
     Ending,
+    MissionSelect,
 }
 
 impl Plugin for ScorpiusPlugin {
@@ -119,8 +120,11 @@ impl Plugin for ScorpiusPlugin {
                         in_state(GameScreen::PreMissionStory)
                             .or_else(in_state(GameScreen::Aftermath)),
                     ),
-                    update_campaign_status_text
-                        .run_if(in_state(GameScreen::Title).or_else(in_state(GameScreen::Upgrade))),
+                    update_campaign_status_text.run_if(
+                        in_state(GameScreen::Title)
+                            .or_else(in_state(GameScreen::Upgrade))
+                            .or_else(in_state(GameScreen::MissionSelect)),
+                    ),
                 ),
             )
             .add_systems(OnExit(GameScreen::Battle), teardown_battle_screen)
@@ -221,7 +225,12 @@ impl Plugin for ScorpiusPlugin {
                 update_upgrade_screen.run_if(in_state(GameScreen::Upgrade)),
             )
             .add_systems(OnEnter(GameScreen::Ending), setup_ending_screen)
-            .add_systems(OnExit(GameScreen::Ending), despawn_campaign_screen);
+            .add_systems(OnExit(GameScreen::Ending), despawn_campaign_screen)
+            .add_systems(
+                OnEnter(GameScreen::MissionSelect),
+                setup_mission_select_screen,
+            )
+            .add_systems(OnExit(GameScreen::MissionSelect), despawn_campaign_screen);
     }
 }
 
@@ -237,22 +246,27 @@ pub fn teardown_battle_screen(
     }
 }
 
-/// Resolve the campaign's next mission and construct the battle it defines.
+/// Resolve the campaign's next mission (or the replay picked on Mission
+/// Select) and construct the battle it defines.
 ///
 /// Exclusive so `ActiveMission`/`BattleRuntime` exist before the chained scene
 /// and HUD setup systems run.
 pub fn enter_battle(world: &mut World) {
-    let (next_mission, upgrades) = {
-        let state = world
-            .resource::<CampaignRuntime>()
-            .0
+    let (mission, upgrades) = {
+        let session = &world.resource::<CampaignRuntime>().0;
+        let state = session
             .state
             .as_ref()
             .expect("Battle requires active campaign");
-        (state.next_mission, state.upgrades.clone())
+        (
+            session
+                .active_mission()
+                .expect("active campaign has a mission"),
+            state.upgrades.clone(),
+        )
     };
     let definition =
-        mission_definition(next_mission).expect("current mission must have authored definition");
+        mission_definition(mission).expect("current mission must have authored definition");
     let mut battle = (definition.build)(fresh_seed(), &upgrades);
     battle
         .begin_round()

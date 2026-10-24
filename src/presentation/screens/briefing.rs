@@ -24,7 +24,7 @@ pub fn setup_briefing_screen(
     let Some(campaign) = runtime.0.state.as_ref() else {
         return;
     };
-    let snapshot = briefing_snapshot(definition, campaign);
+    let snapshot = briefing_snapshot(definition, campaign, runtime.0.replay.is_some());
     let canvas = ensure_canvas(&mut commands, &canvas_roots);
     super::shared::spawn_campaign_camera(&mut commands);
     let root = spawn_screen_root(
@@ -330,9 +330,41 @@ fn spawn_briefing_panel(
         snapshot.optional,
         None,
     );
-    let rewards = commands
+    if snapshot.replay {
+        spawn_replay_note(commands, panel, assets);
+    } else {
+        let rewards = commands
+            .spawn((
+                Node {
+                    display: Display::Flex,
+                    column_gap: px(16),
+                    ..default()
+                },
+                Pickable::IGNORE,
+                ChildOf(panel),
+            ))
+            .id();
+        spawn_reward(
+            commands,
+            rewards,
+            assets,
+            "BASE",
+            snapshot.base_reward,
+            theme::TEXT,
+        );
+        spawn_reward(
+            commands,
+            rewards,
+            assets,
+            "BONUS",
+            snapshot.optional_reward,
+            theme::GOLD,
+        );
+    }
+    let actions = commands
         .spawn((
             Node {
+                margin: UiRect::top(Val::Auto),
                 display: Display::Flex,
                 column_gap: px(16),
                 ..default()
@@ -341,30 +373,48 @@ fn spawn_briefing_panel(
             ChildOf(panel),
         ))
         .id();
-    spawn_reward(
-        commands,
-        rewards,
-        assets,
-        "BASE",
-        snapshot.base_reward,
-        theme::TEXT,
-    );
-    spawn_reward(
-        commands,
-        rewards,
-        assets,
-        "BONUS",
-        snapshot.optional_reward,
-        theme::GOLD,
-    );
+    if snapshot.replay {
+        let back = spawn_button(
+            commands,
+            actions,
+            CampaignUiAction::OpenMissionSelect,
+            true,
+            Node {
+                width: px(180),
+                height: px(96),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                column_gap: px(14),
+                border: UiRect::all(px(1)),
+                ..default()
+            },
+        );
+        spawn_icon(
+            commands,
+            back,
+            &assets.icons,
+            theme::ENDING_RETURN_RECT,
+            Color::WHITE,
+            28.0,
+        );
+        commands.spawn((
+            Text::new("BACK"),
+            theme::chakra_petch(&assets.fonts, 24.0, FontWeight(600)),
+            LetterSpacing::Px(4.8),
+            TextColor(theme::TEXT),
+            Pickable::IGNORE,
+            ChildOf(back),
+        ));
+    }
     let deploy = spawn_button(
         commands,
-        panel,
+        actions,
         CampaignUiAction::StartMission,
         true,
         Node {
+            flex_grow: 1.0,
             height: px(96),
-            margin: UiRect::top(Val::Auto),
             display: Display::Flex,
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
@@ -388,6 +438,41 @@ fn spawn_briefing_panel(
         TextColor(theme::TEXT),
         Pickable::IGNORE,
         ChildOf(deploy),
+    ));
+}
+
+/// Stands in for the reward cards on a Mission Select replay.
+fn spawn_replay_note(commands: &mut Commands, parent: Entity, assets: &UiAssets) {
+    let card = commands
+        .spawn((
+            Node {
+                padding: UiRect::all(px(22)),
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                row_gap: px(10),
+                border: UiRect::all(px(1)),
+                ..default()
+            },
+            BackgroundColor(theme::PANEL),
+            BorderColor::all(theme::BORDER),
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id();
+    commands.spawn((
+        Text::new("REPLAY"),
+        theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
+        LetterSpacing::Px(2.52),
+        TextColor(theme::MUTED),
+        Pickable::IGNORE,
+        ChildOf(card),
+    ));
+    commands.spawn((
+        Text::new("No credits or progress. Your squad keeps its upgrades."),
+        theme::chakra_petch(&assets.fonts, 24.0, FontWeight(400)),
+        TextColor(theme::TEXT),
+        Pickable::IGNORE,
+        ChildOf(card),
     ));
 }
 

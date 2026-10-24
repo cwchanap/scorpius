@@ -257,7 +257,8 @@ pub fn track_for(screen: GameScreen, battle_over: bool) -> Option<Track> {
         | GameScreen::Briefing
         | GameScreen::Aftermath
         | GameScreen::Upgrade
-        | GameScreen::Ending => Some(Track::Theme),
+        | GameScreen::Ending
+        | GameScreen::MissionSelect => Some(Track::Theme),
     }
 }
 

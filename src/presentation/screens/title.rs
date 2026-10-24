@@ -7,7 +7,10 @@ use bevy::{
 use crate::campaign::session::FlowError;
 use crate::presentation::{CampaignRuntime, CanvasRoot};
 
-use super::super::{assets::UiAssets, campaign_ui::CampaignStatus};
+use super::super::{
+    assets::UiAssets,
+    campaign_ui::{CampaignStatus, mission_select_available},
+};
 use super::shared::{
     ensure_canvas, spawn_campaign_camera, spawn_icon, spawn_image_button_row, spawn_screen_root,
 };
@@ -20,12 +23,12 @@ pub fn setup_title_screen(
     canvas_roots: Query<Entity, With<CanvasRoot>>,
 ) {
     status.0.clear();
-    let continue_enabled = match runtime.0.save.load() {
-        Ok(Some(_)) => true,
-        Ok(None) => false,
+    let (continue_enabled, missions_enabled) = match runtime.0.save.load() {
+        Ok(Some(state)) => (true, mission_select_available(&state)),
+        Ok(None) => (false, false),
         Err(error) => {
             status.0 = FlowError::from(error).to_string();
-            false
+            (false, false)
         }
     };
     let canvas = ensure_canvas(&mut commands, &canvas_roots);
@@ -246,6 +249,25 @@ pub fn setup_title_screen(
             10.0,
             10.0,
         )),
+    );
+    spawn_image_button_row(
+        &mut commands,
+        menu,
+        crate::presentation::campaign_ui::CampaignUiAction::OpenMissionSelect,
+        "MISSIONS",
+        missions_enabled,
+        &ui_assets.fonts,
+        &ui_assets.icons,
+        crate::presentation::theme::BRIEFING_DEPLOY_RECT,
+        Color::WHITE,
+        40.0,
+        Node {
+            width: px(420),
+            height: px(88),
+            ..default()
+        },
+        30.0,
+        None,
     );
     commands.spawn((
         Text::new(status.0.clone()),

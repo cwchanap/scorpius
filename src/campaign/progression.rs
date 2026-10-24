@@ -21,6 +21,7 @@ pub struct CompletionReceipt {
 pub enum CampaignError {
     MissionNotWon,
     CampaignComplete,
+    MissionLocked(MissionId),
     AlreadyAdvanced {
         expected: MissionId,
         actual: MissionId,
@@ -37,6 +38,9 @@ impl fmt::Display for CampaignError {
         match self {
             CampaignError::MissionNotWon => write!(f, "mission was not won"),
             CampaignError::CampaignComplete => write!(f, "campaign already complete"),
+            CampaignError::MissionLocked(mission) => {
+                write!(f, "Mission {mission} is not cleared yet")
+            }
             CampaignError::AlreadyAdvanced { expected, actual } => write!(
                 f,
                 "campaign already advanced past {expected:?} (now at {actual:?})"

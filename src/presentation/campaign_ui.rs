@@ -9,7 +9,9 @@ use bevy::prelude::*;
 use crate::app::GameScreen;
 use crate::campaign::model::{CampaignState, PlayerMech, UpgradeLevels, UpgradeTrack};
 use crate::campaign::progression::UPGRADE_COSTS;
-use crate::campaign::session::{continue_game, persist_purchase, start_new_game};
+use crate::campaign::session::{
+    continue_game, open_mission_select, persist_purchase, start_new_game, start_replay,
+};
 use crate::domain::model::Faction;
 use crate::mission::{DialogueScene, MissionDefinition, MissionId, mission_definition};
 use crate::presentation::CampaignRuntime;
@@ -34,6 +36,10 @@ pub struct DialogueCursor(pub usize);
 pub enum CampaignUiAction {
     NewGame,
     Continue,
+    /// Title's MISSIONS button, and the replay briefing's BACK button.
+    OpenMissionSelect,
+    /// Replay a cleared mission from Mission Select.
+    ReplayMission(MissionId),
     AdvanceDialogue,
     SkipDialogue,
     StartMission,
@@ -66,6 +72,18 @@ pub struct BriefingSnapshot {
     pub base_reward: u32,
     pub optional_reward: u32,
     pub credits: u32,
+    /// A Mission Select replay, which pays no credits.
+    pub replay: bool,
+}
+
+/// One Mission Select row: a cleared mission can be replayed, a locked one
+/// cannot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MissionSelectRow {
+    pub mission: MissionId,
+    /// The mission's name, without its "Mission N —" prefix.
+    pub title: &'static str,
+    pub cleared: bool,
 }
 
 /// Upgrade facts rendered by one hangar row. Purchase actions still route
@@ -153,6 +171,7 @@ pub fn dialogue_snapshot(scene: &DialogueScene, cursor: DialogueCursor) -> Dialo
 pub fn briefing_snapshot(
     definition: &MissionDefinition,
     campaign: &CampaignState,
+    replay: bool,
 ) -> BriefingSnapshot {
     let battle = (definition.build)(0, &campaign.upgrades);
     let enemy_count = battle
@@ -175,7 +194,34 @@ pub fn briefing_snapshot(
         base_reward: definition.base_reward,
         optional_reward: definition.optional_reward,
         credits: campaign.credits,
+        replay,
     }
+}
+
+pub fn mission_select_rows(state: &CampaignState) -> Vec<MissionSelectRow> {
+    MissionId::ALL
+        .into_iter()
+        .filter_map(mission_definition)
+        .map(|definition| MissionSelectRow {
+            mission: definition.id,
+            title: mission_name(definition.title),
+            cleared: state.has_cleared(definition.id),
+        })
+        .collect()
+}
+
+/// A mission title without its "Mission N —" prefix, since the row shows the
+/// number on its own.
+fn mission_name(title: &'static str) -> &'static str {
+    title
+        .split_once(" — ")
+        .or_else(|| title.split_once(" - "))
+        .map_or(title, |(_, name)| name)
+}
+
+/// Whether Title enables MISSIONS: the save has at least one cleared mission.
+pub fn mission_select_available(state: &CampaignState) -> bool {
+    state.cleared_missions().next().is_some()
 }
 
 pub fn upgrade_row_snapshot(
@@ -318,6 +364,20 @@ pub fn apply_campaign_action(
             cursor.0 = line_count.saturating_sub(1);
             next_state.set(GameScreen::Briefing);
         }
+        CampaignUiAction::OpenMissionSelect => match open_mission_select(&mut runtime.0) {
+            Ok(()) => next_state.set(GameScreen::MissionSelect),
+            Err(error) => status.0 = error.to_string(),
+        },
+        CampaignUiAction::ReplayMission(mission) => {
+            if current_screen != GameScreen::MissionSelect {
+                status.0 = "Replays start from Mission Select.".into();
+                return;
+            }
+            match start_replay(&mut runtime.0, mission) {
+                Ok(()) => next_state.set(GameScreen::Briefing),
+                Err(error) => status.0 = error.to_string(),
+            }
+        }
         CampaignUiAction::StartMission => next_state.set(GameScreen::Battle),
         CampaignUiAction::AdvanceAftermath => {
             let Some(mission) = active_mission else {
@@ -357,7 +417,10 @@ pub fn apply_campaign_action(
                 next_state.set(screen);
             }
         }
-        CampaignUiAction::ReturnToTitle => next_state.set(GameScreen::Title),
+        CampaignUiAction::ReturnToTitle => {
+            runtime.0.replay = None;
+            next_state.set(GameScreen::Title);
+        }
     }
 }
 
@@ -535,8 +598,7 @@ pub fn update_upgrade_screen(
 }
 
 pub fn active_definition(runtime: &CampaignRuntime) -> Option<&'static MissionDefinition> {
-    let state = runtime.0.state.as_ref()?;
-    mission_definition(state.next_mission)
+    mission_definition(runtime.0.active_mission()?)
 }
 
 #[cfg(test)]

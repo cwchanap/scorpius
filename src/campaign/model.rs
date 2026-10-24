@@ -92,4 +92,17 @@ impl CampaignState {
             completed: false,
         }
     }
+
+    /// Whether `mission` has been won in this campaign, so Mission Select may
+    /// replay it.
+    pub fn has_cleared(&self, mission: MissionId) -> bool {
+        self.completed || mission < self.next_mission
+    }
+
+    /// The cleared missions, in campaign order.
+    pub fn cleared_missions(&self) -> impl Iterator<Item = MissionId> + '_ {
+        MissionId::ALL
+            .into_iter()
+            .filter(|mission| self.has_cleared(*mission))
+    }
 }
