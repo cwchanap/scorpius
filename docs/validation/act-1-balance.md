@@ -183,6 +183,26 @@ Round 4 to Round 5:
 
 One Flanker with the Round 4 bonus still gave only 2% / 20% / 29%. Every guard rail passes.
 
+## Pilot levels (2026-10-24)
+
+Pilots now earn XP in campaign battles (`src/campaign/pilots.rs`): 30 for every win, plus 20 for each
+enemy the pilot knocks out and 60 for a boss. Every 100 XP is a level, up to 10, and each level above 1
+adds +2 accuracy and +2 evasion (and 4 SP of pool, which the bots never spend). The harness credits
+takedowns the way the game does and carries XP from mission to mission, so the bots enter Mission 7
+at a mean pilot level of 3.8 (+5.6 accuracy and evasion).
+
+The curve barely moves, which is what Act 1 wants: growth the player feels, not a difficulty change.
+Mission 7 stays the Novice's hardest mission, but it eases from 58% to 65% HP left and from 0.4 to
+0.3 KOs per try. Mission 5's Rapid Break rises for every policy (Novice 64% to 70%, Reader 52% to 84%,
+Tactician 60% to 80%), because better aim finishes the wave sooner. Round 1 wins on Mission 4 rise from 15% to 20% for the
+Reader and Tactician, still under the 25% rail. Every guard rail passes.
+
+| Pilot level in (mean) | M1 | M2 | M3 | M4 | M5 | M6 | M7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Novice | 1.0 | 1.1 | 1.9 | 2.1 | 2.7 | 3.3 | 3.8 |
+| Reader | 1.0 | 1.0 | 1.8 | 2.2 | 2.6 | 3.2 | 3.8 |
+| Tactician | 1.0 | 1.0 | 1.8 | 2.2 | 2.6 | 3.2 | 3.8 |
+
 ## Guard rails
 
 `cargo test --all-targets` runs the same 200 campaigns per policy and asserts the rubric, so a
@@ -271,40 +291,40 @@ the rubric.
 
 ## Full tables: after
 
-With the Mission 1 road patrol and the Mission 2–7 regional maps and waves.
+With the Mission 1 road patrol, the Mission 2–7 regional maps and waves, and pilot levels.
 
 #### Novice
 
-| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 1.0 | 0 | 4.9 | 0% | 86% | 76% | 0.1 | 31% | 0% | 40% | 29% | 5% | 3% | 16% | 41% | 0.0 |
-| 2 | 90% | 1.1 | 0 | 3.0 | 0% | 34% | 70% | 0.1 | 30% | 0% | 39% | 31% | 15% | 0% | 21% | 42% | 14.0 |
-| 3 | 95% | 1.1 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 65% | 35% | 0% | 1% | 35% | 49% | 37.0 |
-| 4 | 100% | 1.0 | 0 | 1.9 | 13% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 36% | 47% | 13% | 84.2 |
-| 5 | 100% | 1.0 | 0 | 5.5 | 0% | 64% | 87% | 0.0 | 23% | 0% | 48% | 29% | 0% | 0% | 15% | 45% | 43.2 |
-| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 13% | 85% | 0.0 | 33% | 1% | 62% | 4% | 1% | 0% | 19% | 41% | 176.2 |
-| 7 | 100% | 1.0 | 0 | 5.2 | 0% | 93% | 58% | 0.4 | 30% | 1% | 63% | 6% | 4% | 2% | 12% | 34% | 178.8 |
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in | Pilot Lv in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 4.9 | 0% | 86% | 76% | 0.1 | 31% | 0% | 40% | 29% | 5% | 3% | 16% | 41% | 0.0 | 1.0 |
+| 2 | 91% | 1.1 | 0 | 3.0 | 0% | 35% | 70% | 0.1 | 30% | 0% | 39% | 31% | 15% | 0% | 21% | 42% | 14.0 | 1.1 |
+| 3 | 96% | 1.0 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 64% | 35% | 0% | 2% | 35% | 48% | 38.0 | 1.9 |
+| 4 | 100% | 1.0 | 0 | 1.9 | 14% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 36% | 47% | 13% | 83.2 | 2.1 |
+| 5 | 100% | 1.0 | 0 | 5.4 | 0% | 70% | 87% | 0.0 | 23% | 0% | 48% | 29% | 0% | 0% | 15% | 45% | 44.2 | 2.7 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 7% | 84% | 0.0 | 37% | 1% | 58% | 5% | 1% | 0% | 19% | 41% | 183.2 | 3.3 |
+| 7 | 100% | 1.0 | 0 | 5.0 | 0% | 96% | 65% | 0.3 | 30% | 1% | 62% | 7% | 3% | 1% | 12% | 34% | 178.8 | 3.8 |
 
 #### Reader
 
-| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 |
-| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 11% | 64% | 25% | 13% | 9% | 21% | 33% | 0.0 |
-| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 77% | 100% | 0.0 | 0% | 0% | 53% | 47% | 0% | 0% | 33% | 56% | 100.0 |
-| 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 115.5 |
-| 5 | 100% | 1.0 | 0 | 5.5 | 0% | 52% | 100% | 0.0 | 1% | 1% | 68% | 30% | 0% | 2% | 15% | 47% | 111.5 |
-| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 28% | 100% | 0.0 | 1% | 0% | 95% | 5% | 0% | 2% | 20% | 44% | 112.5 |
-| 7 | 100% | 1.0 | 0 | 5.7 | 0% | 88% | 99% | 0.0 | 1% | 0% | 85% | 14% | 1% | 5% | 13% | 41% | 107.2 |
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in | Pilot Lv in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 | 1.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 11% | 64% | 25% | 13% | 9% | 21% | 33% | 0.0 | 1.0 |
+| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 80% | 100% | 0.0 | 0% | 0% | 52% | 48% | 0% | 0% | 33% | 56% | 100.0 | 1.8 |
+| 4 | 100% | 1.0 | 0 | 1.8 | 20% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 48% | 8% | 18% | 119.2 | 2.2 |
+| 5 | 100% | 1.0 | 0 | 4.9 | 0% | 84% | 100% | 0.0 | 1% | 0% | 67% | 32% | 0% | 1% | 16% | 44% | 110.2 | 2.6 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 18% | 99% | 0.0 | 2% | 0% | 91% | 8% | 0% | 1% | 20% | 41% | 75.2 | 3.2 |
+| 7 | 100% | 1.0 | 0 | 5.5 | 0% | 93% | 99% | 0.0 | 1% | 0% | 84% | 15% | 1% | 5% | 13% | 41% | 75.0 | 3.8 |
 
 #### Tactician
 
-| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 |
-| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 11% | 64% | 25% | 13% | 9% | 21% | 33% | 0.0 |
-| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 78% | 100% | 0.0 | 0% | 2% | 51% | 47% | 2% | 0% | 32% | 56% | 100.0 |
-| 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 117.8 |
-| 5 | 100% | 1.0 | 0 | 5.2 | 0% | 60% | 100% | 0.0 | 1% | 3% | 67% | 30% | 1% | 1% | 16% | 45% | 110.8 |
-| 6 | 100% | 1.0 | 0 | 3.4 | 0% | 56% | 100% | 0.0 | 0% | 8% | 81% | 11% | 7% | 1% | 19% | 41% | 104.8 |
-| 7 | 100% | 1.0 | 0 | 6.0 | 0% | 72% | 99% | 0.0 | 0% | 2% | 82% | 15% | 2% | 4% | 12% | 41% | 79.5 |
+| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in | Pilot Lv in |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 | 1.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 11% | 64% | 25% | 13% | 9% | 21% | 33% | 0.0 | 1.0 |
+| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 80% | 100% | 0.0 | 0% | 2% | 50% | 48% | 1% | 0% | 32% | 56% | 100.0 | 1.8 |
+| 4 | 100% | 1.0 | 0 | 1.8 | 20% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 48% | 8% | 18% | 120.0 | 2.2 |
+| 5 | 100% | 1.0 | 0 | 4.8 | 0% | 80% | 100% | 0.0 | 0% | 3% | 67% | 30% | 2% | 1% | 16% | 46% | 110.0 | 2.6 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 42% | 100% | 0.0 | 0% | 6% | 82% | 11% | 5% | 1% | 19% | 41% | 79.0 | 3.2 |
+| 7 | 100% | 1.0 | 0 | 5.7 | 0% | 82% | 100% | 0.0 | 0% | 2% | 81% | 17% | 2% | 4% | 12% | 41% | 63.2 | 3.8 |
