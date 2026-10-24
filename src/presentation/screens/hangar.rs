@@ -327,18 +327,36 @@ fn spawn_mech_column(
         Pickable::IGNORE,
         ChildOf(name_row),
     ));
+
+    let pilot_row = commands
+        .spawn((
+            Node {
+                padding: UiRect::new(px(20), px(20), px(18), px(0)),
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(12),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(column),
+        ))
+        .id();
     commands.spawn((
-        Text::new(pilot_status_line(xp)),
+        Text::new("PILOT"),
         theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
         LetterSpacing::Px(1.4),
+        TextColor(theme::MUTED),
+        Pickable::IGNORE,
+        ChildOf(pilot_row),
+    ));
+    commands.spawn((
+        Text::new(pilot_status_line(xp)),
+        theme::ibm_plex_mono(&assets.fonts, 16.0, FontWeight(600)),
+        LetterSpacing::Px(1.6),
         TextColor(theme::MINT),
-        Node {
-            margin: UiRect::left(Val::Auto),
-            ..default()
-        },
         PilotStatusText(mech),
         Pickable::IGNORE,
-        ChildOf(name_row),
+        ChildOf(pilot_row),
     ));
 
     let tracks = commands
