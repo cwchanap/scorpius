@@ -301,7 +301,7 @@ const RECEIPT_M7: CompletionReceipt = CompletionReceipt {
     credits_after: 3250,
     pilots: [
         gain(PlayerMech::Vanguard, 1, 470, 520),
-        gain(PlayerMech::Gunner, 2, 520, 610),
+        gain(PlayerMech::Gunner, 2, 520, 630),
         gain(PlayerMech::Interceptor, 0, 440, 470),
     ],
 };

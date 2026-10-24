@@ -86,7 +86,7 @@ impl PilotXp {
             let level_before = self.level(mech);
             let gained = CLEAR_XP + takedown_xp;
             let xp = self.xp_mut(mech);
-            *xp += gained;
+            *xp = xp.saturating_add(gained);
             PilotGain {
                 mech,
                 takedowns: u8::try_from(credited.len()).unwrap_or(u8::MAX),
@@ -177,5 +177,16 @@ mod tests {
         assert!(gunner.leveled_up());
         assert!(!gains[0].leveled_up());
         assert_eq!(pilots.level(PlayerMech::Gunner), 2);
+    }
+
+    #[test]
+    fn an_award_never_wraps_a_maxed_pilot_back_down() {
+        let mut pilots = PilotXp {
+            vanguard: u32::MAX - 5,
+            ..PilotXp::default()
+        };
+        let gains = pilots.award(&[]);
+        assert_eq!(pilots.vanguard, u32::MAX);
+        assert_eq!(gains[0].level_after, MAX_LEVEL);
     }
 }
