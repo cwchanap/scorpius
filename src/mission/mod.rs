@@ -19,6 +19,7 @@ pub mod mission_seven;
 pub mod mission_six;
 pub mod mission_three;
 pub mod mission_two;
+pub mod region;
 pub mod squad;
 pub mod tips;
 

@@ -3,11 +3,12 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
     model::{
-        EnemyOpening, Faction, MissionRules, OptionalObjective, PrimaryObjective, UnitArchetype,
-        UnitState, WeaponShape, WeaponSpec,
+        EnemyOpening, Faction, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement,
+        UnitArchetype, UnitState, WeaponShape, WeaponSpec,
     },
 };
 use crate::mission::enemies;
+use crate::mission::region::{self, Oval, Region, Strip};
 use crate::mission::squad::{SquadDeployment, build_player_squad, stats, unit, weapon};
 use crate::mission::{
     DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
@@ -23,6 +24,8 @@ pub mod ids {
     pub const CONTROLLER: UnitId = UnitId(73);
     pub const BULWARK: UnitId = UnitId(74);
     pub const FLANKER: UnitId = UnitId(75);
+    pub const WAVE_FLANKER: UnitId = UnitId(76);
+    pub const WAVE_ARTILLERY: UnitId = UnitId(77);
     pub const COMMAND_BARRAGE: WeaponId = WeaponId(209);
     pub const RUPTURE_BEAM: WeaponId = WeaponId(210);
 }
@@ -88,12 +91,14 @@ pub fn mission_seven_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> Battle
         MISSION_SEVEN_RULES,
         seed,
     )
+    .with_reinforcements([Reinforcement {
+        round: WAVE_ROUND,
+        units: wave(),
+    }])
 }
 
 fn mission_seven_board() -> BoardState {
-    BoardState::new(
-        9,
-        9,
+    region::regional_board(
         [
             GridPos::new(2, 4),
             GridPos::new(6, 4),
@@ -106,6 +111,7 @@ fn mission_seven_board() -> BoardState {
             hp: 4,
             exploded: false,
         }],
+        &REGION,
     )
 }
 
@@ -168,6 +174,32 @@ const fn rupture_beam() -> WeaponSpec {
         false,
         false,
     )
+}
+
+/// The Regent's citadel grounds: a ring road around the moat, with the
+/// north crags and the eastern escarpment.
+static REGION: Region = Region {
+    roads: &[
+        Strip(9, 7, 56, 9),
+        Strip(54, 9, 56, 56),
+        Strip(20, 54, 56, 56),
+        Strip(20, 9, 22, 54),
+    ],
+    water: &[Oval(38, 32, 10, 10)],
+    mountains: &[Oval(38, 0, 8, 4), Oval(10, 36, 6, 8), Oval(62, 30, 5, 12)],
+    forests: &[Oval(36, 20, 6, 4), Oval(12, 62, 8, 4), Oval(46, 44, 5, 4)],
+};
+
+/// The wave reaches the east road during the enemy planning that opens this
+/// round, or as soon as the arena is clear, whichever is first.
+pub const WAVE_ROUND: u16 = 3;
+
+/// The Regent's last reserve, a flanker and a mortar, comes up the east road.
+fn wave() -> Vec<UnitState> {
+    vec![
+        enemies::flanker(ids::WAVE_FLANKER, "Flanker E", GridPos::new(14, 7)),
+        enemies::artillery(ids::WAVE_ARTILLERY, "Artillery E", GridPos::new(14, 9)),
+    ]
 }
 
 static PRE_MISSION_LINES: [DialogueLine; 3] = [
@@ -250,9 +282,12 @@ mod tests {
     #[test]
     fn mission_seven_authors_the_spec_board_boss_and_rules() {
         let battle = mission_seven(7);
-        assert_eq!((battle.board().width(), battle.board().height()), (9, 9));
         assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
+            (battle.board().width(), battle.board().height()),
+            (region::REGION_SIZE, region::REGION_SIZE)
+        );
+        assert_eq!(
+            region::arena_blocking(&battle),
             vec![
                 GridPos::new(2, 4),
                 GridPos::new(6, 4),

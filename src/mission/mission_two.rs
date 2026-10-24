@@ -3,10 +3,12 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
     model::{
-        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement, UnitState,
+        WeaponSpec,
     },
 };
 use crate::mission::enemies;
+use crate::mission::region::{self, Oval, Region, Strip};
 use crate::mission::squad::{SquadDeployment, build_player_squad};
 use crate::mission::{
     DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
@@ -21,6 +23,8 @@ pub mod ids {
     pub const STRIKER: UnitId = UnitId(22);
     pub const ARTILLERY: UnitId = UnitId(23);
     pub const FLANKER: UnitId = UnitId(24);
+    pub const WAVE_RIFLEMAN: UnitId = UnitId(25);
+    pub const WAVE_STRIKER: UnitId = UnitId(26);
 }
 
 const MISSION_TWO_DEPLOYMENT: SquadDeployment = SquadDeployment {
@@ -85,12 +89,14 @@ pub fn mission_two_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleSt
     units.extend(mission_two_enemy_units());
     weapons.extend(mission_two_enemy_weapons());
     BattleState::new(mission_two_board(), units, weapons, MISSION_TWO_RULES, seed)
+        .with_reinforcements([Reinforcement {
+            round: WAVE_ROUND,
+            units: wave(),
+        }])
 }
 
 fn mission_two_board() -> BoardState {
-    BoardState::new(
-        9,
-        9,
+    region::regional_board(
         [
             GridPos::new(3, 3),
             GridPos::new(5, 3),
@@ -103,6 +109,7 @@ fn mission_two_board() -> BoardState {
             hp: 4,
             exploded: false,
         }],
+        &REGION,
     )
 }
 
@@ -121,6 +128,31 @@ fn mission_two_enemy_weapons() -> Vec<WeaponSpec> {
         enemies::shock_claw(),
         enemies::siege_mortar(),
         enemies::skirmish_carbine(),
+    ]
+}
+
+/// Relay Nine's coast road: the east road runs out to the southern
+/// crossroads, with the western sea and the north ridge framing it.
+static REGION: Region = Region {
+    roads: &[
+        Strip(9, 7, 30, 9),
+        Strip(28, 9, 30, 63),
+        Strip(30, 40, 63, 42),
+    ],
+    water: &[Oval(0, 44, 13, 24), Oval(63, 63, 16, 12)],
+    mountains: &[Oval(50, 14, 12, 8), Oval(18, 24, 5, 4)],
+    forests: &[Oval(42, 26, 8, 7), Oval(46, 54, 9, 6), Oval(16, 56, 6, 5)],
+};
+
+/// The wave reaches the east road during the enemy planning that opens this
+/// round, or as soon as the arena is clear, whichever is first.
+pub const WAVE_ROUND: u16 = 2;
+
+/// A second assault group comes up the east road behind the first.
+fn wave() -> Vec<UnitState> {
+    vec![
+        enemies::rifleman(ids::WAVE_RIFLEMAN, "Rifleman E", GridPos::new(14, 7)),
+        enemies::striker(ids::WAVE_STRIKER, "Striker E", GridPos::new(14, 9)),
     ]
 }
 
@@ -201,10 +233,10 @@ mod tests {
     #[test]
     fn mission_two_authors_the_spec_board_and_roster() {
         let battle = mission_two(7);
-        assert_eq!(battle.board().width(), 9);
-        assert_eq!(battle.board().height(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
+        assert_eq!(battle.board().height(), region::REGION_SIZE);
         assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
+            region::arena_blocking(&battle),
             vec![
                 GridPos::new(3, 3),
                 GridPos::new(5, 3),
@@ -329,6 +361,7 @@ mod tests {
     #[test]
     fn clearing_every_attacker_wins_immediately_before_round_three() {
         let mut battle = mission_two(7);
+        battle.clear_reinforcements_for_test();
         battle.begin_round().unwrap();
         assert_eq!(battle.round(), 1);
 
@@ -403,6 +436,7 @@ mod tests {
     fn hold_fast_bonus_tracks_the_fifteen_hp_half_boundary() {
         // 8/15 is above half (8 * 2 = 16 >= 15): bonus granted at victory.
         let mut above_half = mission_two(7);
+        above_half.clear_reinforcements_for_test();
         above_half.begin_round().unwrap();
         above_half
             .unit_mut_for_test(ids::GUNNER)
@@ -419,6 +453,7 @@ mod tests {
 
         // 7/15 is below half (7 * 2 = 14 < 15): no bonus.
         let mut below_half = mission_two(7);
+        below_half.clear_reinforcements_for_test();
         below_half.begin_round().unwrap();
         below_half
             .unit_mut_for_test(ids::GUNNER)
