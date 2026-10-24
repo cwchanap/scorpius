@@ -6,7 +6,7 @@ use std::fmt;
 use crate::campaign::model::{CampaignState, PlayerMech, UpgradeTrack};
 use crate::campaign::progression::{CampaignError, CompletionReceipt};
 use crate::campaign::save::{SaveError, SaveFile};
-use crate::domain::model::MissionResult;
+use crate::domain::model::{MissionResult, Takedown};
 use crate::mission::{MissionDefinition, MissionId};
 
 pub struct CampaignSession {
@@ -107,16 +107,27 @@ pub fn start_replay(session: &mut CampaignSession, mission: MissionId) -> Result
     Ok(())
 }
 
+/// Complete the current mission with no takedowns credited.
 pub fn complete_current_mission(
     session: &mut CampaignSession,
     definition: &MissionDefinition,
     result: MissionResult,
 ) -> Result<CompletionReceipt, FlowError> {
+    complete_current_mission_with_takedowns(session, definition, result, &[])
+}
+
+/// Complete the current mission, award its pilot XP, and save.
+pub fn complete_current_mission_with_takedowns(
+    session: &mut CampaignSession,
+    definition: &MissionDefinition,
+    result: MissionResult,
+    takedowns: &[Takedown],
+) -> Result<CompletionReceipt, FlowError> {
     if session.replay.is_some() {
         return Err(FlowError::Replay);
     }
     let mut next = session.state.clone().ok_or(FlowError::NoActiveCampaign)?;
-    let receipt = next.complete_mission(definition, result)?;
+    let receipt = next.complete_mission_with_takedowns(definition, result, takedowns)?;
     session.save.store(&next)?;
     session.state = Some(next);
     session.last_completion = Some(receipt);

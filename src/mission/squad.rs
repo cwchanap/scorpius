@@ -4,9 +4,11 @@
 //! the player squad itself so every mission builder projects the same upgrades the
 //! same way. Upgrade effects per level: HP +3 max HP, Armor +1, Mobility +5
 //! evasion (movement range is unchanged), Weapon +1 base damage to the mech's
-//! three weapons.
+//! three weapons. Each pilot level above 1 adds +2 accuracy and +2 evasion
+//! (`campaign::pilots`) and carries the level onto the unit for its SP pool.
 
 use crate::campaign::model::{PlayerMech, SquadUpgrades};
+use crate::campaign::pilots::level_stat_bonus;
 use crate::domain::board::GridPos;
 use crate::domain::model::{
     ActivationState, Faction, UnitArchetype, UnitId, UnitState, UnitStats, WeaponId, WeaponShape,
@@ -47,6 +49,16 @@ pub fn build_player_squad(
     let vanguard = *upgrades.levels(PlayerMech::Vanguard);
     let gunner = *upgrades.levels(PlayerMech::Gunner);
     let interceptor = *upgrades.levels(PlayerMech::Interceptor);
+    let pilot = |mech, stats: UnitStats| {
+        let level = upgrades.pilots.level(mech);
+        let bonus = level_stat_bonus(level);
+        UnitStats {
+            accuracy: stats.accuracy + bonus,
+            evasion: stats.evasion + bonus,
+            level,
+            ..stats
+        }
+    };
 
     let units = vec![
         unit(
@@ -54,13 +66,16 @@ pub fn build_player_squad(
             "Vanguard",
             UnitArchetype::Vanguard,
             Faction::Player,
-            stats(
-                20 + 3 * vanguard.hp as i16,
-                3 + vanguard.armor as i16,
-                3,
-                78,
-                5 + 5 * vanguard.mobility as i16,
-                7,
+            pilot(
+                PlayerMech::Vanguard,
+                stats(
+                    20 + 3 * vanguard.hp as i16,
+                    3 + vanguard.armor as i16,
+                    3,
+                    78,
+                    5 + 5 * vanguard.mobility as i16,
+                    7,
+                ),
             ),
             deployment.vanguard,
             vec![ids::PILE_LANCE, ids::REPULSOR_RAM, ids::ANCHOR_CANNON],
@@ -70,13 +85,16 @@ pub fn build_player_squad(
             "Gunner",
             UnitArchetype::Gunner,
             Faction::Player,
-            stats(
-                12 + 3 * gunner.hp as i16,
-                1 + gunner.armor as i16,
-                2,
-                86,
-                10 + 5 * gunner.mobility as i16,
-                9,
+            pilot(
+                PlayerMech::Gunner,
+                stats(
+                    12 + 3 * gunner.hp as i16,
+                    1 + gunner.armor as i16,
+                    2,
+                    86,
+                    10 + 5 * gunner.mobility as i16,
+                    9,
+                ),
             ),
             deployment.gunner,
             vec![ids::RAIL_RIFLE, ids::BURST_MISSILE, ids::OVERCHARGE_SHOT],
@@ -86,13 +104,16 @@ pub fn build_player_squad(
             "Interceptor",
             UnitArchetype::Interceptor,
             Faction::Player,
-            stats(
-                15 + 3 * interceptor.hp as i16,
-                1 + interceptor.armor as i16,
-                4,
-                82,
-                20 + 5 * interceptor.mobility as i16,
-                8,
+            pilot(
+                PlayerMech::Interceptor,
+                stats(
+                    15 + 3 * interceptor.hp as i16,
+                    1 + interceptor.armor as i16,
+                    4,
+                    82,
+                    20 + 5 * interceptor.mobility as i16,
+                    8,
+                ),
             ),
             deployment.interceptor,
             vec![ids::ARC_BLADE, ids::PULSE_CARBINE, ids::VECTOR_PULSE],
@@ -237,6 +258,7 @@ pub(crate) const fn stats(
         accuracy,
         evasion,
         max_en,
+        level: 1,
     }
 }
 
@@ -381,6 +403,34 @@ mod tests {
                 .base_damage,
             8
         );
+    }
+
+    #[test]
+    fn pilot_levels_add_accuracy_and_evasion_and_ride_on_the_unit() {
+        let upgrades = SquadUpgrades {
+            gunner: UpgradeLevels {
+                mobility: 1,
+                ..Default::default()
+            },
+            pilots: crate::campaign::pilots::PilotXp {
+                gunner: 320,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let deployment = SquadDeployment {
+            vanguard: GridPos::new(0, 0),
+            gunner: GridPos::new(1, 0),
+            interceptor: GridPos::new(2, 0),
+        };
+        let (units, _) = build_player_squad(&upgrades, deployment);
+        let gunner = units.iter().find(|u| u.id == ids::GUNNER).unwrap();
+        assert_eq!(gunner.stats.level, 4);
+        assert_eq!(gunner.stats.accuracy, 86 + 6);
+        assert_eq!(gunner.stats.evasion, 10 + 5 + 6);
+        let vanguard = units.iter().find(|u| u.id == ids::VANGUARD).unwrap();
+        assert_eq!(vanguard.stats.level, 1);
+        assert_eq!(vanguard.stats.accuracy, 78);
     }
 
     #[test]

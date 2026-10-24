@@ -29,6 +29,13 @@ pub enum UnitArchetype {
     Regent,
 }
 
+impl UnitArchetype {
+    /// The single-cell mission bosses.
+    pub const fn is_boss(self) -> bool {
+        matches!(self, Self::Dreadnought | Self::Regent)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnitStats {
     pub max_hp: i16,
@@ -37,6 +44,9 @@ pub struct UnitStats {
     pub accuracy: i16,
     pub evasion: i16,
     pub max_en: i16,
+    /// Pilot level, 1 for enemies and fresh pilots. Sets a player pilot's SP
+    /// pool; the campaign projects accuracy and evasion growth itself.
+    pub level: u8,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -174,6 +184,15 @@ pub struct PilotSkillState {
     pub focus_pending: bool,
     pub overdrive_used: bool,
     pub overdrive_active: bool,
+}
+
+/// An enemy a player pilot knocked out, credited to the pilot whose attack or
+/// counter landed the blow (including collisions and blasts it caused).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Takedown {
+    pub pilot: UnitId,
+    pub enemy: UnitId,
+    pub archetype: UnitArchetype,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -295,6 +295,7 @@ fn squad_upgrades(preset: UpgradePreset) -> SquadUpgrades {
         vanguard: preset.vanguard,
         gunner: preset.gunner,
         interceptor: preset.interceptor,
+        pilots: preset.pilots,
     }
 }
 

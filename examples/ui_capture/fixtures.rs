@@ -1,6 +1,10 @@
 use scorpius::{
     app::GameScreen,
-    campaign::{model::UpgradeLevels, progression::CompletionReceipt},
+    campaign::{
+        model::{PlayerMech, UpgradeLevels},
+        pilots::{PilotGain, PilotXp},
+        progression::CompletionReceipt,
+    },
     domain::{
         board::GridPos,
         model::{BattlePhase, MissionResult, PrimaryObjective, Reaction, UnitId, WeaponId},
@@ -45,6 +49,7 @@ pub struct UpgradePreset {
     pub vanguard: UpgradeLevels,
     pub gunner: UpgradeLevels,
     pub interceptor: UpgradeLevels,
+    pub pilots: PilotXp,
 }
 
 impl UpgradePreset {
@@ -67,6 +72,11 @@ impl UpgradePreset {
             mobility: 0,
             weapon: 0,
         },
+        pilots: PilotXp {
+            vanguard: 0,
+            gunner: 0,
+            interceptor: 0,
+        },
     };
 
     pub const MAXED: Self = Self {
@@ -87,6 +97,12 @@ impl UpgradePreset {
             armor: 3,
             mobility: 3,
             weapon: 3,
+        },
+        // A veteran squad at the end of Act 1.
+        pilots: PilotXp {
+            vanguard: 540,
+            gunner: 610,
+            interceptor: 470,
         },
     };
 }
@@ -270,6 +286,11 @@ const RECEIPT_M1: CompletionReceipt = CompletionReceipt {
     optional_reward: 100,
     total_reward: 400,
     credits_after: 400,
+    pilots: [
+        gain(PlayerMech::Vanguard, 2, 0, 70),
+        gain(PlayerMech::Gunner, 3, 0, 90),
+        gain(PlayerMech::Interceptor, 1, 0, 50),
+    ],
 };
 
 const RECEIPT_M7: CompletionReceipt = CompletionReceipt {
@@ -278,7 +299,24 @@ const RECEIPT_M7: CompletionReceipt = CompletionReceipt {
     optional_reward: 300,
     total_reward: 1300,
     credits_after: 3250,
+    pilots: [
+        gain(PlayerMech::Vanguard, 1, 470, 520),
+        gain(PlayerMech::Gunner, 2, 520, 610),
+        gain(PlayerMech::Interceptor, 0, 440, 470),
+    ],
 };
+
+/// One pilot's receipt line from its XP before and after the battle.
+const fn gain(mech: PlayerMech, takedowns: u8, before: u32, after: u32) -> PilotGain {
+    PilotGain {
+        mech,
+        takedowns,
+        xp_gained: after - before,
+        xp_after: after,
+        level_before: (1 + before / 100) as u8,
+        level_after: (1 + after / 100) as u8,
+    }
+}
 
 const TERMINAL_VICTORY_BONUS: MissionResult = MissionResult {
     victory: true,

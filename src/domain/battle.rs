@@ -10,11 +10,11 @@ use super::{
     model::{
         ActivationState, BattleError, BattleEvent, BattlePhase, Faction, MAX_WEAPONS_PER_UNIT,
         MissionResult, MissionRules, ObjectiveProgress, OptionalObjective, PilotSkillState,
-        PrimaryObjective, Reaction, Reinforcement, UnitArchetype, UnitId, UnitState, UnitStats,
-        WeaponId, WeaponSpec,
+        PrimaryObjective, Reaction, Reinforcement, Takedown, UnitArchetype, UnitId, UnitState,
+        UnitStats, WeaponId, WeaponSpec,
     },
     rng::BattleRng,
-    spirit::SpiritState,
+    spirit::{SpiritState, sp_start},
 };
 
 #[derive(Clone, Debug)]
@@ -33,6 +33,7 @@ pub struct BattleState {
     rng: BattleRng,
     reinforcements: Vec<Reinforcement>,
     pub(super) spirits: BTreeMap<UnitId, SpiritState>,
+    takedowns: Vec<Takedown>,
 }
 
 impl BattleState {
@@ -57,7 +58,13 @@ impl BattleState {
         let spirits = units
             .values()
             .filter(|unit| unit.faction == Faction::Player)
-            .map(|unit| (unit.id, SpiritState::default()))
+            .map(|unit| {
+                let spirit = SpiritState {
+                    sp: sp_start(unit.stats.level),
+                    ..SpiritState::default()
+                };
+                (unit.id, spirit)
+            })
             .collect();
         Self {
             board,
@@ -77,6 +84,7 @@ impl BattleState {
             rng: BattleRng::seeded(seed),
             reinforcements: Vec::new(),
             spirits,
+            takedowns: Vec::new(),
         }
     }
 
@@ -160,6 +168,7 @@ impl BattleState {
             accuracy: 78,
             evasion: 5,
             max_en: 7,
+            level: 1,
         };
         let mut battle = Self::new(
             BoardState::empty(3, 3),
@@ -239,6 +248,43 @@ impl BattleState {
 
     pub const fn pilot_skills(&self) -> PilotSkillState {
         self.pilot_skills
+    }
+
+    /// Enemies player pilots have knocked out this battle, in the order they fell.
+    pub fn takedowns(&self) -> &[Takedown] {
+        &self.takedowns
+    }
+
+    /// Credit `pilot` with every enemy knocked out in `events`, the log of one
+    /// of its attacks or counters.
+    pub(super) fn credit_takedowns(&mut self, pilot: UnitId, events: &[BattleEvent]) {
+        if self
+            .unit(pilot)
+            .is_none_or(|unit| unit.faction != Faction::Player)
+        {
+            return;
+        }
+        for event in events {
+            let BattleEvent::UnitKnockedOut { unit, .. } = event else {
+                continue;
+            };
+            let Some(enemy) = self
+                .unit(*unit)
+                .filter(|enemy| enemy.faction == Faction::Enemy)
+            else {
+                continue;
+            };
+            self.takedowns.push(Takedown {
+                pilot,
+                enemy: enemy.id,
+                archetype: enemy.archetype,
+            });
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn credit_takedowns_for_test(&mut self, pilot: UnitId, events: &[BattleEvent]) {
+        self.credit_takedowns(pilot, events);
     }
 
     pub const fn result(&self) -> Option<MissionResult> {
@@ -860,6 +906,7 @@ mod tests {
             accuracy: 78,
             evasion: 5,
             max_en: 7,
+            level: 1,
         };
         BattleState::new(
             BoardState::empty(3, 3),

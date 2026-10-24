@@ -16,7 +16,8 @@ use bevy::{
 };
 use scorpius::{
     campaign::{
-        model::{CampaignState, SquadUpgrades},
+        model::{CampaignState, PlayerMech, SquadUpgrades},
+        pilots::{PilotGain, PilotXp},
         progression::CompletionReceipt,
         save::SaveFile,
         session::CampaignSession,
@@ -37,8 +38,9 @@ use scorpius::{
             WeaponText, WeaponTextKind, update_battle_menu,
         },
         campaign_ui::{
-            CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, ScreenRoot,
-            UpgradeCostText, UpgradePip, UpgradePurchaseIcon, UpgradeRow, UpgradeTrackIcon,
+            CampaignStatus, CampaignUiAction, DialogueCursor, DialoguePip, PilotStatusText,
+            ScreenRoot, UpgradeCostText, UpgradePip, UpgradePurchaseIcon, UpgradeRow,
+            UpgradeTrackIcon,
         },
         interaction::{
             CommandAction, CommandButton, InteractionMode, InteractionState, StatusMessage,
@@ -239,6 +241,7 @@ fn briefing_and_aftermath_keep_authored_data_in_the_screen_tree() {
         optional_reward: 100,
         total_reward: 400,
         credits_after: 400,
+        pilots: NO_PILOT_GAINS,
     });
     app.insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()));
     app.add_systems(Update, setup_aftermath_screen);
@@ -283,6 +286,7 @@ fn briefing_and_aftermath_keep_authored_data_in_the_screen_tree() {
         optional_reward: 0,
         total_reward: 300,
         credits_after: 300,
+        pilots: NO_PILOT_GAINS,
     });
     app.insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()));
     app.add_systems(Update, setup_aftermath_screen);
@@ -302,6 +306,18 @@ fn briefing_and_aftermath_keep_authored_data_in_the_screen_tree() {
         3,
         "base-only aftermath BASE, TOTAL, and CREDITS all read 300: {base_texts:?}"
     );
+    assert!(base_texts.iter().any(|text| text.as_str() == "PILOTS"));
+    for name in ["VANGUARD", "GUNNER", "INTERCEPTOR"] {
+        assert!(base_texts.iter().any(|text| text.as_str() == name));
+    }
+    assert_eq!(
+        base_texts
+            .iter()
+            .filter(|text| text.as_str() == "LV 1  +0 XP")
+            .count(),
+        3
+    );
+    assert!(!base_texts.iter().any(|text| text.as_str() == "LEVEL UP"));
 }
 
 #[test]
@@ -309,7 +325,13 @@ fn hangar_and_ending_render_typed_upgrade_controls() {
     let mut app = fixture_app(CampaignState {
         next_mission: MissionId::Two,
         credits: 500,
-        upgrades: SquadUpgrades::default(),
+        upgrades: SquadUpgrades {
+            pilots: PilotXp {
+                gunner: 230,
+                ..PilotXp::default()
+            },
+            ..SquadUpgrades::default()
+        },
         completed: false,
     });
     app.add_systems(
@@ -322,6 +344,15 @@ fn hangar_and_ending_render_typed_upgrade_controls() {
     );
     app.update();
     assert_campaign_root_and_camera(&mut app);
+    let pilot_lines: Vec<_> = app
+        .world_mut()
+        .query::<(&PilotStatusText, &Text)>()
+        .iter(app.world())
+        .map(|(pilot, text)| (pilot.0, text.0.clone()))
+        .collect();
+    assert_eq!(pilot_lines.len(), 3);
+    assert!(pilot_lines.contains(&(PlayerMech::Gunner, "LV 3 · 70 XP TO NEXT".to_owned())));
+    assert!(pilot_lines.contains(&(PlayerMech::Vanguard, "LV 1 · 100 XP TO NEXT".to_owned())));
     let upgrade_actions = actions(&mut app);
     assert_eq!(
         upgrade_actions
@@ -1319,4 +1350,22 @@ fn battle_result_snapshot_surfaces_save_errors_beside_continue() {
         result_button_state(&mut app, CommandAction::ContinueVictory),
         (Visibility::Visible, true, Display::Flex)
     );
+}
+
+/// Receipt pilot lines for a squad that took no XP, where a test only checks credits.
+const NO_PILOT_GAINS: [PilotGain; 3] = [
+    no_gain(PlayerMech::Vanguard),
+    no_gain(PlayerMech::Gunner),
+    no_gain(PlayerMech::Interceptor),
+];
+
+const fn no_gain(mech: PlayerMech) -> PilotGain {
+    PilotGain {
+        mech,
+        takedowns: 0,
+        xp_gained: 0,
+        xp_after: 0,
+        level_before: 1,
+        level_after: 1,
+    }
 }

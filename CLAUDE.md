@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, HPA-524 authored Mission 6 and the single-cell Dreadnought boss, and HPA-386 authored Mission 7, the Regent boss, and the campaign ending. The campaign runs authored One→Seven: Mission 7 → Campaign Complete → Return to Title, and a completed Continue resumes at the Ending screen. There is no New Game+. Title's **MISSIONS** opens Mission Select (`GameScreen::MissionSelect`), where any cleared mission replays with the squad's current upgrades: a replay goes straight to its briefing, pays no credits, never advances or saves the campaign (`CampaignSession::replay`), and its victory Continue returns to Mission Select. Post-MVP, Mission 1 gained a road-patrol reinforcement wave on its 128×128 regional map, Missions 2–7 moved onto 64×64 regions with a wave each (`mission/region.rs`), attacks play skippable SRW-style battle cut-ins (`cut_in.rs`), Control's field tips teach each Act 1 mechanic in battle the first time it matters (`field_tips.rs`), and pilots spend SP on SRW-style Spirit Commands (`domain/spirit.rs`). Sound effects are ElevenLabs-generated Ogg files in `assets/audio/sfx/`; the music and the victory/defeat jingles are synthesized in code (`synth.rs`, `sound.rs`).
+Scorpius is a single-binary Rust 2024 / Bevy 0.19 desktop tactics game. HPA-632 built the Mission 1 retained combat slice, HPA-635 wrapped it in a linear campaign (Title → VN → briefing → battle → aftermath → upgrades → save), HPA-637 authored Missions 2–3 and the Flanker enemy, HPA-523 authored Missions 4–5 and the Bulwark and Controller enemies, HPA-524 authored Mission 6 and the single-cell Dreadnought boss, and HPA-386 authored Mission 7, the Regent boss, and the campaign ending. The campaign runs authored One→Seven: Mission 7 → Campaign Complete → Return to Title, and a completed Continue resumes at the Ending screen. There is no New Game+. Title's **MISSIONS** opens Mission Select (`GameScreen::MissionSelect`), where any cleared mission replays with the squad's current upgrades: a replay goes straight to its briefing, pays no credits, never advances or saves the campaign (`CampaignSession::replay`), and its victory Continue returns to Mission Select. Post-MVP, Mission 1 gained a road-patrol reinforcement wave on its 128×128 regional map, Missions 2–7 moved onto 64×64 regions with a wave each (`mission/region.rs`), attacks play skippable SRW-style battle cut-ins (`cut_in.rs`), Control's field tips teach each Act 1 mechanic in battle the first time it matters (`field_tips.rs`), pilots spend SP on SRW-style Spirit Commands (`domain/spirit.rs`), and pilots earn XP and levels in campaign battles (`campaign/pilots.rs`): a won campaign battle pays each pilot 30 XP plus 20 per enemy it knocked out (60 for a boss), every 100 XP is a level up to 10, and each level above 1 adds +2 accuracy and +2 evasion (`mission::squad`) and a bigger SP pool. XP is saved in `SquadUpgrades::pilots`; replays pay none, and the aftermath and hangar show it. Sound effects are ElevenLabs-generated Ogg files in `assets/audio/sfx/`; the music and the victory/defeat jingles are synthesized in code (`synth.rs`, `sound.rs`).
 
 ## Commands
 
@@ -47,12 +47,17 @@ Rules are split across files but all `impl BattleState`:
 - `combat.rs` — `preview_attack` / `attack`, hit & damage math, `DamageSource`
 - `enemy.rs` — `begin_round` (enemy movement + intent commitment) and `resolve_enemy_phase`
 - `environment.rs` — pushes, collisions, hazards, explosive props
-- `spirit.rs` — Spirit Commands: every player pilot starts with 30 SP (cap 60, +5 each later
-  round) and spends it on the closed `SpiritCommand` set: Valor (next attack on an enemy deals
+- `spirit.rs` — Spirit Commands: every level-1 player pilot starts with 30 SP (cap 60, +5 each later
+  round; each pilot level above 1 adds 4 to the cap, and a pilot starts half full) and spends it on the closed `SpiritCommand` set: Valor (next attack on an enemy deals
   double damage after armor), Alert (the next enemy shot that would hit misses; the roll is still
   drawn, so the RNG stream is unchanged), Guts (repair 12 HP now). Separate from the
   once-per-mission pilot skills (Aegis, Focus, Overdrive). The balance bots never cast them.
 - `board.rs`, `model.rs`, `rng.rs` — grid, value types, seeded PRNG
+
+`BattleState::takedowns()` lists the enemies each player pilot knocked out, credited to the pilot
+whose attack or counter's events hold the `UnitKnockedOut` (collisions and blasts it caused
+included). The campaign turns them into XP; the domain never reads XP back, only
+`UnitStats::level` (1 for enemies and fresh pilots), which sizes a pilot's SP pool.
 
 **Every mutating method returns `Result<Vec<BattleEvent>, BattleError>`.** State mutates
 synchronously and completely; the returned events are a replay log for presentation, never the

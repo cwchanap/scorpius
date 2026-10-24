@@ -8,6 +8,7 @@ use bevy::prelude::*;
 
 use crate::app::GameScreen;
 use crate::campaign::model::{CampaignState, PlayerMech, UpgradeLevels, UpgradeTrack};
+use crate::campaign::pilots::{PilotGain, level_for, xp_to_next};
 use crate::campaign::progression::UPGRADE_COSTS;
 use crate::campaign::session::{
     continue_game, open_mission_select, persist_purchase, start_new_game, start_replay,
@@ -139,6 +140,10 @@ pub struct UpgradeTrackIcon(pub PlayerMech, pub UpgradeTrack);
 #[derive(Component, Clone, Copy)]
 pub struct UpgradeCostText(pub PlayerMech, pub UpgradeTrack);
 
+/// The hangar's pilot level line for one mech.
+#[derive(Component, Clone, Copy)]
+pub struct PilotStatusText(pub PlayerMech);
+
 #[derive(Component, Clone, Copy)]
 pub struct UpgradePip {
     pub mech: PlayerMech,
@@ -151,6 +156,28 @@ pub const MECHS: [(PlayerMech, &str); 3] = [
     (PlayerMech::Gunner, "GUNNER"),
     (PlayerMech::Interceptor, "INTERCEPTOR"),
 ];
+
+pub fn mech_label(mech: PlayerMech) -> &'static str {
+    MECHS
+        .iter()
+        .find_map(|(candidate, label)| (*candidate == mech).then_some(*label))
+        .expect("every mech has a label")
+}
+
+/// The hangar's pilot line under each mech: its level and the XP to the next.
+pub fn pilot_status_line(xp: u32) -> String {
+    let level = level_for(xp);
+    match xp_to_next(xp) {
+        Some(needed) => format!("LV {level} · {needed} XP TO NEXT"),
+        None => format!("LV {level} · MAX"),
+    }
+}
+
+/// The aftermath receipt's value for one pilot: the level it reached and the
+/// XP the battle paid.
+pub fn pilot_receipt_value(gain: &PilotGain) -> String {
+    format!("LV {}  +{} XP", gain.level_after, gain.xp_gained)
+}
 
 pub const TRACKS: [UpgradeTrack; 4] = [
     UpgradeTrack::Hp,
@@ -605,6 +632,23 @@ pub fn active_definition(runtime: &CampaignRuntime) -> Option<&'static MissionDe
 mod tests {
     use super::*;
     use crate::campaign::model::SquadUpgrades;
+
+    #[test]
+    fn pilot_lines_show_level_xp_to_next_and_the_battle_gain() {
+        assert_eq!(pilot_status_line(0), "LV 1 · 100 XP TO NEXT");
+        assert_eq!(pilot_status_line(240), "LV 3 · 60 XP TO NEXT");
+        assert_eq!(pilot_status_line(5000), "LV 10 · MAX");
+        let gain = PilotGain {
+            mech: PlayerMech::Gunner,
+            takedowns: 2,
+            xp_gained: 70,
+            xp_after: 130,
+            level_before: 1,
+            level_after: 2,
+        };
+        assert_eq!(pilot_receipt_value(&gain), "LV 2  +70 XP");
+        assert_eq!(mech_label(PlayerMech::Interceptor), "INTERCEPTOR");
+    }
 
     fn state(completed: bool, next_mission: MissionId) -> CampaignState {
         CampaignState {

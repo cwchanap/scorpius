@@ -1,10 +1,10 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, text::LetterSpacing};
 
-use crate::campaign::progression::CompletionReceipt;
+use crate::campaign::{pilots::PilotGain, progression::CompletionReceipt};
 use crate::presentation::{ActiveMission, CampaignRuntime, CanvasRoot, assets::UiAssets};
 
 use super::super::{
-    campaign_ui::{CampaignUiAction, DialogueCursor},
+    campaign_ui::{CampaignUiAction, DialogueCursor, mech_label, pilot_receipt_value},
     theme,
 };
 use super::shared::{ensure_canvas, spawn_dialogue_screen, spawn_icon};
@@ -121,6 +121,26 @@ fn spawn_receipt_panel(
         receipt.credits_after.to_string(),
         theme::GOLD,
     );
+
+    commands.spawn((
+        Node {
+            height: px(1),
+            ..default()
+        },
+        BackgroundColor(theme::BORDER),
+        Pickable::IGNORE,
+        ChildOf(panel),
+    ));
+    commands.spawn((
+        Text::new("PILOTS"),
+        theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
+        TextColor(theme::MINT),
+        Pickable::IGNORE,
+        ChildOf(panel),
+    ));
+    for gain in receipt.pilots {
+        spawn_pilot_row(commands, panel, assets, gain);
+    }
 }
 
 fn spawn_receipt_row(
@@ -168,6 +188,66 @@ fn spawn_receipt_row(
         Text::new(value),
         theme::ibm_plex_mono(&assets.fonts, 22.0, FontWeight(600)),
         TextColor(color),
+        Pickable::IGNORE,
+        ChildOf(row),
+    ));
+}
+
+/// One pilot's line: name, a LEVEL UP tag when the battle raised its level,
+/// then the level reached and the XP earned.
+fn spawn_pilot_row(commands: &mut Commands, parent: Entity, assets: &UiAssets, gain: PilotGain) {
+    let color = if gain.leveled_up() {
+        theme::GOLD
+    } else {
+        theme::MINT
+    };
+    let row = commands
+        .spawn((
+            Node {
+                display: Display::Flex,
+                align_items: AlignItems::Center,
+                column_gap: px(14),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(parent),
+        ))
+        .id();
+    commands.spawn((
+        Node {
+            width: px(8),
+            height: px(8),
+            ..default()
+        },
+        BackgroundColor(color),
+        Pickable::IGNORE,
+        ChildOf(row),
+    ));
+    commands.spawn((
+        Text::new(mech_label(gain.mech)),
+        theme::ibm_plex_mono(&assets.fonts, 15.0, FontWeight(400)),
+        TextColor(theme::MUTED),
+        Pickable::IGNORE,
+        ChildOf(row),
+    ));
+    if gain.leveled_up() {
+        commands.spawn((
+            Text::new("LEVEL UP"),
+            theme::ibm_plex_mono(&assets.fonts, 12.0, FontWeight(600)),
+            LetterSpacing::Px(1.2),
+            TextColor(theme::GOLD),
+            Pickable::IGNORE,
+            ChildOf(row),
+        ));
+    }
+    commands.spawn((
+        Text::new(pilot_receipt_value(&gain)),
+        theme::ibm_plex_mono(&assets.fonts, 18.0, FontWeight(600)),
+        TextColor(color),
+        Node {
+            margin: UiRect::left(Val::Auto),
+            ..default()
+        },
         Pickable::IGNORE,
         ChildOf(row),
     ));

@@ -167,6 +167,7 @@ impl BattleState {
                 DamageSource::PlayerWeapon(weapon),
             )?);
         }
+        self.credit_takedowns(attacker, &events);
         events.extend(self.check_terminal_state());
 
         Ok(events)
@@ -325,6 +326,7 @@ impl BattleState {
         {
             events.extend(self.resolve_push(defender, attacker)?);
         }
+        self.credit_takedowns(defender, &events);
 
         Ok(events)
     }
@@ -604,7 +606,7 @@ mod tests {
     use crate::{
         domain::{
             board::GridPos,
-            model::{BattleError, BattleEvent, Reaction, UnitId},
+            model::{BattleError, BattleEvent, Reaction, Takedown, UnitArchetype, UnitId},
         },
         mission::mission_one::{ids, mission_one},
     };
@@ -652,6 +654,62 @@ mod tests {
             .unwrap();
         assert!(crit.unit(ids::STRIKER).unwrap().is_knocked_out());
         assert_eq!(crit.occupant_at(GridPos::new(4, 6)), None);
+    }
+
+    #[test]
+    fn a_knockout_credits_the_attacking_pilot_once() {
+        let mut battle = low_hp_striker_fixture(0);
+        assert!(battle.takedowns().is_empty());
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle
+            .attack(ids::VANGUARD, ids::PILE_LANCE, GridPos::new(4, 6))
+            .unwrap();
+        assert_eq!(
+            battle.takedowns(),
+            [Takedown {
+                pilot: ids::VANGUARD,
+                enemy: ids::STRIKER,
+                archetype: UnitArchetype::Striker,
+            }]
+        );
+
+        // A blow that leaves the enemy standing credits no one.
+        let mut miss = adjacent_vanguard_and_striker(6);
+        miss.begin_activation(ids::VANGUARD).unwrap();
+        miss.attack(ids::VANGUARD, ids::PILE_LANCE, GridPos::new(4, 6))
+            .unwrap();
+        assert!(miss.takedowns().is_empty());
+    }
+
+    #[test]
+    fn a_counter_knockout_credits_the_countering_pilot() {
+        let (seed, events) = (0..64)
+            .find_map(|seed| {
+                let mut battle = counter_fixture(seed);
+                battle.unit_mut_for_test(ids::RIFLEMAN_RIGHT).unwrap().hp = 1;
+                let events = battle.resolve_intent_for_test(ids::RIFLEMAN_RIGHT).ok()?;
+                battle
+                    .unit(ids::RIFLEMAN_RIGHT)
+                    .unwrap()
+                    .is_knocked_out()
+                    .then_some((seed, (battle.takedowns().to_vec(), events)))
+            })
+            .expect("some seed lets the Interceptor's counter land");
+        let (takedowns, events) = events;
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, BattleEvent::CounterFired { .. })),
+            "seed {seed}"
+        );
+        assert_eq!(
+            takedowns,
+            [Takedown {
+                pilot: ids::INTERCEPTOR,
+                enemy: ids::RIFLEMAN_RIGHT,
+                archetype: UnitArchetype::Rifleman,
+            }]
+        );
     }
 
     #[test]
