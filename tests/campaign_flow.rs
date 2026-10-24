@@ -399,7 +399,7 @@ fn mission_five_entry_builds_through_the_shared_definition_path_with_upgrades() 
     );
     assert_eq!(
         battle.rules().optional,
-        OptionalObjective::VictoryByRound { round: 4 }
+        OptionalObjective::VictoryByRound { round: 5 }
     );
     assert_eq!(
         battle.unit(ids::VANGUARD).unwrap().stats.max_hp,

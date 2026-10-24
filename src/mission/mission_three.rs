@@ -3,10 +3,12 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
     model::{
-        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement, UnitState,
+        WeaponSpec,
     },
 };
 use crate::mission::enemies;
+use crate::mission::region::{self, Oval, Region, Strip};
 use crate::mission::squad::{SquadDeployment, build_player_squad};
 use crate::mission::{
     DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
@@ -20,6 +22,8 @@ pub mod ids {
     pub const COURIER: UnitId = UnitId(31);
     pub const RIFLEMAN: UnitId = UnitId(32);
     pub const STRIKER: UnitId = UnitId(33);
+    pub const WAVE_RIFLEMAN: UnitId = UnitId(34);
+    pub const WAVE_STRIKER: UnitId = UnitId(35);
 }
 
 /// The extraction point the Courier races toward; pinned by the spec board.
@@ -82,12 +86,14 @@ pub fn mission_three_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> Battle
         MISSION_THREE_RULES,
         seed,
     )
+    .with_reinforcements([Reinforcement {
+        round: WAVE_ROUND,
+        units: wave(),
+    }])
 }
 
 fn mission_three_board() -> BoardState {
-    BoardState::new(
-        9,
-        9,
+    region::regional_board(
         [GridPos::new(4, 3), GridPos::new(4, 4), GridPos::new(4, 5)],
         [GridPos::new(2, 5)],
         [ExplosiveState {
@@ -95,6 +101,7 @@ fn mission_three_board() -> BoardState {
             hp: 4,
             exploded: false,
         }],
+        &REGION,
     )
 }
 
@@ -111,6 +118,31 @@ fn mission_three_enemy_weapons() -> Vec<WeaponSpec> {
         enemies::skirmish_carbine(),
         enemies::service_rifle(),
         enemies::shock_claw(),
+    ]
+}
+
+/// The Courier's pass: the east road meets the north–south highway the
+/// convoy meant to take, past a mountain lake and the eastern ridge.
+static REGION: Region = Region {
+    roads: &[
+        Strip(9, 7, 40, 9),
+        Strip(38, 0, 40, 63),
+        Strip(10, 50, 38, 52),
+    ],
+    water: &[Oval(22, 34, 8, 10)],
+    mountains: &[Oval(22, 18, 7, 5), Oval(56, 26, 8, 14), Oval(54, 56, 8, 5)],
+    forests: &[Oval(30, 3, 5, 3), Oval(48, 44, 6, 6), Oval(14, 58, 8, 5)],
+};
+
+/// The wave reaches the east road during the enemy planning that opens this
+/// round, or as soon as the arena is clear, whichever is first.
+pub const WAVE_ROUND: u16 = 2;
+
+/// The Courier's rear guard catches up on the east road.
+fn wave() -> Vec<UnitState> {
+    vec![
+        enemies::rifleman(ids::WAVE_RIFLEMAN, "Rifleman E", GridPos::new(14, 7)),
+        enemies::striker(ids::WAVE_STRIKER, "Striker E", GridPos::new(14, 9)),
     ]
 }
 
@@ -190,10 +222,10 @@ mod tests {
     #[test]
     fn mission_three_authors_the_spec_board_and_roster() {
         let battle = mission_three(7);
-        assert_eq!(battle.board().width(), 9);
-        assert_eq!(battle.board().height(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
+        assert_eq!(battle.board().height(), region::REGION_SIZE);
         assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
+            region::arena_blocking(&battle),
             vec![GridPos::new(4, 3), GridPos::new(4, 4), GridPos::new(4, 5),]
         );
         assert_eq!(
@@ -565,7 +597,7 @@ mod tests {
 
         // The definition builds the same battle as the direct constructor.
         let battle = (definition.build)(7, &SquadUpgrades::default());
-        assert_eq!(battle.board().width(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
         assert!(battle.unit(ids::COURIER).is_some());
     }
 }

@@ -145,6 +145,42 @@ fights:
 Every guard rail still passes, and the Reader's HP lead on Mission 1 is 18 points. The patrol changes Mission 1's bonus and credit flow a little,
 so later missions moved by a few points too. The "after" tables below are the current numbers.
 
+## Regional maps for Missions 2–7 (2026-10-24)
+
+Missions 2–7 moved from 9×9 boards onto 64×64 regions (`src/mission/region.rs`). Each keeps its
+authored arena, unchanged, in the region's northwest corner. A wall on the arena's old east and
+south edges keeps every authored push collision, except at one gate at (9,8) on the east road.
+The gate is the only way out, so no path inside the arena gets shorter. Each mission gained one
+reinforcement wave that arrives on the east road at (14,7)/(14,9), or (14,8) for a single unit,
+during its round's enemy planning, or as soon as the deployed enemies are all down:
+
+| Mission | Wave | Round |
+| --- | --- | ---: |
+| 2 | Rifleman + Striker | 2 |
+| 3 | Rifleman + Striker | 2 |
+| 4 | 2 Riflemen | 2 |
+| 5 | 1 Flanker | 2 |
+| 6 | 2 Riflemen | 3 |
+| 7 | Flanker + Artillery | 3 |
+
+Most missions barely moved. Missions 3, 4 and 6 end on their target, so a slow player meets the
+wave and a quick one never fights it. Mission 2's Novice now plays 3.0 rounds, up from 2.4,
+because clearing the first assault calls the wave in instead of winning. Mission 7's Novice drops
+from 62% to 58% HP and from 0.2 to 0.4 KOs per try, so the finale stays the act's peak.
+
+Mission 5 is the exception. It is an elimination mission whose bonus, Rapid Break, rewards a fast
+win. With two Flankers arriving in Round 2, the Rapid Break rate fell to 1% for the Novice and
+Reader and 13% for the Tactician. The shipped version sends one Flanker and moves the bonus from
+Round 4 to Round 5:
+
+| Mission 5 | Before | 2 Flankers, Round 4 bonus | Shipped: 1 Flanker, Round 5 bonus |
+| --- | ---: | ---: | ---: |
+| Novice rounds | 4.8 | 5.7 | 5.5 |
+| Novice HP left | 88% | 84% | 87% |
+| Rapid Break (Novice / Reader / Tactician) | 28% / 46% / 58% | 1% / 1% / 13% | 64% / 52% / 60% |
+
+One Flanker with the Round 4 bonus still gave only 2% / 20% / 29%. Every guard rail passes.
+
 ## Guard rails
 
 `cargo test --all-targets` runs the same 200 campaigns per policy and asserts the rubric, so a
@@ -176,14 +212,16 @@ the rubric.
 - `2026-08-31-hpa-524-mission-6-dreadnought-design.md`: Graviton and Overload damage are 10 and 12.
 - `2026-09-02-hpa-386-mission-7-mvp-closeout-design.md`: Command Barrage and Rupture Beam damage
   are 11 and 14.
+- All of Missions 2–7: the board is a 64×64 region around the authored 9×9 arena, and each mission
+  has a reinforcement wave. Mission 5's Rapid Break is by the end of Round 5, not Round 4.
 
 ## Caveats
 
 - Bots are not people. The Novice still picks a strong attack every activation, so a real first-time
   player will likely take more damage than it does. These numbers are a floor on difficulty, not a
   prediction.
-- The harness plays each mission's authored battle arena. On Mission 1 that now includes the east
-  road outside the relay gate, where the patrol arrives, but not the rest of the 128×128 region.
+- The harness plays each mission's authored battle arena plus the east road where its wave
+  arrives, not the rest of the region.
 - Bonus rates for Swift Intercept (Mission 3) and Final Push (Mission 7) depend on how aggressively
   a player chases. The bots' aggression is a guess.
 - Spirit Commands (2026-10-23) came after this pass, and no bot casts them. They only help the
@@ -231,40 +269,40 @@ the rubric.
 
 ## Full tables: after
 
-With the Mission 1 road patrol.
+With the Mission 1 road patrol and the Mission 2–7 regional maps and waves.
 
 #### Novice
 
 | Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 100% | 1.0 | 0 | 4.9 | 0% | 86% | 76% | 0.1 | 31% | 0% | 40% | 29% | 5% | 3% | 16% | 41% | 0.0 |
-| 2 | 90% | 1.1 | 0 | 2.4 | 0% | 34% | 70% | 0.1 | 52% | 0% | 3% | 44% | 15% | 0% | 21% | 43% | 14.0 |
-| 3 | 95% | 1.1 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 61% | 39% | 0% | 1% | 35% | 49% | 37.0 |
+| 2 | 90% | 1.1 | 0 | 3.0 | 0% | 34% | 70% | 0.1 | 30% | 0% | 39% | 31% | 15% | 0% | 21% | 42% | 14.0 |
+| 3 | 95% | 1.1 | 0 | 2.1 | 0% | 88% | 100% | 0.0 | 0% | 0% | 65% | 35% | 0% | 1% | 35% | 49% | 37.0 |
 | 4 | 100% | 1.0 | 0 | 1.9 | 13% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 36% | 47% | 13% | 84.2 |
-| 5 | 100% | 1.0 | 0 | 4.8 | 0% | 28% | 88% | 0.0 | 27% | 0% | 41% | 32% | 0% | 0% | 17% | 47% | 43.2 |
-| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 12% | 85% | 0.0 | 37% | 1% | 59% | 3% | 1% | 0% | 19% | 42% | 152.2 |
-| 7 | 100% | 1.0 | 0 | 5.2 | 0% | 95% | 62% | 0.2 | 32% | 0% | 60% | 8% | 3% | 1% | 12% | 35% | 158.2 |
+| 5 | 100% | 1.0 | 0 | 5.5 | 0% | 64% | 87% | 0.0 | 23% | 0% | 48% | 29% | 0% | 0% | 15% | 45% | 43.2 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 13% | 85% | 0.0 | 33% | 1% | 62% | 4% | 1% | 0% | 19% | 41% | 176.2 |
+| 7 | 100% | 1.0 | 0 | 5.2 | 0% | 93% | 58% | 0.4 | 30% | 1% | 63% | 6% | 4% | 2% | 12% | 34% | 178.8 |
 
 #### Reader
 
 | Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 |
-| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 16% | 51% | 33% | 13% | 8% | 25% | 31% | 0.0 |
-| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 77% | 100% | 0.0 | 0% | 0% | 46% | 54% | 0% | 0% | 33% | 56% | 100.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 11% | 64% | 25% | 13% | 9% | 21% | 33% | 0.0 |
+| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 77% | 100% | 0.0 | 0% | 0% | 53% | 47% | 0% | 0% | 33% | 56% | 100.0 |
 | 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 115.5 |
-| 5 | 100% | 1.0 | 0 | 4.7 | 0% | 46% | 100% | 0.0 | 0% | 1% | 65% | 34% | 0% | 2% | 17% | 49% | 111.5 |
-| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 28% | 100% | 0.0 | 1% | 0% | 95% | 4% | 0% | 2% | 20% | 44% | 115.5 |
-| 7 | 100% | 1.0 | 0 | 5.7 | 0% | 86% | 99% | 0.0 | 1% | 0% | 80% | 19% | 0% | 5% | 13% | 40% | 112.2 |
+| 5 | 100% | 1.0 | 0 | 5.5 | 0% | 52% | 100% | 0.0 | 1% | 1% | 68% | 30% | 0% | 2% | 15% | 47% | 111.5 |
+| 6 | 100% | 1.0 | 0 | 3.3 | 0% | 28% | 100% | 0.0 | 1% | 0% | 95% | 5% | 0% | 2% | 20% | 44% | 112.5 |
+| 7 | 100% | 1.0 | 0 | 5.7 | 0% | 88% | 99% | 0.0 | 1% | 0% | 85% | 14% | 1% | 5% | 13% | 41% | 107.2 |
 
 #### Tactician
 
 | Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 100% | 1.0 | 0 | 5.4 | 0% | 100% | 94% | 0.0 | 7% | 6% | 54% | 33% | 5% | 7% | 16% | 47% | 0.0 |
-| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 16% | 51% | 33% | 13% | 8% | 25% | 31% | 0.0 |
-| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 78% | 100% | 0.0 | 0% | 3% | 44% | 54% | 2% | 0% | 32% | 56% | 100.0 |
+| 2 | 100% | 1.0 | 0 | 3.0 | 0% | 100% | 100% | 0.0 | 0% | 11% | 64% | 25% | 13% | 9% | 21% | 33% | 0.0 |
+| 3 | 99% | 1.0 | 0 | 2.2 | 0% | 78% | 100% | 0.0 | 0% | 2% | 51% | 47% | 2% | 0% | 32% | 56% | 100.0 |
 | 4 | 100% | 1.0 | 0 | 1.9 | 15% | 100% | 100% | 0.0 | 0% | 0% | 100% | 0% | 0% | 46% | 14% | 24% | 117.8 |
-| 5 | 100% | 1.0 | 0 | 4.5 | 0% | 58% | 100% | 0.0 | 1% | 3% | 63% | 33% | 1% | 1% | 18% | 47% | 110.8 |
-| 6 | 100% | 1.0 | 0 | 3.4 | 0% | 56% | 100% | 0.0 | 0% | 9% | 79% | 12% | 7% | 1% | 19% | 41% | 106.8 |
-| 7 | 100% | 1.0 | 0 | 6.0 | 0% | 73% | 99% | 0.0 | 0% | 2% | 77% | 21% | 1% | 4% | 12% | 41% | 85.5 |
+| 5 | 100% | 1.0 | 0 | 5.2 | 0% | 60% | 100% | 0.0 | 1% | 3% | 67% | 30% | 1% | 1% | 16% | 45% | 110.8 |
+| 6 | 100% | 1.0 | 0 | 3.4 | 0% | 56% | 100% | 0.0 | 0% | 8% | 81% | 11% | 7% | 1% | 19% | 41% | 104.8 |
+| 7 | 100% | 1.0 | 0 | 6.0 | 0% | 72% | 99% | 0.0 | 0% | 2% | 82% | 15% | 2% | 4% | 12% | 41% | 79.5 |

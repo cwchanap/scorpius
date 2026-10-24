@@ -3,11 +3,12 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, GridPos},
     model::{
-        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitArchetype, UnitState,
-        WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement,
+        UnitArchetype, UnitState, WeaponSpec,
     },
 };
 use crate::mission::enemies;
+use crate::mission::region::{self, Oval, Region, Strip};
 use crate::mission::squad::{SquadDeployment, build_player_squad, stats, unit, weapon};
 use crate::mission::{
     DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
@@ -22,6 +23,8 @@ pub mod ids {
     pub const BULWARK: UnitId = UnitId(62);
     pub const CONTROLLER: UnitId = UnitId(63);
     pub const RIFLEMAN: UnitId = UnitId(64);
+    pub const WAVE_RIFLEMAN_NORTH: UnitId = UnitId(65);
+    pub const WAVE_RIFLEMAN_SOUTH: UnitId = UnitId(66);
     pub const GRAVITON_SALVO: WeaponId = WeaponId(207);
     pub const OVERLOAD_SALVO: WeaponId = WeaponId(208);
 }
@@ -74,12 +77,14 @@ pub fn mission_six_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleSt
     units.extend(mission_six_enemy_units());
     weapons.extend(mission_six_enemy_weapons());
     BattleState::new(mission_six_board(), units, weapons, MISSION_SIX_RULES, seed)
+        .with_reinforcements([Reinforcement {
+            round: WAVE_ROUND,
+            units: wave(),
+        }])
 }
 
 fn mission_six_board() -> BoardState {
-    BoardState::new(
-        9,
-        9,
+    region::regional_board(
         [
             GridPos::new(2, 4),
             GridPos::new(6, 4),
@@ -88,6 +93,7 @@ fn mission_six_board() -> BoardState {
         ],
         [],
         [],
+        &REGION,
     )
 }
 
@@ -139,6 +145,32 @@ fn mission_six_enemy_weapons() -> Vec<WeaponSpec> {
         enemies::bastion_cannon(),
         enemies::impulse_projector(),
         enemies::service_rifle(),
+    ]
+}
+
+/// The Dreadnought's landing zone: a grid of service roads around a
+/// flooded quarry and the western cliffs.
+static REGION: Region = Region {
+    roads: &[
+        Strip(9, 7, 36, 9),
+        Strip(34, 9, 36, 63),
+        Strip(10, 24, 34, 26),
+        Strip(36, 46, 63, 48),
+    ],
+    water: &[Oval(56, 20, 10, 10)],
+    mountains: &[Oval(18, 40, 8, 10), Oval(52, 60, 10, 5)],
+    forests: &[Oval(24, 14, 6, 4), Oval(48, 34, 8, 5), Oval(14, 58, 5, 4)],
+};
+
+/// The wave reaches the east road during the enemy planning that opens this
+/// round, or as soon as the arena is clear, whichever is first.
+pub const WAVE_ROUND: u16 = 3;
+
+/// The Dreadnought's escort sends a rifle pair up the east road.
+fn wave() -> Vec<UnitState> {
+    vec![
+        enemies::rifleman(ids::WAVE_RIFLEMAN_NORTH, "Rifleman N", GridPos::new(14, 7)),
+        enemies::rifleman(ids::WAVE_RIFLEMAN_SOUTH, "Rifleman S", GridPos::new(14, 9)),
     ]
 }
 
@@ -219,10 +251,10 @@ mod tests {
     #[test]
     fn mission_six_authors_the_spec_board_boss_and_rules() {
         let battle = mission_six(7);
-        assert_eq!(battle.board().width(), 9);
-        assert_eq!(battle.board().height(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
+        assert_eq!(battle.board().height(), region::REGION_SIZE);
         assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
+            region::arena_blocking(&battle),
             vec![
                 GridPos::new(2, 4),
                 GridPos::new(6, 4),

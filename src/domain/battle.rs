@@ -1457,6 +1457,7 @@ mod tests {
     #[test]
     fn hold_fast_bonus_grants_at_victory_before_mission_completed() {
         let mut battle = m2::mission_two(7);
+        battle.clear_reinforcements_for_test();
         let mut events = Vec::new();
         for enemy in [
             m2::ids::RIFLEMAN,
