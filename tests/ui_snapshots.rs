@@ -101,6 +101,7 @@ fn fixture_app(state: CampaignState) -> App {
         state: Some(state),
         save: SaveFile::new(test_save_path()),
         last_completion: None,
+        replay: None,
     }))
     .insert_resource(test_assets())
     .insert_resource(CampaignStatus::default())

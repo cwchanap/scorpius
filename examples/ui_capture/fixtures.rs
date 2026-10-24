@@ -36,6 +36,8 @@ pub struct CaptureProfile {
     pub upgrades: UpgradePreset,
     pub receipt: Option<CompletionReceipt>,
     pub save: SavePreset,
+    /// A Mission Select replay in progress.
+    pub replay: Option<MissionId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -205,6 +207,7 @@ const fn profile(screen: GameScreen, mission: MissionId) -> CaptureProfile {
         upgrades: UPGRADES,
         receipt: None,
         save: ISOLATED,
+        replay: None,
     }
 }
 
@@ -224,6 +227,7 @@ const fn campaign_profile(
         upgrades: UPGRADES,
         receipt: None,
         save,
+        replay: None,
     }
 }
 
@@ -237,6 +241,7 @@ const fn battle_profile(mission: MissionId) -> CaptureProfile {
         upgrades: UPGRADES,
         receipt: None,
         save: ISOLATED,
+        replay: None,
     }
 }
 
@@ -255,6 +260,7 @@ const fn aftermission_profile(
         upgrades: UPGRADES,
         receipt: Some(receipt),
         save: ISOLATED,
+        replay: None,
     }
 }
 
@@ -331,6 +337,33 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         actions: EMPTY_ACTIONS,
         expect: &[
             ExpectedFact::Screen(GameScreen::Title),
+            ExpectedFact::Credits(900),
+        ],
+    },
+    CaptureFixture {
+        id: "mission-select-m4",
+        profile: campaign_profile(
+            GameScreen::MissionSelect,
+            MissionId::Four,
+            900,
+            false,
+            ISOLATED,
+        ),
+        actions: EMPTY_ACTIONS,
+        expect: &[
+            ExpectedFact::Screen(GameScreen::MissionSelect),
+            ExpectedFact::Credits(900),
+        ],
+    },
+    CaptureFixture {
+        id: "briefing-replay-m2",
+        profile: CaptureProfile {
+            replay: Some(MissionId::Two),
+            ..campaign_profile(GameScreen::Briefing, MissionId::Four, 900, false, ISOLATED)
+        },
+        actions: EMPTY_ACTIONS,
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Briefing),
             ExpectedFact::Credits(900),
         ],
     },

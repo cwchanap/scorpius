@@ -57,6 +57,7 @@ fn presentation_fixture_app() -> App {
             state: Some(CampaignState::new_game()),
             save: SaveFile::new(temp_save_path("presentation-restart")),
             last_completion: None,
+            replay: None,
         }))
         .insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()))
         .init_resource::<InteractionState>()

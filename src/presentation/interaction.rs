@@ -732,11 +732,21 @@ fn run_command(action: CommandAction, mut context: CommandContext<'_>) {
     copy_preview_cells(context.interaction, context.preview_cells);
 }
 
+/// Status after Continue on a replayed mission's victory.
+pub const REPLAY_CLEARED: &str = "Replay cleared. Campaign progress is unchanged.";
+
 fn run_continue_victory(context: &mut CommandContext<'_>) {
     if screen_transition_pending(context.next_state) {
         return;
     }
     let result = context.battle.result().filter(|result| result.victory);
+    if result.is_some() && context.campaign.0.replay.is_some() {
+        // A replay ends back on Mission Select with the save untouched.
+        context.campaign.0.replay = None;
+        context.status.0 = REPLAY_CLEARED.to_owned();
+        context.next_state.set(GameScreen::MissionSelect);
+        return;
+    }
     match result.map(|result| {
         complete_current_mission(&mut context.campaign.0, context.active_mission.0, result)
     }) {
@@ -1049,6 +1059,39 @@ mod tests {
         assert!(runtime.0.last_completion.is_some());
         assert_eq!(pending(&next), Some(GameScreen::Aftermath));
         assert_eq!(status.0, "Campaign progress saved.");
+    }
+
+    #[test]
+    fn continue_after_a_replay_victory_returns_to_mission_select_without_saving() {
+        let saved = CampaignState {
+            next_mission: MissionId::Three,
+            credits: 450,
+            ..CampaignState::new_game()
+        };
+        let mut session = CampaignSession::new(SaveFile::new(temp_save_path("continue-replay")));
+        session.save.store(&saved).unwrap();
+        session.state = Some(saved.clone());
+        session.replay = Some(MissionId::One);
+        let mut runtime = CampaignRuntime(session);
+        let mut battle = terminal_victory_battle();
+        let active_mission = ActiveMission(mission_definition(MissionId::One).unwrap());
+        let mut status = StatusMessage::default();
+        let mut next = NextState::Unchanged;
+
+        run_continue(
+            &mut battle,
+            &mut runtime,
+            &active_mission,
+            &mut status,
+            &mut next,
+        );
+
+        assert_eq!(runtime.0.save.load().unwrap(), Some(saved.clone()));
+        assert_eq!(runtime.0.state, Some(saved));
+        assert_eq!(runtime.0.replay, None);
+        assert!(runtime.0.last_completion.is_none());
+        assert_eq!(pending(&next), Some(GameScreen::MissionSelect));
+        assert_eq!(status.0, REPLAY_CLEARED);
     }
 
     #[test]

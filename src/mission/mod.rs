@@ -27,7 +27,8 @@ pub use tips::{FieldTip, TipTrigger};
 
 pub type MissionBuilder = fn(u64, &SquadUpgrades) -> BattleState;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+/// Campaign order is declaration order, so `<` means "earlier in the campaign".
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum MissionId {
     One,
     Two,
@@ -36,6 +37,19 @@ pub enum MissionId {
     Five,
     Six,
     Seven,
+}
+
+impl MissionId {
+    /// Every mission, in campaign order.
+    pub const ALL: [MissionId; 7] = [
+        MissionId::One,
+        MissionId::Two,
+        MissionId::Three,
+        MissionId::Four,
+        MissionId::Five,
+        MissionId::Six,
+        MissionId::Seven,
+    ];
 }
 
 impl std::fmt::Display for MissionId {
