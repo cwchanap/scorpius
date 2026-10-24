@@ -7,6 +7,7 @@ use scorpius::app::{GameScreen, enter_battle, teardown_battle_screen};
 use scorpius::campaign::model::{
     CampaignState, PlayerMech, SquadUpgrades, UpgradeLevels, UpgradeTrack,
 };
+use scorpius::campaign::pilots::PilotGain;
 use scorpius::campaign::progression::CompletionReceipt;
 use scorpius::campaign::save::SaveFile;
 use scorpius::campaign::session::{CampaignSession, complete_current_mission, persist_purchase};
@@ -1207,6 +1208,7 @@ static AFTERMATH_FIXTURE_RECEIPTS: [CompletionReceipt; 2] = [
         optional_reward: 0,
         total_reward: 300,
         credits_after: 300,
+        pilots: NO_PILOT_GAINS,
     },
     CompletionReceipt {
         mission: MissionId::One,
@@ -1214,6 +1216,7 @@ static AFTERMATH_FIXTURE_RECEIPTS: [CompletionReceipt; 2] = [
         optional_reward: 100,
         total_reward: 400,
         credits_after: 400,
+        pilots: NO_PILOT_GAINS,
     },
 ];
 
@@ -1353,6 +1356,7 @@ fn upgrade_row_snapshot_lists_level_effects_cost_and_max() {
                 mobility: 3,
                 weapon: 3,
             },
+            ..Default::default()
         },
         completed: false,
     };
@@ -1828,6 +1832,7 @@ fn assert_pending_campaign_action_is_unchanged(
         optional_reward: 100,
         total_reward: 400,
         credits_after: 400,
+        pilots: NO_PILOT_GAINS,
     };
     let mut runtime = CampaignRuntime(CampaignSession {
         state: Some(state),
@@ -1940,6 +1945,7 @@ fn ending_snapshot_lists_credits_and_all_upgrade_levels() {
                 weapon: 3,
                 ..Default::default()
             },
+            ..Default::default()
         },
         completed: false,
     };
@@ -2317,4 +2323,22 @@ fn a_campaign_briefing_has_no_back_button() {
         button_enabled(&mut app, CampaignUiAction::StartMission),
         Some(true)
     );
+}
+
+/// Receipt pilot lines for a squad that took no XP, where a test only checks credits.
+const NO_PILOT_GAINS: [PilotGain; 3] = [
+    no_gain(PlayerMech::Vanguard),
+    no_gain(PlayerMech::Gunner),
+    no_gain(PlayerMech::Interceptor),
+];
+
+const fn no_gain(mech: PlayerMech) -> PilotGain {
+    PilotGain {
+        mech,
+        takedowns: 0,
+        xp_gained: 0,
+        xp_after: 0,
+        level_before: 1,
+        level_after: 1,
+    }
 }

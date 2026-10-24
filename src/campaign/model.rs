@@ -1,5 +1,7 @@
-//! Serialized campaign state: which mission is next, credit balance, and per-mech upgrade levels.
+//! Serialized campaign state: which mission is next, credit balance, per-mech
+//! upgrade levels, and pilot XP.
 
+use crate::campaign::pilots::PilotXp;
 use crate::mission::MissionId;
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +10,10 @@ pub enum PlayerMech {
     Vanguard,
     Gunner,
     Interceptor,
+}
+
+impl PlayerMech {
+    pub const ALL: [Self; 3] = [Self::Vanguard, Self::Gunner, Self::Interceptor];
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -46,11 +52,16 @@ impl UpgradeLevels {
     }
 }
 
+/// Everything the campaign projects onto the squad: hangar upgrades per mech
+/// and each pilot's XP.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SquadUpgrades {
     pub vanguard: UpgradeLevels,
     pub gunner: UpgradeLevels,
     pub interceptor: UpgradeLevels,
+    // Saves written before pilot levels load with every pilot at 0 XP.
+    #[serde(default)]
+    pub pilots: PilotXp,
 }
 
 impl SquadUpgrades {

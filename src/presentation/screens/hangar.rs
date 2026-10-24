@@ -13,8 +13,9 @@ use crate::presentation::{CampaignRuntime, CanvasRoot, assets::UiAssets};
 
 use super::super::{
     campaign_ui::{
-        CampaignStatus, CampaignStatusText, CampaignUiAction, MECHS, TRACKS, UpgradeCostText,
-        UpgradeCreditsText, UpgradePip, UpgradePurchaseIcon, UpgradeRow, UpgradeTrackIcon,
+        CampaignStatus, CampaignStatusText, CampaignUiAction, MECHS, PilotStatusText, TRACKS,
+        UpgradeCostText, UpgradeCreditsText, UpgradePip, UpgradePurchaseIcon, UpgradeRow,
+        UpgradeTrackIcon, pilot_status_line,
     },
     theme,
 };
@@ -138,7 +139,12 @@ pub fn setup_upgrade_screen(
         ))
         .id();
     for (mech, label) in MECHS {
-        spawn_mech_column(&mut commands, columns, &ui_assets, mech, label);
+        let xp = runtime
+            .0
+            .state
+            .as_ref()
+            .map_or(0, |state| state.upgrades.pilots.xp(mech));
+        spawn_mech_column(&mut commands, columns, &ui_assets, mech, label, xp);
     }
 
     let next = spawn_button(
@@ -201,6 +207,7 @@ fn spawn_mech_column(
     assets: &UiAssets,
     mech: PlayerMech,
     label: &'static str,
+    xp: u32,
 ) {
     let column = commands
         .spawn((
@@ -317,6 +324,19 @@ fn spawn_mech_column(
         theme::chakra_petch(&assets.fonts, 26.0, FontWeight(600)),
         LetterSpacing::Px(2.6),
         TextColor(theme::TEXT),
+        Pickable::IGNORE,
+        ChildOf(name_row),
+    ));
+    commands.spawn((
+        Text::new(pilot_status_line(xp)),
+        theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
+        LetterSpacing::Px(1.4),
+        TextColor(theme::MINT),
+        Node {
+            margin: UiRect::left(Val::Auto),
+            ..default()
+        },
+        PilotStatusText(mech),
         Pickable::IGNORE,
         ChildOf(name_row),
     ));

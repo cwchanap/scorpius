@@ -820,6 +820,7 @@ struct BattleStats {
     focus_damage: i32,
     gunner_damage: i32,
     bot_errors: u32,
+    takedowns: Vec<scorpius::domain::model::Takedown>,
 }
 
 impl BattleStats {
@@ -1081,6 +1082,7 @@ fn play_battle(mut battle: BattleState, policy: Policy) -> BattleStats {
     stats.victory = result.is_some_and(|result| result.victory);
     stats.bonus = result.is_some_and(|result| result.victory && result.optional_complete);
     stats.rounds = battle.round();
+    stats.takedowns = battle.takedowns().to_vec();
     let players: Vec<_> = battle
         .units()
         .filter(|unit| unit.faction == Faction::Player)
@@ -1162,6 +1164,8 @@ struct MissionTally {
     focus_damage: i64,
     gunner_damage: i64,
     credits_before: i64,
+    /// Sum over runs of the squad's mean pilot level entering the mission.
+    pilot_level_before: f64,
     bot_errors: u32,
 }
 
@@ -1208,6 +1212,11 @@ fn play_campaign(policy: Policy, run: u64, tallies: &mut [MissionTally]) {
         let tally = &mut tallies[index];
         tally.runs += 1;
         tally.credits_before += i64::from(state.credits);
+        tally.pilot_level_before += PlayerMech::ALL
+            .iter()
+            .map(|mech| f64::from(state.upgrades.pilots.level(*mech)))
+            .sum::<f64>()
+            / 3.0;
         let mut won = None;
         for attempt in 0..ATTEMPT_CAP {
             let seed = splitmix(run * 10_007 + index as u64 * 101 + u64::from(attempt));
@@ -1227,13 +1236,14 @@ fn play_campaign(policy: Policy, run: u64, tallies: &mut [MissionTally]) {
         };
         tally.add_clear(&stats);
         state
-            .complete_mission(
+            .complete_mission_with_takedowns(
                 definition,
                 scorpius::domain::model::MissionResult {
                     victory: true,
                     optional_complete: stats.bonus,
                     rounds: stats.rounds,
                 },
+                &stats.takedowns,
             )
             .expect("victory advances the campaign");
         shop(&mut state);
@@ -1277,18 +1287,18 @@ fn report(results: &BTreeMap<Policy, Vec<MissionTally>>) -> String {
         writeln!(out, "\n### {}\n", policy.name()).unwrap();
         writeln!(
             out,
-            "| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in |"
+            "| Mission | First-try win | Tries/clear | Stuck | Rounds | R1 wins | Bonus | HP left | KOs/try | Intents on squad | Turned on enemies | Empty | Canceled | Enemy dmg from enemy fire | from environment | Focus share | Gunner share | Credits in | Pilot Lv in |"
         )
         .unwrap();
         writeln!(
             out,
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
         )
         .unwrap();
         for (mission, tally) in MISSIONS.iter().zip(tallies) {
             writeln!(
                 out,
-                "| {mission} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                "| {mission} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                 percent(tally.first_try_wins, tally.runs),
                 mean(tally.attempts, tally.clears),
                 tally.stuck,
@@ -1306,6 +1316,7 @@ fn report(results: &BTreeMap<Policy, Vec<MissionTally>>) -> String {
                 percent(tally.focus_damage as f64, tally.enemy_damage as f64),
                 percent(tally.gunner_damage as f64, tally.enemy_damage as f64),
                 mean(tally.credits_before as f64, tally.runs),
+                mean(tally.pilot_level_before, tally.runs),
             )
             .unwrap();
         }

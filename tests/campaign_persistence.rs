@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use scorpius::campaign::model::{
     CampaignState, PlayerMech, SquadUpgrades, UpgradeLevels, UpgradeTrack,
 };
+use scorpius::campaign::pilots::PilotXp;
 use scorpius::campaign::progression::{CampaignError, UPGRADE_COSTS};
 use scorpius::campaign::save::SaveFile;
 use scorpius::campaign::session::{
@@ -150,6 +151,11 @@ fn seven_terminal_state_round_trips_with_upgrades_and_credits() {
                 armor: 1,
                 mobility: 1,
                 weapon: 2,
+            },
+            pilots: PilotXp {
+                vanguard: 140,
+                gunner: 0,
+                interceptor: 75,
             },
         },
         completed: false,
@@ -504,7 +510,7 @@ fn legacy_save_without_completed_field_loads_as_not_completed() {
     // A save written before the `completed` field existed (e.g. by an earlier
     // MVP build) must still load instead of surfacing as a corrupted save.
     // `#[serde(default)]` on `completed` makes serde treat the missing field
-    // as `false`.
+    // as `false`; a save from before pilot levels has no `pilots` either.
     let legacy_json = serde_json::json!({
         "next_mission": "Seven",
         "credits": 3300,
@@ -527,4 +533,5 @@ fn legacy_save_without_completed_field_loads_as_not_completed() {
     assert_eq!(loaded.upgrades.vanguard.hp, 1);
     assert_eq!(loaded.upgrades.gunner.armor, 1);
     assert_eq!(loaded.upgrades.interceptor.mobility, 1);
+    assert_eq!(loaded.upgrades.pilots, PilotXp::default());
 }

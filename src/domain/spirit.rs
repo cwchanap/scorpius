@@ -8,14 +8,26 @@ use super::{
     model::{BattleError, BattleEvent, Faction, UnitId},
 };
 
-/// SP every pilot starts a battle with.
+/// SP a level-1 pilot starts a battle with: half its pool.
 pub const SP_START: i16 = 30;
-/// The most SP a pilot can hold.
+/// The most SP a level-1 pilot can hold.
 pub const SP_MAX: i16 = 60;
+/// SP pool each pilot level above 1 adds; a pilot starts with half its pool.
+pub const SP_PER_LEVEL: i16 = 4;
 /// SP every living pilot regains at the start of each round after the first.
 pub const SP_PER_ROUND: i16 = 5;
 /// HP that Guts restores, capped at the mech's max HP.
 pub const GUTS_REPAIR: i16 = 12;
+
+/// The most SP a pilot of `level` can hold.
+pub const fn sp_max(level: u8) -> i16 {
+    SP_MAX + SP_PER_LEVEL * level.saturating_sub(1) as i16
+}
+
+/// The SP a pilot of `level` starts each battle with.
+pub const fn sp_start(level: u8) -> i16 {
+    sp_max(level) / 2
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpiritCommand {
@@ -134,11 +146,11 @@ impl BattleState {
         let living: Vec<_> = self
             .units()
             .filter(|unit| unit.faction == Faction::Player && !unit.is_knocked_out())
-            .map(|unit| unit.id)
+            .map(|unit| (unit.id, unit.stats.level))
             .collect();
-        for id in living {
+        for (id, level) in living {
             if let Some(spirit) = self.spirits.get_mut(&id) {
-                spirit.sp = (spirit.sp + SP_PER_ROUND).min(SP_MAX);
+                spirit.sp = (spirit.sp + SP_PER_ROUND).min(sp_max(level));
             }
         }
     }
@@ -168,7 +180,7 @@ impl BattleState {
 
 #[cfg(test)]
 mod tests {
-    use super::{GUTS_REPAIR, SP_MAX, SP_PER_ROUND, SP_START, SpiritCommand};
+    use super::{GUTS_REPAIR, SP_MAX, SP_PER_ROUND, SP_START, SpiritCommand, sp_max, sp_start};
     use crate::{
         domain::{
             board::GridPos,
@@ -435,6 +447,30 @@ mod tests {
             SP_START + SP_PER_ROUND
         );
         assert_eq!(battle.spirit(ids::INTERCEPTOR).unwrap().sp, SP_START);
+    }
+
+    #[test]
+    fn a_pilot_level_grows_the_sp_pool_it_starts_half_full() {
+        assert_eq!((sp_max(1), sp_start(1)), (SP_MAX, SP_START));
+        assert_eq!((sp_max(6), sp_start(6)), (80, 40));
+
+        let upgrades = crate::campaign::model::SquadUpgrades {
+            pilots: crate::campaign::pilots::PilotXp {
+                gunner: 500,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut battle = crate::mission::mission_one::mission_one_for_campaign(7, &upgrades);
+        assert_eq!(battle.spirit(ids::GUNNER).unwrap().sp, 40);
+        assert_eq!(battle.spirit(ids::VANGUARD).unwrap().sp, SP_START);
+        battle.begin_round().unwrap();
+        battle.set_sp_for_test(ids::GUNNER, 78);
+        battle.set_sp_for_test(ids::VANGUARD, 58);
+        finish_all(&mut battle);
+        battle.resolve_enemy_phase().unwrap();
+        assert_eq!(battle.spirit(ids::GUNNER).unwrap().sp, 80);
+        assert_eq!(battle.spirit(ids::VANGUARD).unwrap().sp, SP_MAX);
     }
 
     #[test]

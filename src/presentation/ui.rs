@@ -80,6 +80,8 @@ pub struct InspectorSnapshot {
     pub movement: Option<u8>,
     pub evasion: Option<i16>,
     pub sp: Option<i16>,
+    /// Pilot level, for player pilots only.
+    pub level: Option<u8>,
     pub moved: bool,
     pub acted: bool,
     pub finished: bool,
@@ -101,6 +103,7 @@ impl InspectorSnapshot {
             movement: Some(unit.stats.movement),
             evasion: Some(unit.stats.evasion),
             sp: None,
+            level: (unit.faction == Faction::Player).then_some(unit.stats.level),
             moved: unit.activation.moved,
             acted: unit.activation.acted,
             finished: unit.activation.finished,
@@ -2975,7 +2978,11 @@ pub fn update_hud(
     {
         if let Some(inspector_text) = inspector_text {
             text.0 = match inspector_text.0 {
-                InspectorTextKind::Name => hud.inspector.name.unwrap_or("—").to_owned(),
+                InspectorTextKind::Name => match (hud.inspector.name, hud.inspector.level) {
+                    (Some(name), Some(level)) => format!("{name}  LV {level}"),
+                    (Some(name), None) => name.to_owned(),
+                    (None, _) => "—".to_owned(),
+                },
                 InspectorTextKind::Hp => match (hud.inspector.hp, hud.inspector.max_hp) {
                     (Some(hp), Some(max_hp)) => format!("{hp}/{max_hp}"),
                     _ => "—".to_owned(),

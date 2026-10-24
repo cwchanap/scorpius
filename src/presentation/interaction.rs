@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::{picking::backend::HitData, prelude::*};
 
 use crate::app::GameScreen;
-use crate::campaign::session::complete_current_mission;
+use crate::campaign::session::complete_current_mission_with_takedowns;
 use crate::domain::{
     battle::BattleState,
     board::{BoardState, GridPos},
@@ -748,7 +748,12 @@ fn run_continue_victory(context: &mut CommandContext<'_>) {
         return;
     }
     match result.map(|result| {
-        complete_current_mission(&mut context.campaign.0, context.active_mission.0, result)
+        complete_current_mission_with_takedowns(
+            &mut context.campaign.0,
+            context.active_mission.0,
+            result,
+            context.battle.takedowns(),
+        )
     }) {
         Some(Ok(_)) => {
             context.status.0 =
@@ -983,11 +988,12 @@ mod tests {
             ids::STRIKER,
             ids::ARTILLERY,
         ] {
-            battle.apply_direct_damage(
+            let events = battle.apply_direct_damage(
                 enemy,
                 99,
                 crate::domain::combat::DamageSource::PlayerWeapon(ids::PILE_LANCE),
             );
+            battle.credit_takedowns_for_test(ids::VANGUARD, &events);
         }
         battle
     }
@@ -1056,7 +1062,12 @@ mod tests {
         let disk = runtime.0.save.load().unwrap().unwrap();
         assert_eq!(disk.next_mission, MissionId::Two);
         assert_eq!(disk.credits, 300);
-        assert!(runtime.0.last_completion.is_some());
+        // The Vanguard's four takedowns and the clear: 30 + 4 * 20 XP.
+        assert_eq!(disk.upgrades.pilots.vanguard, 110);
+        assert_eq!(disk.upgrades.pilots.gunner, 30);
+        let receipt = runtime.0.last_completion.expect("a receipt");
+        assert_eq!(receipt.pilots[0].takedowns, 4);
+        assert!(receipt.pilots[0].leveled_up());
         assert_eq!(pending(&next), Some(GameScreen::Aftermath));
         assert_eq!(status.0, "Campaign progress saved.");
     }
@@ -1202,6 +1213,7 @@ mod tests {
             accuracy: 78,
             evasion: 5,
             max_en: 7,
+            level: 1,
         };
         let mut battle = BattleState::new(
             BoardState::empty(128, 128),

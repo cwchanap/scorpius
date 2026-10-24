@@ -3,7 +3,8 @@
 use std::fmt;
 
 use crate::campaign::model::{CampaignState, PlayerMech, UpgradeTrack};
-use crate::domain::model::MissionResult;
+use crate::campaign::pilots::PilotGain;
+use crate::domain::model::{MissionResult, Takedown};
 use crate::mission::{MissionDefinition, MissionId};
 
 pub const UPGRADE_COSTS: [u32; 3] = [200, 400, 600];
@@ -15,6 +16,8 @@ pub struct CompletionReceipt {
     pub optional_reward: u32,
     pub total_reward: u32,
     pub credits_after: u32,
+    /// Vanguard, Gunner, Interceptor.
+    pub pilots: [PilotGain; 3],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,10 +61,23 @@ impl fmt::Display for CampaignError {
 }
 
 impl CampaignState {
+    /// Complete a won mission with no takedowns credited; see
+    /// [`Self::complete_mission_with_takedowns`].
     pub fn complete_mission(
         &mut self,
         definition: &MissionDefinition,
         result: MissionResult,
+    ) -> Result<CompletionReceipt, CampaignError> {
+        self.complete_mission_with_takedowns(definition, result, &[])
+    }
+
+    /// Pay the mission's credits, award pilot XP for the battle's
+    /// `takedowns` plus the clear, and advance the campaign.
+    pub fn complete_mission_with_takedowns(
+        &mut self,
+        definition: &MissionDefinition,
+        result: MissionResult,
+        takedowns: &[Takedown],
     ) -> Result<CompletionReceipt, CampaignError> {
         if !result.victory {
             return Err(CampaignError::MissionNotWon);
@@ -82,6 +98,7 @@ impl CampaignState {
         };
         let total_reward = definition.base_reward + optional_reward;
         self.credits += total_reward;
+        let pilots = self.upgrades.pilots.award(takedowns);
         match definition.unlocks {
             Some(next) => self.next_mission = next,
             None => self.completed = true,
@@ -92,6 +109,7 @@ impl CampaignState {
             optional_reward,
             total_reward,
             credits_after: self.credits,
+            pilots,
         })
     }
 
