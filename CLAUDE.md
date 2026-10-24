@@ -92,7 +92,7 @@ logic lives in the domain (`completed_enemy_round`). Each `MissionDefinition` al
 reads only public `BattleState` accessors. `BattleState::with_reinforcements` holds typed
 `Reinforcement` waves off the board: a wave arrives at its round's enemy planning (or as soon as the
 deployed enemies are all down), emits `ReinforcementArrived`, holds its arrival cell that planning,
-and counts as a living enemy until it arrives. A unit whose arrival cell and every cell reachable from it are taken lands on the nearest open cell anywhere, and waits for the next planning only when the board has none; it never stacks. Mission 1's two-Rifleman road patrol arrives in Round 2. Missions 2–7 build their boards with `region::regional_board`: the authored 9×9 arena sits in the northwest corner of a 64×64 region, walled on its old east and south edges except a gate at (9,8), and each mission's `wave()` arrives on the east road at x=14.
+and counts as a living enemy until it arrives. A unit whose arrival cell and every cell reachable from it are taken lands on the nearest open cell anywhere, and waits for the next planning only when the board has none; it never stacks. Mission 1's two-Rifleman road patrol arrives in Round 2. Missions 2–7 build their boards with `region::regional_board`: the authored 9×9 arena sits in the northwest corner of a 64×64 region, walled on its old east and south edges except a gate at (9,8) (so a push east from (8,8) slides onto the road instead of colliding, as at Mission 1's gate), and each mission's `wave()` arrives on the east road at x=14.
 
 ### `src/presentation/` — Bevy adapters
 
