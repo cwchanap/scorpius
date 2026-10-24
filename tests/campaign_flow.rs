@@ -26,7 +26,9 @@ use scorpius::presentation::campaign_ui::{
     dialogue_snapshot, ending_snapshot, mission_select_available, mission_select_rows,
     upgrade_row_snapshot,
 };
-use scorpius::presentation::screens::{setup_mission_select_screen, setup_title_screen};
+use scorpius::presentation::screens::{
+    setup_briefing_screen, setup_mission_select_screen, setup_title_screen,
+};
 use scorpius::presentation::ui::HudRoot;
 use scorpius::presentation::{
     ActiveMission, AttackPreviewCells, BattleCamera2d, BattleEventQueue, BattleRuntime,
@@ -2265,6 +2267,54 @@ fn title_disables_missions_before_the_first_clear() {
     );
     assert_eq!(
         button_enabled(&mut app, CampaignUiAction::Continue),
+        Some(true)
+    );
+}
+
+fn briefing_app(runtime: CampaignRuntime) -> App {
+    let mut app = App::new();
+    app.add_plugins(StatesPlugin)
+        .insert_resource(runtime)
+        .insert_resource(blank_ui_assets())
+        .init_state::<GameScreen>()
+        .add_systems(OnEnter(GameScreen::Briefing), setup_briefing_screen);
+    app.update();
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(GameScreen::Briefing);
+    app.update();
+    app
+}
+
+#[test]
+fn a_replay_briefing_offers_back_beside_deploy() {
+    let mut runtime = replay_runtime("replay-briefing", at_mission_four());
+    scorpius::campaign::session::open_mission_select(&mut runtime.0).unwrap();
+    scorpius::campaign::session::start_replay(&mut runtime.0, MissionId::Two).unwrap();
+    let mut app = briefing_app(runtime);
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 1);
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::OpenMissionSelect),
+        Some(true)
+    );
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::StartMission),
+        Some(true)
+    );
+}
+
+#[test]
+fn a_campaign_briefing_has_no_back_button() {
+    let mut runtime = replay_runtime("campaign-briefing", at_mission_four());
+    scorpius::campaign::session::continue_game(&mut runtime.0).unwrap();
+    let mut app = briefing_app(runtime);
+    assert_eq!(entity_count::<ScreenRoot>(&mut app), 1);
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::OpenMissionSelect),
+        None
+    );
+    assert_eq!(
+        button_enabled(&mut app, CampaignUiAction::StartMission),
         Some(true)
     );
 }
