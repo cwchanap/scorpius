@@ -6,6 +6,10 @@
 //! One gate at (9, 8) opens onto the east road, which is where each mission's
 //! reinforcement wave arrives. Because the gate is the only way out, no path
 //! between two arena cells ever gets shorter by leaving the arena.
+//!
+//! The gate is the one edge cell that changed: a unit at (8, 8) pushed east
+//! now slides through the gate onto the road instead of colliding, the same
+//! trade Mission 1 made at its road gate.
 
 use crate::domain::board::{BoardState, ExplosiveState, GridPos, Terrain};
 
@@ -106,7 +110,7 @@ pub(crate) fn arena_blocking(battle: &crate::domain::battle::BattleState) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::Faction;
+    use crate::domain::model::{BattleEvent, Faction};
     use crate::mission::{MissionId, mission_definition};
     use crate::{campaign::model::SquadUpgrades, domain::battle::BattleState};
     use std::collections::{BTreeSet, VecDeque};
@@ -147,6 +151,60 @@ mod tests {
         assert!(wall.contains(&GridPos::new(9, 7)));
         assert!(wall.contains(&GridPos::new(0, 9)));
         assert!(wall.contains(&GridPos::new(8, 9)));
+    }
+
+    /// Pushes `target` away from `attacker` with both placed on `cells` and
+    /// every other unit parked out on the road.
+    fn push_on(id: MissionId, cells: (GridPos, GridPos)) -> Vec<BattleEvent> {
+        let mut battle = build(id);
+        let attacker = battle
+            .units()
+            .find(|u| u.faction == Faction::Player)
+            .unwrap()
+            .id;
+        let target = battle
+            .units()
+            .find(|u| u.faction == Faction::Enemy)
+            .unwrap()
+            .id;
+        let others: Vec<_> = battle
+            .units()
+            .map(|unit| unit.id)
+            .filter(|unit| *unit != attacker && *unit != target)
+            .collect();
+        for (i, other) in others.into_iter().enumerate() {
+            battle.move_unit_direct_for_test(other, GridPos::new(30 + i as u8, 8));
+        }
+        battle.move_unit_direct_for_test(attacker, cells.0);
+        battle.move_unit_direct_for_test(target, cells.1);
+        battle.resolve_push(attacker, target).unwrap()
+    }
+
+    #[test]
+    fn the_arena_edges_still_collide_except_into_the_gate() {
+        let collides_at = |events: &[BattleEvent]| {
+            events.iter().find_map(|event| match event {
+                BattleEvent::CollisionOccurred { blocked_at, .. } => Some(*blocked_at),
+                _ => None,
+            })
+        };
+        for id in REGIONAL {
+            // East edge above the gate, and the south edge, still collide.
+            let east = push_on(id, (GridPos::new(7, 7), GridPos::new(8, 7)));
+            assert_eq!(collides_at(&east), Some(GridPos::new(9, 7)), "{id}");
+            let south = push_on(id, (GridPos::new(8, 7), GridPos::new(8, 8)));
+            assert_eq!(collides_at(&south), Some(GridPos::new(8, 9)), "{id}");
+            // The corner pushed east slides through the gate instead.
+            let gate = push_on(id, (GridPos::new(7, 8), GridPos::new(8, 8)));
+            assert_eq!(collides_at(&gate), None, "{id}");
+            assert!(
+                gate.iter().any(|event| matches!(
+                    event,
+                    BattleEvent::UnitPushed { to, .. } if *to == ARENA_GATE
+                )),
+                "{id}: pushed through the gate"
+            );
+        }
     }
 
     #[test]

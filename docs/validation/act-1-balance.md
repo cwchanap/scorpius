@@ -149,7 +149,9 @@ so later missions moved by a few points too. The "after" tables below are the cu
 
 Missions 2–7 moved from 9×9 boards onto 64×64 regions (`src/mission/region.rs`). Each keeps its
 authored arena, unchanged, in the region's northwest corner. A wall on the arena's old east and
-south edges keeps every authored push collision, except at one gate at (9,8) on the east road.
+south edges keeps the authored push collisions, except at one gate at (9,8) on the east road:
+a unit at (8,8) pushed east now slides onto the road instead of taking 3 collision damage, as
+at Mission 1's gate.
 The gate is the only way out, so no path inside the arena gets shorter. Each mission gained one
 reinforcement wave that arrives on the east road at (14,7)/(14,9), or (14,8) for a single unit,
 during its round's enemy planning, or as soon as the deployed enemies are all down:
