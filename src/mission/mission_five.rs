@@ -3,10 +3,12 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, GridPos},
     model::{
-        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement, UnitState,
+        WeaponSpec,
     },
 };
 use crate::mission::enemies;
+use crate::mission::region::{self, Oval, Region, Strip};
 use crate::mission::squad::{SquadDeployment, build_player_squad};
 use crate::mission::{
     DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
@@ -22,6 +24,7 @@ pub mod ids {
     pub const BULWARK: UnitId = UnitId(53);
     pub const CONTROLLER: UnitId = UnitId(54);
     pub const FLANKER: UnitId = UnitId(55);
+    pub const WAVE_FLANKER: UnitId = UnitId(56);
 }
 
 const MISSION_FIVE_DEPLOYMENT: SquadDeployment = SquadDeployment {
@@ -63,7 +66,7 @@ static MISSION_FIVE_OPENING: [EnemyOpening; 5] = [
 
 const MISSION_FIVE_RULES: MissionRules = MissionRules {
     primary: PrimaryObjective::EliminateAllEnemies,
-    optional: OptionalObjective::VictoryByRound { round: 4 },
+    optional: OptionalObjective::VictoryByRound { round: 5 },
     opening_plan: &MISSION_FIVE_OPENING,
 };
 
@@ -82,12 +85,14 @@ pub fn mission_five_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleS
         MISSION_FIVE_RULES,
         seed,
     )
+    .with_reinforcements([Reinforcement {
+        round: WAVE_ROUND,
+        units: wave(),
+    }])
 }
 
 fn mission_five_board() -> BoardState {
-    BoardState::new(
-        9,
-        9,
+    region::regional_board(
         [
             GridPos::new(1, 4),
             GridPos::new(7, 4),
@@ -96,6 +101,7 @@ fn mission_five_board() -> BoardState {
         ],
         [],
         [],
+        &REGION,
     )
 }
 
@@ -116,6 +122,36 @@ fn mission_five_enemy_weapons() -> Vec<WeaponSpec> {
         enemies::impulse_projector(),
         enemies::skirmish_carbine(),
     ]
+}
+
+/// The crossfire valley: the east road drops into a long valley under the
+/// battery ridge, with a marsh lake to the southeast.
+static REGION: Region = Region {
+    roads: &[
+        Strip(9, 7, 24, 9),
+        Strip(22, 9, 24, 63),
+        Strip(24, 30, 63, 32),
+    ],
+    water: &[Oval(44, 50, 10, 8)],
+    mountains: &[
+        Oval(44, 14, 14, 6),
+        Oval(10, 40, 6, 10),
+        Oval(60, 48, 5, 10),
+    ],
+    forests: &[Oval(34, 20, 6, 4), Oval(14, 58, 6, 4), Oval(50, 38, 6, 4)],
+};
+
+/// The wave reaches the east road during the enemy planning that opens this
+/// round, or as soon as the arena is clear, whichever is first.
+pub const WAVE_ROUND: u16 = 2;
+
+/// A fast flanker races in along the valley road.
+fn wave() -> Vec<UnitState> {
+    vec![enemies::flanker(
+        ids::WAVE_FLANKER,
+        "Flanker E",
+        GridPos::new(14, 8),
+    )]
 }
 
 static PRE_MISSION_LINES: [DialogueLine; 3] = [
@@ -161,7 +197,7 @@ pub const MISSION_FIVE_DEFINITION: MissionDefinition = MissionDefinition {
     build: mission_five_for_campaign,
     title: "Mission 5 — Crossfire Break",
     primary_objective: "Break the assault and destroy all enemies.",
-    optional_objective: "Rapid Break: win by the end of Round 4.",
+    optional_objective: "Rapid Break: win by the end of Round 5.",
     base_reward: 700,
     optional_reward: 200,
     pre_mission: DialogueScene {
@@ -188,10 +224,10 @@ mod tests {
     #[test]
     fn mission_five_authors_the_spec_board_and_roster() {
         let battle = mission_five(7);
-        assert_eq!(battle.board().width(), 9);
-        assert_eq!(battle.board().height(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
+        assert_eq!(battle.board().height(), region::REGION_SIZE);
         assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
+            region::arena_blocking(&battle),
             vec![
                 GridPos::new(1, 4),
                 GridPos::new(7, 4),
@@ -272,7 +308,7 @@ mod tests {
         assert_eq!(rules.primary, PrimaryObjective::EliminateAllEnemies);
         assert_eq!(
             rules.optional,
-            OptionalObjective::VictoryByRound { round: 4 }
+            OptionalObjective::VictoryByRound { round: 5 }
         );
 
         let expected = [
@@ -462,10 +498,11 @@ mod tests {
         battle.resolve_enemy_phase().unwrap();
     }
 
-    /// Opening round plus the four non-Flanker enemies cleared with
+    /// Opening round, without the valley wave, plus the four non-Flanker enemies cleared with
     /// player-fire damage, which never trips an optional trigger.
     fn rapid_break_after_opening() -> BattleState {
         let mut battle = mission_five(7);
+        battle.clear_reinforcements_for_test();
         battle.begin_round().unwrap();
         for enemy in [
             ids::ARTILLERY_A,
@@ -480,13 +517,13 @@ mod tests {
     }
 
     #[test]
-    fn rapid_break_tracks_the_round_four_boundary() {
-        // A round-4 victory is exactly on the boundary: bonus granted.
+    fn rapid_break_tracks_the_round_five_boundary() {
+        // A round-5 victory is exactly on the boundary: bonus granted.
         let mut inside = rapid_break_after_opening();
-        for _ in 1..=3 {
+        for _ in 1..=4 {
             play_one_round(&mut inside);
         }
-        assert_eq!(inside.round(), 4);
+        assert_eq!(inside.round(), 5);
         inside.apply_direct_damage(ids::FLANKER, 99, DamageSource::PlayerWeapon(RAIL_RIFLE));
         assert!(
             inside
@@ -494,12 +531,12 @@ mod tests {
                 .is_some_and(|result| result.victory && result.optional_complete)
         );
 
-        // A round-5 victory misses the boundary: no bonus.
+        // A round-6 victory misses the boundary: no bonus.
         let mut outside = rapid_break_after_opening();
-        for _ in 1..=4 {
+        for _ in 1..=5 {
             play_one_round(&mut outside);
         }
-        assert_eq!(outside.round(), 5);
+        assert_eq!(outside.round(), 6);
         outside.apply_direct_damage(ids::FLANKER, 99, DamageSource::PlayerWeapon(RAIL_RIFLE));
         assert!(
             outside
@@ -551,7 +588,7 @@ mod tests {
         );
         assert_eq!(
             definition.optional_objective,
-            "Rapid Break: win by the end of Round 4."
+            "Rapid Break: win by the end of Round 5."
         );
         assert_eq!(
             (definition.base_reward, definition.optional_reward),
@@ -604,7 +641,7 @@ mod tests {
 
         // The definition builds the same battle as the direct constructor.
         let battle = (definition.build)(7, &SquadUpgrades::default());
-        assert_eq!(battle.board().width(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
         assert!(battle.unit(ids::ARTILLERY_A).is_some());
     }
 }

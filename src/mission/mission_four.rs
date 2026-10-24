@@ -3,10 +3,12 @@ use crate::domain::{
     battle::BattleState,
     board::{BoardState, ExplosiveState, GridPos},
     model::{
-        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, UnitState, WeaponSpec,
+        EnemyOpening, MissionRules, OptionalObjective, PrimaryObjective, Reinforcement, UnitState,
+        WeaponSpec,
     },
 };
 use crate::mission::enemies;
+use crate::mission::region::{self, Oval, Region, Strip};
 use crate::mission::squad::{SquadDeployment, build_player_squad};
 use crate::mission::{
     DialogueLine, DialogueScene, FieldTip, MissionDefinition, MissionId, TipTrigger,
@@ -20,6 +22,8 @@ pub mod ids {
     pub const BULWARK: UnitId = UnitId(41);
     pub const CONTROLLER: UnitId = UnitId(42);
     pub const RIFLEMAN: UnitId = UnitId(43);
+    pub const WAVE_RIFLEMAN_NORTH: UnitId = UnitId(44);
+    pub const WAVE_RIFLEMAN_SOUTH: UnitId = UnitId(45);
 }
 
 const MISSION_FOUR_DEPLOYMENT: SquadDeployment = SquadDeployment {
@@ -72,12 +76,14 @@ pub fn mission_four_for_campaign(seed: u64, upgrades: &SquadUpgrades) -> BattleS
         MISSION_FOUR_RULES,
         seed,
     )
+    .with_reinforcements([Reinforcement {
+        round: WAVE_ROUND,
+        units: wave(),
+    }])
 }
 
 fn mission_four_board() -> BoardState {
-    BoardState::new(
-        9,
-        9,
+    region::regional_board(
         [
             GridPos::new(2, 4),
             GridPos::new(6, 4),
@@ -97,6 +103,7 @@ fn mission_four_board() -> BoardState {
                 exploded: false,
             },
         ],
+        &REGION,
     )
 }
 
@@ -122,6 +129,31 @@ fn mission_four_enemy_weapons() -> Vec<WeaponSpec> {
         enemies::bastion_cannon(),
         enemies::impulse_projector(),
         enemies::service_rifle(),
+    ]
+}
+
+/// The fortress approaches: the east road climbs past the gate ridge to
+/// the supply highway, with a reservoir on the eastern edge.
+static REGION: Region = Region {
+    roads: &[
+        Strip(9, 7, 50, 9),
+        Strip(48, 0, 50, 63),
+        Strip(10, 32, 48, 34),
+    ],
+    water: &[Oval(62, 16, 8, 10), Oval(24, 52, 10, 7)],
+    mountains: &[Oval(26, 20, 10, 6), Oval(36, 46, 6, 5), Oval(60, 52, 6, 8)],
+    forests: &[Oval(16, 44, 5, 6), Oval(40, 24, 5, 4)],
+};
+
+/// The wave reaches the east road during the enemy planning that opens this
+/// round, or as soon as the arena is clear, whichever is first.
+pub const WAVE_ROUND: u16 = 2;
+
+/// The gate garrison calls in a rifle pair from the supply road.
+fn wave() -> Vec<UnitState> {
+    vec![
+        enemies::rifleman(ids::WAVE_RIFLEMAN_NORTH, "Rifleman N", GridPos::new(14, 7)),
+        enemies::rifleman(ids::WAVE_RIFLEMAN_SOUTH, "Rifleman S", GridPos::new(14, 9)),
     ]
 }
 
@@ -212,10 +244,10 @@ mod tests {
     #[test]
     fn mission_four_authors_the_spec_board_and_roster() {
         let battle = mission_four(7);
-        assert_eq!(battle.board().width(), 9);
-        assert_eq!(battle.board().height(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
+        assert_eq!(battle.board().height(), region::REGION_SIZE);
         assert_eq!(
-            battle.board().blocking_cells().collect::<Vec<_>>(),
+            region::arena_blocking(&battle),
             vec![
                 GridPos::new(2, 4),
                 GridPos::new(6, 4),
@@ -496,7 +528,7 @@ mod tests {
 
         // The definition builds the same battle as the direct constructor.
         let battle = (definition.build)(7, &SquadUpgrades::default());
-        assert_eq!(battle.board().width(), 9);
+        assert_eq!(battle.board().width(), region::REGION_SIZE);
         assert!(battle.unit(ids::BULWARK).is_some());
     }
 }
