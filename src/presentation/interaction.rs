@@ -274,7 +274,9 @@ pub fn on_battlefield_stage_click(
 ) {
     let click = _click;
     // A press that panned the map ends there, not on the cell under it.
-    if click.original_event_target() != click.entity || drag.panning {
+    if click.original_event_target() != click.entity
+        || drag.pans_at(click.pointer_location.position)
+    {
         return;
     }
     if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
@@ -351,7 +353,7 @@ pub fn on_battlefield_token_click(
 ) {
     click.propagate(false);
     if click.button != PointerButton::Primary
-        || drag.panning
+        || drag.pans_at(click.pointer_location.position)
         || !stage_event_ready(&asset_status, &playback)
     {
         return;

@@ -25,7 +25,8 @@ use crate::domain::{
 };
 
 const MINIMAP_SIZE: f32 = 176.0;
-/// How far, in design pixels, a left press may wander and still be a click.
+/// How far, in logical window pixels, a left press may wander and still be
+/// a click.
 const DRAG_THRESHOLD: f32 = 8.0;
 
 /// One source of truth for "this board renders as the regional canvas".
@@ -55,12 +56,26 @@ pub fn cell_base_fill(board: &BoardState, cell: GridPos) -> Color {
     }
 }
 
-/// A left-button press on the regional map. It pans the map once it travels
-/// past a click's jitter, and a press that panned is not also a cell click.
+/// A left-button press on the regional map, at its logical window position.
+/// It pans the map once it travels past a click's jitter, and a press that
+/// panned is not also a cell click.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub struct MapDrag {
     press: Option<Vec2>,
     pub panning: bool,
+}
+
+impl MapDrag {
+    /// Whether a release with the pointer at `pointer` ends a pan instead of
+    /// a click. The distance check covers a drag that crosses the threshold
+    /// on the release frame itself: picking dispatches that click in
+    /// PreUpdate, before `navigate_map` sees the motion.
+    pub fn pans_at(&self, pointer: Vec2) -> bool {
+        self.panning
+            || self
+                .press
+                .is_some_and(|press| press.distance(pointer) > DRAG_THRESHOLD)
+    }
 }
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
@@ -508,38 +523,39 @@ pub fn navigate_map(
     if keyboard.just_pressed(KeyCode::Home) {
         focus_unit(&mut view, &battle, &interaction);
     }
-    let cursor = windows
-        .iter()
-        .next()
-        .and_then(|window| {
-            CanvasLayout::fit(window.resolution.size()).to_design(window.cursor_position()?)
-        })
-        .map(|point| point - battle_stage_rect().min);
-    let inside = cursor.filter(|point| {
+    let window = windows.iter().next();
+    let layout = window.map(|window| CanvasLayout::fit(window.resolution.size()));
+    let to_stage = |at: Vec2| {
+        layout
+            .and_then(|layout| layout.to_design(at))
+            .map(|point| point - battle_stage_rect().min)
+    };
+    let pointer = window.and_then(Window::cursor_position);
+    let inside = pointer.and_then(to_stage).filter(|point| {
         point.x >= 0.0
             && point.y >= 0.0
             && point.x < BATTLE_STAGE_SIZE.x
             && point.y < BATTLE_STAGE_SIZE.y
     });
     // The drag outlives the frame Left comes up: that frame's click already
-    // fired in PreUpdate and read `panning` to skip the cell under it.
+    // fired in PreUpdate and asked `pans_at` whether to skip the cell.
     if mouse.just_pressed(MouseButton::Left) {
         drag.set_if_neq(MapDrag {
-            press: inside,
+            press: pointer.filter(|_| inside.is_some()),
             panning: false,
         });
     } else if !mouse.pressed(MouseButton::Left) {
         drag.set_if_neq(MapDrag::default());
     }
     if let Some(point) = inside {
-        if let Some(press) = drag.press
+        if let (Some(press), Some(at)) = (drag.press, pointer)
             && !drag.panning
-            && point.distance(press) > DRAG_THRESHOLD
+            && drag.pans_at(at)
         {
             // Past a click's jitter the press becomes a pan that catches up
             // from the press point, so the map stays under the cursor.
             drag.panning = true;
-            *last_cursor = Some(press);
+            *last_cursor = to_stage(press);
         }
         // The frame Middle goes down only establishes the drag anchor:
         // cursor motion since the previous update must not pan the map.

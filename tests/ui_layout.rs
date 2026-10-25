@@ -688,6 +688,23 @@ fn production_left_drag_pans_the_map_without_clicking_the_cell_under_it() {
     send_headless_mouse(&mut app, window, end, Some(ButtonState::Released));
     assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 2);
     assert_ne!(app.world().resource::<StatusMessage>().0, "");
+
+    // A flick that crosses the threshold on the release frame is still a
+    // pan: picking dispatches that click before `navigate_map` runs.
+    app.world_mut().resource_mut::<StatusMessage>().0.clear();
+    send_headless_mouse(&mut app, window, end, Some(ButtonState::Pressed));
+    let flick = end + Vec2::new(40.0, 0.0);
+    send_headless_pointer_action(
+        &mut app,
+        window,
+        flick,
+        PointerAction::Move {
+            delta: Vec2::new(40.0, 0.0),
+        },
+    );
+    send_headless_mouse(&mut app, window, flick, Some(ButtonState::Released));
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 3);
+    assert_eq!(app.world().resource::<StatusMessage>().0, "");
 }
 
 #[test]
