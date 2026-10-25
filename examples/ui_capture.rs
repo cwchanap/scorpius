@@ -30,7 +30,7 @@ use scorpius::{
     campaign::{
         model::{CampaignState, SquadUpgrades},
         save::SaveFile,
-        session::{CampaignSession, complete_current_mission},
+        session::{CampaignSession, complete_current_mission_with_takedowns},
     },
     domain::{
         battle::BattleState,
@@ -770,12 +770,19 @@ fn show_tip(world: &mut World, title: &str) {
 
 fn apply_command(world: &mut World, action: CommandAction) {
     if action == CommandAction::ContinueVictory {
-        let result = world.resource::<BattleRuntime>().0.result();
+        let battle = &world.resource::<BattleRuntime>().0;
+        let result = battle.result();
+        let takedowns = battle.takedowns().to_vec();
         let active = *world.resource::<ActiveMission>();
         let result = result.filter(|result| result.victory);
         if let Some(result) = result {
             let complete = world.resource_scope(|_world, mut runtime: Mut<CampaignRuntime>| {
-                complete_current_mission(&mut runtime.0, active.0, result)
+                complete_current_mission_with_takedowns(
+                    &mut runtime.0,
+                    active.0,
+                    result,
+                    &takedowns,
+                )
             });
             if let Err(error) = complete {
                 world.resource_mut::<StatusMessage>().0 = error.to_string();

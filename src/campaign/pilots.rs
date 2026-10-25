@@ -86,11 +86,12 @@ impl PilotXp {
             let level_before = self.level(mech);
             let gained = CLEAR_XP + takedown_xp;
             let xp = self.xp_mut(mech);
-            *xp = xp.saturating_add(gained);
+            let xp_before = *xp;
+            *xp = xp_before.saturating_add(gained);
             PilotGain {
                 mech,
                 takedowns: u8::try_from(credited.len()).unwrap_or(u8::MAX),
-                xp_gained: gained,
+                xp_gained: *xp - xp_before,
                 xp_after: *xp,
                 level_before,
                 level_after: level_for(*xp),
@@ -187,6 +188,7 @@ mod tests {
         };
         let gains = pilots.award(&[]);
         assert_eq!(pilots.vanguard, u32::MAX);
+        assert_eq!(gains[0].xp_gained, 5);
         assert_eq!(gains[0].level_after, MAX_LEVEL);
     }
 }
