@@ -153,10 +153,13 @@ an idle Player phase or after defeat; it remains guarded during activation/loadi
 resolution/victory/pending transitions. Victory exposes Continue. During a battle cut-in, `Space`,
 `Enter`, `Escape`, or a left click skips it, and `V` turns cut-ins off or on at any time. `N` turns sound off or on on any screen. During an
 idle Player phase, `Enter` dismisses the field tip on screen, and `H` turns field tips off or on. The campaign **SKIP** button is created only for
-`GameScreen::PreMissionStory`. Keep these bindings in the existing command/action types.
+`GameScreen::PreMissionStory`. On the story and aftermath dialogue screens, `Enter` or `Space`
+advances a line like the Next button. Keep these bindings in the existing command/action types.
 
-Regional boards (larger than 9×9) add camera controls: **arrow keys** and **middle-drag** pan,
-and a **minimap** click focuses the cell under the cursor; **wheel** and the **−/+** buttons zoom,
+Regional boards (larger than 9×9) add camera controls: **left-drag**, **arrow keys**,
+**middle-drag**, and a trackpad's two-finger scroll pan, and a **minimap** click focuses the cell
+under the cursor; a left press turns into a pan only past a click's jitter (`MapDrag`), and the
+release that ends a pan clicks no cell. A mouse **wheel**, a trackpad **pinch**, and the **−/+** buttons zoom,
 and **Center**/`Home` re-center on the active unit, then the inspected unit, then the first
 living player (`focus_unit` in `map_view.rs`). The icon buttons carry the typed `MapAction` component (a
 sibling of `CommandAction` in `interaction.rs` and `MenuAction` in `battle_menu.rs`); continuous pan/zoom is polled in

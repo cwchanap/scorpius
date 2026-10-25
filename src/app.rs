@@ -15,8 +15,8 @@ use crate::{
         battle_menu::update_battle_menu,
         battlefield::{rebuild_mission_scene, reconcile_visible_cells, setup_mission_scene},
         campaign_ui::{
-            CampaignStatus, DialogueCursor, despawn_campaign_screen, update_campaign_status_text,
-            update_dialogue_screen,
+            CampaignStatus, DialogueCursor, advance_dialogue_on_key, despawn_campaign_screen,
+            update_campaign_status_text, update_dialogue_screen,
         },
         cut_in::{ActiveCutIn, CutInSettings, animate_cut_in, stage_cut_ins},
         field_tips::{FieldTips, TipSettings, stage_field_tips, sync_field_tip_band},
@@ -116,10 +116,12 @@ impl Plugin for ScorpiusPlugin {
             .add_systems(
                 Update,
                 (
-                    update_dialogue_screen.run_if(
-                        in_state(GameScreen::PreMissionStory)
-                            .or_else(in_state(GameScreen::Aftermath)),
-                    ),
+                    (advance_dialogue_on_key, update_dialogue_screen)
+                        .chain()
+                        .run_if(
+                            in_state(GameScreen::PreMissionStory)
+                                .or_else(in_state(GameScreen::Aftermath)),
+                        ),
                     update_campaign_status_text.run_if(
                         in_state(GameScreen::Title)
                             .or_else(in_state(GameScreen::Upgrade))

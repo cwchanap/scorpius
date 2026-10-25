@@ -490,6 +490,35 @@ pub(crate) fn on_campaign_ui_click(
     );
 }
 
+/// Enter or Space advances the story on screen, like its Next button.
+pub fn advance_dialogue_on_key(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut runtime: ResMut<CampaignRuntime>,
+    active_mission: Option<Res<ActiveMission>>,
+    mut cursor: ResMut<DialogueCursor>,
+    mut status: ResMut<CampaignStatus>,
+    mut next_state: ResMut<NextState<GameScreen>>,
+    current_screen: Res<State<GameScreen>>,
+) {
+    if !keyboard.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
+        return;
+    }
+    let action = match current_screen.get() {
+        GameScreen::PreMissionStory => CampaignUiAction::AdvanceDialogue,
+        GameScreen::Aftermath => CampaignUiAction::AdvanceAftermath,
+        _ => return,
+    };
+    apply_campaign_action(
+        action,
+        *current_screen.get(),
+        &mut runtime,
+        active_mission.as_deref(),
+        &mut cursor,
+        &mut status,
+        &mut next_state,
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn update_dialogue_screen(
     current: Res<State<GameScreen>>,

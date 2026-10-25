@@ -3,7 +3,7 @@ use bevy::{
     asset::{AssetPlugin, Assets},
     camera::{Camera2d, RenderTarget, RenderTargetInfo, Viewport},
     image::{Image, ImagePlugin, TextureAtlasPlugin},
-    input::InputPlugin,
+    input::{ButtonState, InputPlugin, mouse::MouseButtonInput},
     picking::{
         PickingSystems,
         events::{Click, Move, Pointer},
@@ -13,8 +13,9 @@ use bevy::{
     },
     prelude::{
         App, Button, ChildOf, Commands, Component, Entity, Handle, InheritedVisibility,
-        IntoScheduleConfigs, Node, On, Query, Rect, Res, ResMut, Resource, Text, TransformPlugin,
-        UiGlobalTransform, UiPickingSettings, UiScale, Val, Vec2, Visibility, Window, With,
+        IntoScheduleConfigs, MouseButton, Node, On, Query, Rect, Res, ResMut, Resource, Text,
+        TransformPlugin, UiGlobalTransform, UiPickingSettings, UiScale, Val, Vec2, Visibility,
+        Window, With,
     },
     text::TextPlugin,
     time::TimePlugin,
@@ -38,7 +39,7 @@ use scorpius::{
             on_battlefield_stage_move, on_battlefield_stage_out, on_battlefield_token_click,
             on_battlefield_token_move, on_battlefield_token_out,
         },
-        map_view::{MapView, spawn_map_controls},
+        map_view::{MapDrag, MapView, navigate_map, spawn_map_controls},
     },
 };
 
@@ -536,6 +537,7 @@ fn production_app_base() -> App {
     .init_resource::<BattleEventQueue>()
     .init_resource::<EventPlayback>()
     .init_resource::<AttackPreviewCells>()
+    .init_resource::<MapDrag>()
     .insert_resource(AssetLoadStatus::Ready)
     .insert_resource(StagePointerCounts::default())
     .init_resource::<UiScale>()
@@ -624,6 +626,68 @@ fn production_picker_resolves_panned_zoomed_regional_cells_and_ignores_middle_cl
         app.world().resource::<InteractionState>().hovered_cell,
         Some(GridPos::new(120, 120))
     );
+}
+
+/// One real mouse feeds two paths: the window cursor and button state that
+/// `navigate_map` polls, and the pointer that picking turns into clicks.
+fn send_headless_mouse(app: &mut App, window: Entity, point: Vec2, button: Option<ButtonState>) {
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(point));
+    let action = match button {
+        None => PointerAction::Move {
+            delta: Vec2::new(1.0, 0.0),
+        },
+        Some(ButtonState::Pressed) => PointerAction::Press(PointerButton::Primary),
+        Some(ButtonState::Released) => PointerAction::Release(PointerButton::Primary),
+    };
+    if let Some(state) = button {
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window,
+        });
+    }
+    send_headless_pointer_action(app, window, point, action);
+    app.update();
+}
+
+#[test]
+fn production_left_drag_pans_the_map_without_clicking_the_cell_under_it() {
+    let (mut app, window) = production_picker_app();
+    app.add_systems(bevy::app::Update, navigate_map);
+    let mut view = MapView::new(app.world().resource::<BattleRuntime>().0.board());
+    view.focus(GridPos::new(120, 120));
+    view.zoom = 0.5;
+    app.insert_resource(view);
+    // MOVE armed with no active unit: every routed cell click reports an error.
+    app.world_mut().resource_mut::<InteractionState>().mode = InteractionMode::Move;
+    let start = battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5;
+    let end = start + Vec2::new(-120.0, -60.0);
+
+    send_headless_mouse(&mut app, window, start, None);
+    send_headless_mouse(&mut app, window, start, Some(ButtonState::Pressed));
+    send_headless_mouse(&mut app, window, end, None);
+    assert_ne!(
+        app.world().resource::<MapView>().center,
+        view.center,
+        "a left drag pans the regional map",
+    );
+    send_headless_mouse(&mut app, window, end, Some(ButtonState::Released));
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 1);
+    assert_eq!(
+        app.world().resource::<StatusMessage>().0,
+        "",
+        "the release that ends a drag routes no cell click",
+    );
+    assert!(!app.world().resource::<MapDrag>().panning);
+
+    // A plain click right after still routes the cell under the cursor.
+    send_headless_mouse(&mut app, window, end, Some(ButtonState::Pressed));
+    send_headless_mouse(&mut app, window, end, Some(ButtonState::Released));
+    assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 2);
+    assert_ne!(app.world().resource::<StatusMessage>().0, "");
 }
 
 #[test]

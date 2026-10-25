@@ -18,7 +18,7 @@ use super::{
         battle_stage_rect, depth_key, footprint_top_left, iso_center, selection_top_left,
         token_depth, unit_root_top_left,
     },
-    map_view::{MapView, spawn_map_controls},
+    map_view::{MapDrag, MapView, spawn_map_controls},
     theme,
 };
 
@@ -151,6 +151,7 @@ fn populate_mission_root(
         spawn_cell(commands, stage, ui_assets, battle, cell);
     }
     commands.insert_resource(view);
+    commands.insert_resource(MapDrag::default());
 
     for cell in battle.0.board().blocking_cells() {
         spawn_blocker(commands, stage, ui_assets, cell);
