@@ -85,6 +85,7 @@ pub fn battle_prompt(battle: &BattleState, interaction: &InteractionState) -> Op
         });
     };
     let name = active.name;
+    let moved = active.activation.moved;
     let prompt = match interaction.mode {
         InteractionMode::Move => BattlePrompt::new(
             PromptTone::Move,
@@ -98,11 +99,14 @@ pub fn battle_prompt(battle: &BattleState, interaction: &InteractionState) -> Op
                     format!("Click an amber target to fire {weapon_name}.   [Esc] cancel"),
                 )
             } else {
+                let next = if moved {
+                    "Pick another weapon or set a stance"
+                } else {
+                    "Move closer or pick another weapon"
+                };
                 BattlePrompt::new(
                     PromptTone::Attack,
-                    format!(
-                        "Nothing to hit in {weapon_name}'s range. Move closer or pick another weapon.   [Esc] cancel"
-                    ),
+                    format!("Nothing to hit in {weapon_name}'s range. {next}.   [Esc] cancel"),
                 )
             }
         }
@@ -110,12 +114,17 @@ pub fn battle_prompt(battle: &BattleState, interaction: &InteractionState) -> Op
             PromptTone::Ally,
             format!("Click a green ally next to {name} to shield it.   [Esc] cancel"),
         ),
-        InteractionMode::AegisTarget => BattlePrompt::new(
-            PromptTone::Ally,
-            format!(
-                "No ally stands next to {name} to shield. Move beside one first.   [Esc] cancel"
-            ),
-        ),
+        InteractionMode::AegisTarget => {
+            let next = if moved {
+                "Save Aegis for a later turn"
+            } else {
+                "Move beside one first"
+            };
+            BattlePrompt::new(
+                PromptTone::Ally,
+                format!("No ally stands next to {name} to shield. {next}.   [Esc] cancel"),
+            )
+        }
         InteractionMode::Inspect => match interaction.menu {
             MenuState::Weapons => BattlePrompt::new(
                 PromptTone::Info,
@@ -374,6 +383,18 @@ mod tests {
                 .text
                 .starts_with("Nothing to hit in Pile Lance's range")
         );
+        assert!(empty.text.contains("Move closer"));
+        battle
+            .unit_mut_for_test(ids::VANGUARD)
+            .unwrap()
+            .activation
+            .moved = true;
+        let spent = prompt(&battle, &interaction).text;
+        assert!(
+            spent.contains("Pick another weapon or set a stance"),
+            "{spent}"
+        );
+        assert!(!spent.contains("Move closer"));
 
         battle.move_unit_direct_for_test(ids::STRIKER, crate::domain::board::GridPos::new(4, 6));
         assert!(
