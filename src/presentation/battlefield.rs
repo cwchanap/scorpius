@@ -119,7 +119,8 @@ fn populate_mission_root(
         .id();
 
     let mut view = MapView::new(battle.0.board());
-    if view.is_regional() {
+    let regional = view.is_regional();
+    if regional {
         view.zoom = 0.7;
         // Focus the squad, not a hard-wired cell: deployments differ per
         // mission and the camera should open on the action.
@@ -155,7 +156,7 @@ fn populate_mission_root(
     commands.insert_resource(MapDrag::default());
 
     for cell in battle.0.board().blocking_cells() {
-        spawn_blocker(commands, stage, ui_assets, cell);
+        spawn_blocker(commands, stage, ui_assets, cell, regional);
     }
     for explosive in battle.0.board().explosives() {
         spawn_prop(
@@ -325,8 +326,29 @@ fn stage_point(cell: GridPos) -> Vec2 {
     iso_center(cell) - battle_stage_rect().min
 }
 
-fn spawn_blocker(commands: &mut Commands, stage: Entity, ui_assets: &UiAssets, cell: GridPos) {
+fn spawn_blocker(
+    commands: &mut Commands,
+    stage: Entity,
+    ui_assets: &UiAssets,
+    cell: GridPos,
+    regional: bool,
+) {
     let center = stage_point(cell);
+    // Regional boards draw the concrete wall from the terrain atlas; flat
+    // boards keep the navy block that matches their flat cells.
+    let image = if regional {
+        theme::board_node(
+            ui_assets.terrain.clone(),
+            theme::TERRAIN_BLOCKER_RECT,
+            Color::WHITE,
+        )
+    } else {
+        theme::board_node(
+            ui_assets.board.clone(),
+            theme::BOARD_BLOCKER_RECT,
+            Color::srgb_u8(28, 42, 58),
+        )
+    };
     commands.spawn((
         Name::new(format!("Blocking {},{}", cell.x, cell.y)),
         Node {
@@ -337,11 +359,7 @@ fn spawn_blocker(commands: &mut Commands, stage: Entity, ui_assets: &UiAssets, c
             height: px(TILE_HEIGHT + BLOCK_HEIGHT),
             ..default()
         },
-        theme::board_node(
-            ui_assets.terrain.clone(),
-            theme::TERRAIN_BLOCKER_RECT,
-            Color::WHITE,
-        ),
+        image,
         PropVisual::Blocking(cell),
         ZIndex(10 + i32::from(depth_key(cell)) * 3),
         Pickable::IGNORE,
