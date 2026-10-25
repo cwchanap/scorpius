@@ -613,6 +613,9 @@ pub fn execute_command(
                 .ok_or(BattleError::UnknownUnit(unit_id))?;
             match unit.archetype {
                 UnitArchetype::Vanguard => {
+                    if battle.pilot_skills().aegis_used {
+                        return Err(BattleError::PilotSkillAlreadyUsed);
+                    }
                     interaction.mode = InteractionMode::AegisTarget;
                     interaction.menu = MenuState::Hidden;
                     interaction.preview = None;

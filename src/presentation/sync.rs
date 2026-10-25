@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
-    model::{Faction, PrimaryObjective, Reaction, UnitId, UnitState},
+    model::{BattlePhase, Faction, PrimaryObjective, Reaction, UnitId, UnitState},
 };
 
 use super::{
@@ -692,11 +692,12 @@ pub fn cell_highlights(
 
 /// The living ally orthogonally next to the Vanguard that Aegis accepts.
 fn aegis_can_shield(battle: &BattleState, vanguard: UnitId, ally: &UnitState) -> bool {
-    battle.unit(vanguard).is_some_and(|vanguard| {
-        ally.faction == Faction::Player
-            && !ally.is_knocked_out()
-            && ally.position.manhattan(vanguard.position) == 1
-    })
+    !battle.pilot_skills().aegis_used
+        && battle.unit(vanguard).is_some_and(|vanguard| {
+            ally.faction == Faction::Player
+                && !ally.is_knocked_out()
+                && ally.position.manhattan(vanguard.position) == 1
+        })
 }
 
 /// The ring and fill a unit's token takes as the armed command's target:
@@ -725,6 +726,9 @@ fn target_ring(
 /// then the inspected mech's, then the active one's; a mech that has already
 /// moved or finished shows none.
 fn move_preview_unit(battle: &BattleState, interaction: &InteractionState) -> Option<UnitId> {
+    if battle.phase() != BattlePhase::Player || battle.result().is_some() {
+        return None;
+    }
     let can_move = |id: UnitId| {
         battle.unit(id).filter(|unit| {
             unit.faction == Faction::Player
@@ -1217,6 +1221,71 @@ mod tests {
             cell_highlights(&battle, &aegis, &BTreeSet::new())
                 .cells
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_spent_aegis_marks_no_allies_and_cannot_be_rearmed() {
+        use crate::mission::mission_one::{ids, mission_one};
+        use crate::presentation::interaction::{CommandAction, execute_command};
+
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+        let mut interaction = InteractionState::default();
+        execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill).unwrap();
+        assert!(
+            cell_highlights(&battle, &interaction, &BTreeSet::new())
+                .cells
+                .values()
+                .any(|kind| *kind == CellHighlight::Ally)
+        );
+
+        battle.use_aegis(ids::GUNNER).unwrap();
+        assert!(
+            cell_highlights(&battle, &interaction, &BTreeSet::new())
+                .cells
+                .is_empty(),
+            "a spent Aegis advertises no targets"
+        );
+        interaction.mode = InteractionMode::Inspect;
+        assert_eq!(
+            execute_command(&mut battle, &mut interaction, CommandAction::PilotSkill),
+            Err(crate::domain::model::BattleError::PilotSkillAlreadyUsed)
+        );
+        assert_eq!(interaction.mode, InteractionMode::Inspect);
+    }
+
+    #[test]
+    fn idle_move_previews_need_an_open_player_phase() {
+        use crate::mission::mission_one::{ids, mission_one};
+
+        let mut battle = mission_one(7);
+        let interaction = InteractionState {
+            inspected_unit: Some(ids::VANGUARD),
+            ..InteractionState::default()
+        };
+        assert_eq!(battle.phase(), BattlePhase::EnemyPlanning);
+        assert!(
+            cell_highlights(&battle, &interaction, &BTreeSet::new())
+                .cells
+                .is_empty()
+        );
+
+        battle.begin_round().unwrap();
+        assert!(
+            !cell_highlights(&battle, &interaction, &BTreeSet::new())
+                .cells
+                .is_empty()
+        );
+
+        battle.set_phase_for_test(BattlePhase::Victory);
+        assert!(
+            cell_highlights(&battle, &interaction, &BTreeSet::new())
+                .cells
+                .is_empty(),
+            "the un-moved Vanguard previews no range after the battle"
         );
     }
 }
