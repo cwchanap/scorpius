@@ -80,6 +80,7 @@ pub const TERRAIN_PERIOD: u8 = 4;
 const TERRAIN_SLOT: Vec2 = Vec2::new(106.0 * TERRAIN_SCALE, 90.0 * TERRAIN_SCALE);
 /// The blocking-wall prism (the full 112x56 cell raised 26px) sits under the
 /// terrain rows. `tools/terrain_atlas.py` builds the atlas to this layout.
+pub const BOARD_BLOCKER_RECT: Rect = Rect::new(112.0, 0.0, 224.0, 82.0);
 pub const TERRAIN_BLOCKER_RECT: Rect = Rect::new(0.0, 900.0, 224.0, 1064.0);
 
 /// Atlas crop and stage height of the art for `terrain` on `cell`. The art
@@ -326,6 +327,7 @@ mod tests {
         assert_eq!(ICON_ATLAS_SIZE, UVec2::new(512, 576));
         assert_eq!(BOARD_ATLAS_SIZE, UVec2::new(336, 96));
         assert_eq!(BOARD_DIAMOND_RECT.size(), Vec2::new(112.0, 56.0));
+        assert_eq!(BOARD_BLOCKER_RECT.size(), Vec2::new(112.0, 82.0));
         assert_eq!(TERRAIN_BLOCKER_RECT.size(), Vec2::new(224.0, 164.0));
         assert_eq!(BOARD_TOKEN_SHADOW_RECT.size(), Vec2::new(112.0, 96.0));
         assert_eq!(ICON_MOVE.size(), ICON_CELL_SIZE);

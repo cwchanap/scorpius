@@ -451,6 +451,7 @@ def write_preview(atlas: Image.Image, rims: dict[str, tuple[int, int, int]], pat
         canvas.alpha_composite(slot, (cx - tile_w // 2 + gap, cy - tile_h // 2 + gap + 50 * SCALE - SLOT_H))
         if kind == "B":
             canvas.alpha_composite(block, (cx - tile_w // 2, cy - tile_h // 2 - 26 * SCALE))
+    path.parent.mkdir(parents=True, exist_ok=True)
     canvas.convert("RGB").save(path)
     print(f"wrote {path}")
 
