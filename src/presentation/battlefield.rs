@@ -230,10 +230,10 @@ fn spawn_cell(
     let regional = super::map_view::is_regional(board.width(), board.height());
     let terrain = board.terrain_at(cell).unwrap();
     let fill = super::map_view::cell_base_fill(board, cell);
-    let art = regional.then(|| theme::terrain_art(terrain)).flatten();
+    let art = regional.then(|| theme::terrain_art(terrain, cell));
     // Flat cells stay below every stage marker; tall terrain (art rising past
     // the diamond's 53px ground-bottom line — the full cell is 56px tall —
-    // e.g. Forest/Mountain at 70) must
+    // e.g. Forest at 74 and Mountain at 80) must
     // occlude tokens behind it, so it sorts just under the token slice the
     // way blockers already do.
     let z = if theme::terrain_occludes(terrain) {
@@ -338,9 +338,9 @@ fn spawn_blocker(commands: &mut Commands, stage: Entity, ui_assets: &UiAssets, c
             ..default()
         },
         theme::board_node(
-            ui_assets.board.clone(),
-            theme::BOARD_BLOCKER_RECT,
-            Color::srgb_u8(28, 42, 58),
+            ui_assets.terrain.clone(),
+            theme::TERRAIN_BLOCKER_RECT,
+            Color::WHITE,
         ),
         PropVisual::Blocking(cell),
         ZIndex(10 + i32::from(depth_key(cell)) * 3),

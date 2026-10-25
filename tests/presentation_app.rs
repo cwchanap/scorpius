@@ -180,7 +180,7 @@ fn move_highlight_does_not_mark_an_unreachable_hovered_cell() {
 
     assert_eq!(
         app.world().get::<ImageNode>(outer).unwrap().color,
-        theme::BOARD_STROKE
+        theme::terrain_rim(scorpius::domain::board::Terrain::Plain)
     );
     assert_eq!(
         app.world().get::<ImageNode>(inset).unwrap().color,
@@ -404,7 +404,10 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
         .expect("authored cell root");
     assert_eq!(cell.1.width, px(112.0));
     assert_eq!(cell.1.height, px(56.0));
-    assert_eq!(cell.2.color, theme::BOARD_STROKE);
+    assert_eq!(
+        cell.2.color,
+        theme::terrain_rim(scorpius::domain::board::Terrain::Plain)
+    );
     assert_eq!(cell.3, &Pickable::IGNORE);
 
     let mut insets = app
@@ -421,11 +424,7 @@ fn mission_cells_have_source_stroke_and_inset_layers() {
     assert_eq!(inset.2.color, Color::WHITE);
     assert_eq!(
         inset.2.rect,
-        Some(
-            theme::terrain_art(scorpius::domain::board::Terrain::Plain)
-                .unwrap()
-                .0
-        )
+        Some(theme::terrain_art(scorpius::domain::board::Terrain::Plain, GridPos::new(0, 0)).0)
     );
     assert_eq!(inset.3, &Pickable::IGNORE);
 }

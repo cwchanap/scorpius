@@ -36,19 +36,12 @@ pub fn is_regional(width: u8, height: u8) -> bool {
     width > 9 || height > 9
 }
 
-/// Base fill/tint of a cell inset: authored terrain palette (white = show
-/// atlas art) on regional boards, the flat checkerboard otherwise. Shared by
+/// Base fill/tint of a cell inset: white (show the terrain atlas art untinted)
+/// on regional boards, the flat checkerboard otherwise. Shared by
 /// cell spawn and highlight sync so both paint the same resting cell.
 pub fn cell_base_fill(board: &BoardState, cell: GridPos) -> Color {
     if is_regional(board.width(), board.height()) {
-        let terrain = board
-            .terrain_at(cell)
-            .expect("spawn and sync only query on-board cells");
-        if theme::terrain_art(terrain).is_some() {
-            Color::WHITE
-        } else {
-            terrain_color(terrain, cell)
-        }
+        Color::WHITE
     } else if (cell.x + cell.y).is_multiple_of(2) {
         theme::BOARD_LIGHT
     } else {
@@ -56,10 +49,18 @@ pub fn cell_base_fill(board: &BoardState, cell: GridPos) -> Color {
     }
 }
 
-/// Resting rim of a cell's outer diamond, shared by cell spawn and
-/// highlight sync like [`cell_base_fill`].
-pub fn cell_base_rim(_board: &BoardState, _cell: GridPos) -> Color {
-    theme::BOARD_STROKE
+/// Resting tint of a cell's outer rim: a darker shade of the terrain on
+/// regional boards, the navy stroke on flat ones. Highlights replace it.
+pub fn cell_base_rim(board: &BoardState, cell: GridPos) -> Color {
+    if is_regional(board.width(), board.height()) {
+        theme::terrain_rim(
+            board
+                .terrain_at(cell)
+                .expect("spawn and sync only query on-board cells"),
+        )
+    } else {
+        theme::BOARD_STROKE
+    }
 }
 
 /// A left-button press on the regional map, at its logical window position.
@@ -209,32 +210,33 @@ impl MapView {
     }
 }
 
+/// Minimap swatch for a terrain, matched to the atlas art's palette.
 pub fn terrain_color(terrain: Terrain, cell: GridPos) -> Color {
     let light = (cell.x + cell.y).is_multiple_of(2);
     match terrain {
         Terrain::Plain => {
             if light {
-                Color::srgb_u8(78, 105, 75)
+                Color::srgb_u8(86, 140, 58)
             } else {
-                Color::srgb_u8(72, 98, 70)
+                Color::srgb_u8(80, 131, 54)
             }
         }
-        Terrain::Road => Color::srgb_u8(156, 141, 103),
+        Terrain::Road => Color::srgb_u8(182, 160, 130),
         Terrain::Forest => {
             if light {
-                Color::srgb_u8(34, 76, 51)
+                Color::srgb_u8(38, 88, 42)
             } else {
-                Color::srgb_u8(30, 69, 46)
+                Color::srgb_u8(34, 80, 38)
             }
         }
         Terrain::Sea => {
             if light {
-                Color::srgb_u8(25, 81, 116)
+                Color::srgb_u8(22, 112, 170)
             } else {
-                Color::srgb_u8(22, 75, 110)
+                Color::srgb_u8(20, 104, 160)
             }
         }
-        Terrain::Mountain => Color::srgb_u8(105, 110, 115),
+        Terrain::Mountain => Color::srgb_u8(130, 122, 104),
     }
 }
 
@@ -1663,35 +1665,35 @@ mod tests {
     fn terrain_color_distinguishes_every_regional_tile() {
         assert_eq!(
             terrain_color(Terrain::Plain, GridPos::new(0, 0)),
-            Color::srgb_u8(78, 105, 75)
+            Color::srgb_u8(86, 140, 58)
         );
         assert_eq!(
             terrain_color(Terrain::Plain, GridPos::new(0, 1)),
-            Color::srgb_u8(72, 98, 70)
+            Color::srgb_u8(80, 131, 54)
         );
         assert_eq!(
             terrain_color(Terrain::Road, GridPos::new(3, 3)),
-            Color::srgb_u8(156, 141, 103)
+            Color::srgb_u8(182, 160, 130)
         );
         assert_eq!(
             terrain_color(Terrain::Forest, GridPos::new(0, 0)),
-            Color::srgb_u8(34, 76, 51)
+            Color::srgb_u8(38, 88, 42)
         );
         assert_eq!(
             terrain_color(Terrain::Forest, GridPos::new(1, 0)),
-            Color::srgb_u8(30, 69, 46)
+            Color::srgb_u8(34, 80, 38)
         );
         assert_eq!(
             terrain_color(Terrain::Sea, GridPos::new(0, 0)),
-            Color::srgb_u8(25, 81, 116)
+            Color::srgb_u8(22, 112, 170)
         );
         assert_eq!(
             terrain_color(Terrain::Sea, GridPos::new(2, 1)),
-            Color::srgb_u8(22, 75, 110)
+            Color::srgb_u8(20, 104, 160)
         );
         assert_eq!(
             terrain_color(Terrain::Mountain, GridPos::new(4, 4)),
-            Color::srgb_u8(105, 110, 115)
+            Color::srgb_u8(130, 122, 104)
         );
     }
 }

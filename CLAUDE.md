@@ -146,7 +146,11 @@ grid to the authored 2.5D stage.
 - `layout.rs` — the fitted fixed-pixel canvas and authored 1008×764 2.5D battle stage. `battlefield.rs`
   and `sync.rs` render the stage with native Bevy UI nodes and `Camera2d`.
 - `assets.rs`, `theme.rs` — checked-in UI atlas/font assets and source-shaped icon rectangles;
-  do not add a parallel icon registry or art pipeline.
+  do not add a parallel icon registry or art pipeline. Regional boards draw `ui/terrain.png`:
+  `theme::terrain_art(terrain, cell)` picks one of 16 slots per terrain so ground flows across a
+  4×4 period, `theme::terrain_rim` tints the idle cell rim, and the blocking-wall prism lives in
+  the same atlas. `tools/terrain_atlas.py` rebuilds it from Codex source art
+  (`assets/ui/terrain-art.md` has the prompts).
 
 ### Current presentation controls
 

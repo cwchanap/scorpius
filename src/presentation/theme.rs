@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::domain::{board::Terrain, model::UnitArchetype};
+use crate::domain::{
+    board::{GridPos, Terrain},
+    model::UnitArchetype,
+};
 
 pub const ICON_ATLAS_PATH: &str = "ui/icons.png";
 pub const BOARD_ATLAS_PATH: &str = "ui/board.png";
@@ -64,29 +67,69 @@ pub const ICON_CELL_SIZE: Vec2 = Vec2::splat(64.0);
 pub const BOARD_ATLAS_SIZE: UVec2 = UVec2::new(336, 96);
 
 pub const BOARD_DIAMOND_RECT: Rect = Rect::new(0.0, 0.0, 112.0, 56.0);
-// The prism's visible geometry ends at TILE_HEIGHT / 2 + BLOCK_HEIGHT = 82px;
-// crop the transparent atlas tail so the UI node keeps the source dimensions.
-pub const BOARD_BLOCKER_RECT: Rect = Rect::new(112.0, 0.0, 224.0, 82.0);
 pub const BOARD_TOKEN_SHADOW_RECT: Rect = Rect::new(224.0, 0.0, 336.0, 96.0);
 
-/// Crops measured from the generated 1254px atlas. Heights align every diamond
-/// to the same 106x50 ground footprint while preserving trees and mountain peaks.
-pub const fn terrain_art(terrain: Terrain) -> Option<(Rect, f32)> {
+/// Terrain atlas pixels per stage pixel: tiles are painted at 2x so they stay
+/// crisp on high-DPI screens and at the closest zoom.
+const TERRAIN_SCALE: f32 = 2.0;
+/// Ground repeats every `TERRAIN_PERIOD` cells in both directions. Each
+/// terrain owns one atlas row of `TERRAIN_PERIOD²` slots, so neighbouring
+/// cells show neighbouring pieces of one continuous texture.
+pub const TERRAIN_PERIOD: u8 = 4;
+/// One atlas slot: the 106px-wide cell inset with room for 90px-tall art.
+const TERRAIN_SLOT: Vec2 = Vec2::new(106.0 * TERRAIN_SCALE, 90.0 * TERRAIN_SCALE);
+/// The blocking-wall prism (the full 112x56 cell raised 26px) sits under the
+/// terrain rows. `tools/terrain_atlas.py` builds the atlas to this layout.
+pub const TERRAIN_BLOCKER_RECT: Rect = Rect::new(0.0, 900.0, 224.0, 1064.0);
+
+/// Atlas crop and stage height of the art for `terrain` on `cell`. The art
+/// fills the cell inset's 106x50 ground diamond; forests and mountains rise
+/// above it.
+pub fn terrain_art(terrain: Terrain, cell: GridPos) -> (Rect, f32) {
+    let row: u8 = match terrain {
+        Terrain::Plain => 0,
+        Terrain::Road => 1,
+        Terrain::Forest => 2,
+        Terrain::Sea => 3,
+        Terrain::Mountain => 4,
+    };
+    let slot = (cell.y % TERRAIN_PERIOD) * TERRAIN_PERIOD + cell.x % TERRAIN_PERIOD;
+    let height = terrain_height(terrain);
+    let bottom = (f32::from(row) + 1.0) * TERRAIN_SLOT.y;
+    let left = f32::from(slot) * TERRAIN_SLOT.x;
+    let rect = Rect::new(
+        left,
+        bottom - height * TERRAIN_SCALE,
+        left + TERRAIN_SLOT.x,
+        bottom,
+    );
+    (rect, height)
+}
+
+const fn terrain_height(terrain: Terrain) -> f32 {
     match terrain {
-        Terrain::Plain => Some((Rect::new(0.0, 239.0, 627.0, 608.0), 50.0)),
-        Terrain::Sea => Some((Rect::new(627.0, 239.0, 1254.0, 608.0), 50.0)),
-        Terrain::Forest => Some((Rect::new(0.0, 610.0, 627.0, 1135.0), 70.0)),
-        Terrain::Mountain => Some((Rect::new(627.0, 610.0, 1254.0, 1135.0), 70.0)),
-        Terrain::Road => None,
+        Terrain::Plain | Terrain::Road | Terrain::Sea => 50.0,
+        Terrain::Forest => 74.0,
+        Terrain::Mountain => 80.0,
     }
 }
 
 /// Art taller than the diamond's 53px ground-bottom line (the full cell is
 /// 56px tall) rises past the cell and occludes whatever sits behind it.
 pub const fn terrain_occludes(terrain: Terrain) -> bool {
-    match terrain_art(terrain) {
-        Some((_, height)) => height > 53.0,
-        None => false,
+    terrain_height(terrain) > 53.0
+}
+
+/// Idle rim of a regional cell: its terrain's mean colour darkened into a
+/// soft groove, so the grid reads as part of the ground rather than a navy
+/// mesh laid over it. `tools/terrain_atlas.py` prints these from the atlas.
+pub const fn terrain_rim(terrain: Terrain) -> Color {
+    match terrain {
+        Terrain::Plain => Color::srgb_u8(49, 84, 31),
+        Terrain::Road => Color::srgb_u8(102, 89, 74),
+        Terrain::Forest => Color::srgb_u8(27, 40, 20),
+        Terrain::Sea => Color::srgb_u8(8, 70, 102),
+        Terrain::Mountain => Color::srgb_u8(78, 70, 53),
     }
 }
 
@@ -283,7 +326,7 @@ mod tests {
         assert_eq!(ICON_ATLAS_SIZE, UVec2::new(512, 576));
         assert_eq!(BOARD_ATLAS_SIZE, UVec2::new(336, 96));
         assert_eq!(BOARD_DIAMOND_RECT.size(), Vec2::new(112.0, 56.0));
-        assert_eq!(BOARD_BLOCKER_RECT.size(), Vec2::new(112.0, 82.0));
+        assert_eq!(TERRAIN_BLOCKER_RECT.size(), Vec2::new(224.0, 164.0));
         assert_eq!(BOARD_TOKEN_SHADOW_RECT.size(), Vec2::new(112.0, 96.0));
         assert_eq!(ICON_MOVE.size(), ICON_CELL_SIZE);
         assert_eq!(TITLE_EMBLEM_RECT.size(), Vec2::splat(56.0));
@@ -442,19 +485,30 @@ mod tests {
     }
 
     #[test]
-    fn terrain_art_crops_each_ground_tile_and_leaves_roads_untextured() {
-        for (terrain, rect, height) in [
-            (Terrain::Plain, Rect::new(0.0, 239.0, 627.0, 608.0), 50.0),
-            (Terrain::Sea, Rect::new(627.0, 239.0, 1254.0, 608.0), 50.0),
-            (Terrain::Forest, Rect::new(0.0, 610.0, 627.0, 1135.0), 70.0),
-            (
-                Terrain::Mountain,
-                Rect::new(627.0, 610.0, 1254.0, 1135.0),
-                70.0,
-            ),
+    fn terrain_art_walks_a_continuous_ground_period() {
+        for (terrain, row, height) in [
+            (Terrain::Plain, 0.0, 50.0),
+            (Terrain::Road, 1.0, 50.0),
+            (Terrain::Forest, 2.0, 74.0),
+            (Terrain::Sea, 3.0, 50.0),
+            (Terrain::Mountain, 4.0, 80.0),
         ] {
-            assert_eq!(terrain_art(terrain), Some((rect, height)));
+            let bottom = (row + 1.0) * 180.0;
+            assert_eq!(
+                terrain_art(terrain, GridPos::new(0, 0)),
+                (Rect::new(0.0, bottom - height * 2.0, 212.0, bottom), height)
+            );
+            // (5, 2) is slot 2 * 4 + 1 of the 4x4 period.
+            assert_eq!(
+                terrain_art(terrain, GridPos::new(5, 2)).0.min.x,
+                9.0 * 212.0
+            );
+            assert_eq!(
+                terrain_art(terrain, GridPos::new(1, 2)),
+                terrain_art(terrain, GridPos::new(5, 6))
+            );
         }
-        assert_eq!(terrain_art(Terrain::Road), None);
+        assert!(terrain_occludes(Terrain::Forest) && terrain_occludes(Terrain::Mountain));
+        assert!(!terrain_occludes(Terrain::Road) && !terrain_occludes(Terrain::Sea));
     }
 }
