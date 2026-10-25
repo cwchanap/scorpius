@@ -4,9 +4,10 @@ use std::collections::BTreeSet;
 use crate::domain::{board::GridPos, model::Faction};
 
 use super::{
-    BattleCamera2d, BattleMap, BattleRuntime, BattleStage, CanvasRoot, CellInsetVisual, CellVisual,
-    PresentationNeedsRebuild, PresentationRoot, PropVisual, TokenAwaiting, TokenCard,
-    TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
+    BattleCamera2d, BattleMap, BattleRuntime, BattleStage, CanvasRoot, CellInsetVisual,
+    CellOverlayVisual, CellVisual, PresentationNeedsRebuild, PresentationRoot, PropVisual,
+    TokenAwaiting, TokenCard, TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionInset,
+    TokenSelectionVisual, UnitVisual,
     assets::UiAssets,
     e2e_id,
     interaction::{
@@ -253,7 +254,7 @@ fn spawn_cell(
             theme::board_node(
                 assets.board.clone(),
                 theme::BOARD_DIAMOND_RECT,
-                theme::BOARD_STROKE,
+                super::map_view::cell_base_rim(board, cell),
             ),
             CellVisual(cell),
             ZIndex(z),
@@ -285,6 +286,13 @@ fn spawn_cell(
         node,
         image,
         CellInsetVisual(cell),
+        Pickable::IGNORE,
+        ChildOf(outer),
+    ));
+    commands.spawn((
+        cell_inset_node(),
+        theme::board_node(assets.board.clone(), theme::BOARD_DIAMOND_RECT, Color::NONE),
+        CellOverlayVisual(cell),
         Pickable::IGNORE,
         ChildOf(outer),
     ));
@@ -456,6 +464,7 @@ fn spawn_token(
             theme::BOARD_DIAMOND_RECT,
             theme::BOARD_DARK,
         ),
+        TokenSelectionInset(unit.id),
         Pickable::IGNORE,
         ChildOf(selection),
     ));

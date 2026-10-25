@@ -1,13 +1,18 @@
 use bevy::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::domain::model::{Faction, PrimaryObjective, Reaction};
+use crate::domain::{
+    battle::BattleState,
+    board::GridPos,
+    model::{Faction, PrimaryObjective, Reaction, UnitId, UnitState},
+};
 
 use super::{
-    AttackPreviewCells, BattleMap, BattleRuntime, CellInsetVisual, CellVisual, EventPlayback,
-    ExtractionVisual, IntentLineVisual, IntentTargetVisual, PresentationRoot, PropVisual,
-    ReactionVisual, TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard,
-    TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionVisual, UnitVisual,
+    AttackPreviewCells, BattleMap, BattleRuntime, CellInsetVisual, CellOverlayVisual, CellVisual,
+    EventPlayback, ExtractionVisual, IntentLineVisual, IntentTargetVisual, PresentationRoot,
+    PropVisual, ReactionVisual, TelegraphGlyphVisual, TelegraphVisual, TokenAwaiting, TokenCard,
+    TokenFootprintVisual, TokenHpFill, TokenHpText, TokenSelectionInset, TokenSelectionVisual,
+    UnitVisual,
     assets::UiAssets,
     interaction::{InteractionMode, InteractionState},
     layout::{
@@ -121,12 +126,20 @@ type SelectionFootprintQuery<'w, 's> = Query<
     (Without<UnitVisual>, Without<TokenFootprintVisual>),
 >;
 
+type SelectionInsetQuery<'w, 's> = Query<
+    'w,
+    's,
+    (&'static TokenSelectionInset, &'static mut ImageNode),
+    Without<TokenSelectionVisual>,
+>;
+
 pub fn apply_unit_transforms(
     battle: Res<BattleRuntime>,
     playback: Option<Res<EventPlayback>>,
     mut visuals: UnitTransformQuery,
     mut footprints: FootprintTransformQuery,
     mut selection_footprints: SelectionFootprintQuery,
+    mut selection_insets: SelectionInsetQuery,
     interaction: Option<Res<InteractionState>>,
 ) {
     if playback.is_some_and(|playback| playback.input_locked) {
@@ -171,6 +184,8 @@ pub fn apply_unit_transforms(
                 None
             } else if battle.0.active_unit() == Some(unit.id) {
                 Some(theme::BOARD_SELECTED)
+            } else if let Some((ring, _)) = target_ring(&battle.0, interaction.as_deref(), unit) {
+                Some(ring)
             } else if inspected == Some(unit.id) {
                 Some(theme::BOARD_INSPECTED)
             } else {
@@ -184,6 +199,19 @@ pub fn apply_unit_transforms(
             if let Some(tint) = tint {
                 image.color = tint;
             }
+        }
+    }
+    // A target's ring fills with its color so the token stands out over
+    // the shadow; the active and inspected rings keep their dark center.
+    for (inset, mut image) in &mut selection_insets {
+        let fill = battle
+            .0
+            .unit(inset.0)
+            .filter(|unit| battle.0.active_unit() != Some(unit.id))
+            .and_then(|unit| target_ring(&battle.0, interaction.as_deref(), unit))
+            .map_or(theme::BOARD_DARK, |(_, fill)| fill);
+        if image.color != fill {
+            image.color = fill;
         }
     }
 }
@@ -579,87 +607,228 @@ pub fn pulse_telegraphs(
     }
 }
 
+/// What a board cell offers the player right now.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CellHighlight {
+    /// Where the hovered, inspected, or active mech could still move before
+    /// MOVE is armed.
+    MoveRange,
+    /// A destination the armed MOVE accepts.
+    Move,
+    /// Inside the armed weapon's reach, with nothing there to hit.
+    AttackReach,
+    /// A target the armed weapon accepts.
+    Attack,
+    /// The hovered target's blast footprint.
+    Footprint,
+    /// An ally the armed Aegis can shield.
+    Ally,
+}
+
+impl CellHighlight {
+    /// Whether a click here carries out the armed command.
+    pub const fn clickable(self) -> bool {
+        matches!(self, Self::Move | Self::Attack | Self::Ally)
+    }
+}
+
+/// Every highlighted cell this frame, plus the hovered cell when a click
+/// there would act.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CellHighlights {
+    pub cells: BTreeMap<GridPos, CellHighlight>,
+    pub hovered: Option<GridPos>,
+}
+
+/// Project the armed command (or the mech under inspection) onto the board.
+/// Reads only public domain queries, so a highlighted target is exactly a
+/// cell the matching command accepts.
+pub fn cell_highlights(
+    battle: &BattleState,
+    interaction: &InteractionState,
+    footprint: &BTreeSet<GridPos>,
+) -> CellHighlights {
+    let mut cells = BTreeMap::new();
+    match (interaction.mode, battle.active_unit()) {
+        (InteractionMode::Move, Some(unit)) => {
+            for cell in battle.reachable_cells(unit).unwrap_or_default() {
+                cells.insert(cell, CellHighlight::Move);
+            }
+        }
+        (InteractionMode::Attack(weapon), Some(unit)) => {
+            for cell in battle.weapon_reach(unit, weapon).unwrap_or_default() {
+                let kind = if battle.preview_attack(unit, weapon, cell).is_ok() {
+                    CellHighlight::Attack
+                } else {
+                    CellHighlight::AttackReach
+                };
+                cells.insert(cell, kind);
+            }
+        }
+        (InteractionMode::AegisTarget, Some(vanguard)) => {
+            for ally in battle
+                .units()
+                .filter(|ally| aegis_can_shield(battle, vanguard, ally))
+            {
+                cells.insert(ally.position, CellHighlight::Ally);
+            }
+        }
+        _ => {
+            if let Some(unit) = move_preview_unit(battle, interaction) {
+                for cell in battle.reachable_cells(unit).unwrap_or_default() {
+                    cells.insert(cell, CellHighlight::MoveRange);
+                }
+            }
+        }
+    }
+    let hovered = interaction
+        .hovered_cell
+        .filter(|cell| cells.get(cell).is_some_and(|kind| kind.clickable()));
+    for cell in footprint {
+        cells.insert(*cell, CellHighlight::Footprint);
+    }
+    CellHighlights { cells, hovered }
+}
+
+/// The living ally orthogonally next to the Vanguard that Aegis accepts.
+fn aegis_can_shield(battle: &BattleState, vanguard: UnitId, ally: &UnitState) -> bool {
+    battle.unit(vanguard).is_some_and(|vanguard| {
+        ally.faction == Faction::Player
+            && !ally.is_knocked_out()
+            && ally.position.manhattan(vanguard.position) == 1
+    })
+}
+
+/// The ring and fill a unit's token takes as the armed command's target:
+/// amber for an enemy the armed weapon can hit, mint for an ally Aegis can
+/// shield.
+fn target_ring(
+    battle: &BattleState,
+    interaction: Option<&InteractionState>,
+    unit: &UnitState,
+) -> Option<(Color, Color)> {
+    match (interaction?.mode, battle.active_unit()?) {
+        (InteractionMode::Attack(weapon), attacker) => battle
+            .preview_attack(attacker, weapon, unit.position)
+            .is_ok()
+            .then_some((
+                theme::BOARD_ATTACK,
+                theme::BOARD_ATTACK_FILL.with_alpha(0.75),
+            )),
+        (InteractionMode::AegisTarget, vanguard) => aegis_can_shield(battle, vanguard, unit)
+            .then_some((theme::MINT, theme::MINT.with_alpha(0.55))),
+        _ => None,
+    }
+}
+
+/// With no command armed, the hovered mech's move range previews first,
+/// then the inspected mech's, then the active one's; a mech that has already
+/// moved or finished shows none.
+fn move_preview_unit(battle: &BattleState, interaction: &InteractionState) -> Option<UnitId> {
+    let can_move = |id: UnitId| {
+        battle.unit(id).filter(|unit| {
+            unit.faction == Faction::Player
+                && !unit.is_knocked_out()
+                && !unit.activation.moved
+                && !unit.activation.finished
+        })
+    };
+    interaction
+        .hovered_cell
+        .and_then(|cell| battle.occupant_at(cell))
+        .and_then(can_move)
+        .or_else(|| interaction.inspected_unit.and_then(can_move))
+        .or_else(|| battle.active_unit().and_then(can_move))
+        .map(|unit| unit.id)
+}
+
+/// Rim and overlay tints for one cell. `pulse` (0..=1) breathes the
+/// clickable cells; the hovered clickable cell holds steady with a white rim.
+pub fn highlight_tints(
+    highlight: Option<CellHighlight>,
+    hovered: bool,
+    pulse: f32,
+    rest_rim: Color,
+) -> (Color, Color) {
+    let Some(highlight) = highlight else {
+        return (rest_rim, Color::NONE);
+    };
+    let (rim, fill, alpha) = match highlight {
+        CellHighlight::MoveRange => (theme::BOARD_SELECTED, theme::BOARD_MOVE_FILL, 0.16),
+        CellHighlight::Move => (
+            theme::BOARD_SELECTED,
+            theme::BOARD_MOVE_FILL,
+            0.34 + 0.16 * pulse,
+        ),
+        CellHighlight::AttackReach => (theme::BOARD_ATTACK, theme::BOARD_ATTACK_FILL, 0.18),
+        CellHighlight::Attack => (
+            theme::BOARD_ATTACK,
+            theme::BOARD_ATTACK_FILL,
+            0.4 + 0.16 * pulse,
+        ),
+        CellHighlight::Footprint => (theme::BOARD_ATTACK, theme::BOARD_ATTACK_FILL, 0.62),
+        CellHighlight::Ally => (theme::MINT, theme::MINT, 0.3 + 0.14 * pulse),
+    };
+    if hovered {
+        (theme::BOARD_HOVER, fill.with_alpha(0.62))
+    } else {
+        (rim, fill.with_alpha(alpha))
+    }
+}
+
+/// One layer of every board cell (rim, terrain inset, or highlight overlay);
+/// the two `Without`s keep the layers' `ImageNode` borrows disjoint.
+type CellLayerQuery<'w, 's, T, A, B> =
+    Query<'w, 's, (&'static T, &'static mut ImageNode), (Without<A>, Without<B>)>;
+
 pub fn sync_cell_highlights(
     battle: Res<BattleRuntime>,
     interaction: Option<Res<InteractionState>>,
     attack_preview: Option<Res<AttackPreviewCells>>,
-    mut cells: Query<(&CellVisual, &mut ImageNode), Without<CellInsetVisual>>,
-    mut insets: Query<(&CellInsetVisual, &mut ImageNode), Without<CellVisual>>,
+    time: Option<Res<Time>>,
+    mut cells: CellLayerQuery<CellVisual, CellInsetVisual, CellOverlayVisual>,
+    mut insets: CellLayerQuery<CellInsetVisual, CellVisual, CellOverlayVisual>,
+    mut overlays: CellLayerQuery<CellOverlayVisual, CellVisual, CellInsetVisual>,
 ) {
-    let hovered = interaction
+    let highlights = interaction
         .as_deref()
-        .and_then(|interaction| interaction.hovered_cell);
-    let command_unit = interaction
-        .as_deref()
-        .filter(|interaction| matches!(interaction.mode, InteractionMode::Move))
-        .and_then(|_| battle.0.active_unit());
-    let selected_unit = command_unit.or_else(|| {
-        interaction.as_deref().and_then(inspected_unit).or_else(|| {
-            hovered
-                .and_then(|cell| battle.0.occupant_at(cell))
-                .and_then(|id| battle.0.unit(id))
-                .filter(|unit| unit.faction == Faction::Player)
-                .map(|unit| unit.id)
-        })
-    });
-    let selected_unit = selected_unit.filter(|id| {
-        battle
-            .0
-            .unit(*id)
-            .is_some_and(|unit| unit.faction == Faction::Player)
-    });
-    let reachable = selected_unit
-        .and_then(|unit| battle.0.reachable_cells(unit).ok())
-        .unwrap_or_default();
+        .map_or_else(CellHighlights::default, |interaction| {
+            let footprint = attack_preview.as_deref().map(|preview| &preview.0);
+            cell_highlights(
+                &battle.0,
+                interaction,
+                footprint.unwrap_or(&BTreeSet::new()),
+            )
+        });
+    let pulse = time.map_or(0.5, |time| (time.elapsed_secs() * 3.2).sin() * 0.5 + 0.5);
     let board = battle.0.board();
-    let regional = super::map_view::is_regional(board.width(), board.height());
-    let tint_for = |cell: crate::domain::board::GridPos| {
-        // Regional tiles keep their painted fill under a highlight: a node's
-        // own tint can only multiply the art down or blend the dark board
-        // through, so the bright outer rim alone carries the highlight. Flat
-        // boards keep the authored filled-diamond look.
-        let base = super::map_view::cell_base_fill(board, cell);
-        if attack_preview
-            .as_ref()
-            .is_some_and(|preview| preview.0.contains(&cell))
-        {
-            (
-                theme::BOARD_ATTACK,
-                if regional {
-                    base
-                } else {
-                    theme::BOARD_ATTACK_INSET
-                },
-            )
-        } else if reachable.contains(&cell) {
-            (
-                theme::BOARD_SELECTED,
-                if regional {
-                    base
-                } else {
-                    theme::BOARD_REACHABLE
-                },
-            )
-        } else {
-            (theme::BOARD_STROKE, base)
-        }
+    let tints_for = |cell: GridPos| {
+        highlight_tints(
+            highlights.cells.get(&cell).copied(),
+            highlights.hovered == Some(cell),
+            pulse,
+            super::map_view::cell_base_rim(board, cell),
+        )
     };
     for (cell, mut image) in &mut cells {
-        let tint = tint_for(cell.0).0;
+        let tint = tints_for(cell.0).0;
         if image.color != tint {
             image.color = tint;
         }
     }
+    for (cell, mut image) in &mut overlays {
+        let tint = tints_for(cell.0).1;
+        if image.color != tint {
+            image.color = tint;
+        }
+    }
+    // Highlights never tint the inset, so terrain art keeps its colors.
     for (cell, mut image) in &mut insets {
-        let tint = tint_for(cell.0).1;
+        let tint = super::map_view::cell_base_fill(board, cell.0);
         if image.color != tint {
             image.color = tint;
         }
     }
-}
-
-fn inspected_unit(interaction: &InteractionState) -> Option<crate::domain::model::UnitId> {
-    interaction.inspected_unit
 }
 
 fn intent_line_node(
@@ -828,8 +997,7 @@ mod tests {
     }
 
     #[test]
-    fn regional_highlights_are_rim_only_and_never_darken_terrain_art() {
-        use crate::domain::board::GridPos;
+    fn regional_highlights_paint_the_overlay_and_never_tint_terrain_art() {
         use crate::mission::mission_one::{ids, mission_one};
 
         let mut battle = mission_one(7);
@@ -865,33 +1033,190 @@ mod tests {
                 .spawn((CellVisual(cell), ImageNode::default()));
             app.world_mut()
                 .spawn((CellInsetVisual(cell), ImageNode::default()));
+            app.world_mut()
+                .spawn((CellOverlayVisual(cell), ImageNode::default()));
         }
         app.update();
 
-        let mut tint_of = |marker: &str, cell: GridPos| {
-            let mut outer = app.world_mut().query::<(&CellVisual, &ImageNode)>();
-            let mut insets = app.world_mut().query::<(&CellInsetVisual, &ImageNode)>();
-            match marker {
-                "outer" => outer
-                    .iter(app.world())
-                    .find(|(visual, _)| visual.0 == cell)
-                    .map(|(_, image)| image.color)
-                    .unwrap(),
-                _ => insets
-                    .iter(app.world())
-                    .find(|(visual, _)| visual.0 == cell)
-                    .map(|(_, image)| image.color)
-                    .unwrap(),
-            }
+        let world = app.world_mut();
+        let outer = tints::<CellVisual>(world, |visual| visual.0);
+        let inset = tints::<CellInsetVisual>(world, |visual| visual.0);
+        let overlay = tints::<CellOverlayVisual>(world, |visual| visual.0);
+        // The rim and the translucent overlay carry the highlight; the art
+        // underneath is never tinted.
+        assert_eq!(outer[&reachable_cell], theme::BOARD_SELECTED);
+        assert_eq!(
+            overlay[&reachable_cell].with_alpha(1.0),
+            theme::BOARD_MOVE_FILL
+        );
+        assert!(overlay[&reachable_cell].alpha() > 0.3);
+        assert_eq!(outer[&preview_cell], theme::BOARD_ATTACK);
+        assert_eq!(
+            overlay[&preview_cell],
+            theme::BOARD_ATTACK_FILL.with_alpha(0.62)
+        );
+        assert_eq!(outer[&idle_cell], theme::BOARD_STROKE);
+        assert_eq!(overlay[&idle_cell], Color::NONE);
+        for cell in [reachable_cell, preview_cell, idle_cell] {
+            assert_eq!(inset[&cell], Color::WHITE);
+        }
+    }
+
+    fn tints<T: Component>(
+        world: &mut World,
+        cell: impl Fn(&T) -> GridPos,
+    ) -> BTreeMap<GridPos, Color> {
+        world
+            .query::<(&T, &ImageNode)>()
+            .iter(world)
+            .map(|(visual, image)| (cell(visual), image.color))
+            .collect()
+    }
+
+    #[test]
+    fn armed_weapons_split_reach_from_targets_and_hover_only_marks_clickable_cells() {
+        use crate::mission::mission_one::{ids, mission_one};
+
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        let vanguard = battle.unit(ids::VANGUARD).unwrap().position;
+        let striker = GridPos::new(vanguard.x, vanguard.y - 1);
+        battle.move_unit_direct_for_test(ids::STRIKER, striker);
+        let empty = GridPos::new(vanguard.x - 1, vanguard.y);
+        assert_eq!(battle.occupant_at(empty), None);
+
+        let mut interaction = InteractionState {
+            mode: InteractionMode::Attack(ids::PILE_LANCE),
+            hovered_cell: Some(empty),
+            ..InteractionState::default()
         };
-        // The bright rim carries the highlight; the tinted art underneath is
-        // never darkened (the old BOARD_REACHABLE fill multiplied Plain art
-        // down to near-black).
-        assert_eq!(tint_of("outer", reachable_cell), theme::BOARD_SELECTED);
-        assert_eq!(tint_of("inset", reachable_cell), Color::WHITE);
-        assert_eq!(tint_of("outer", preview_cell), theme::BOARD_ATTACK);
-        assert_eq!(tint_of("inset", preview_cell), Color::WHITE);
-        assert_eq!(tint_of("outer", idle_cell), theme::BOARD_STROKE);
-        assert_eq!(tint_of("inset", idle_cell), Color::WHITE);
+        let highlights = cell_highlights(&battle, &interaction, &BTreeSet::new());
+        assert_eq!(highlights.cells[&striker], CellHighlight::Attack);
+        assert_eq!(highlights.cells[&empty], CellHighlight::AttackReach);
+        assert_eq!(highlights.hovered, None, "nothing to hit under the cursor");
+
+        interaction.hovered_cell = Some(striker);
+        let footprint = BTreeSet::from([striker]);
+        let highlights = cell_highlights(&battle, &interaction, &footprint);
+        assert_eq!(highlights.hovered, Some(striker));
+        assert_eq!(highlights.cells[&striker], CellHighlight::Footprint);
+        assert_eq!(
+            highlight_tints(
+                Some(CellHighlight::Footprint),
+                true,
+                0.0,
+                theme::BOARD_STROKE
+            ),
+            (
+                theme::BOARD_HOVER,
+                theme::BOARD_ATTACK_FILL.with_alpha(0.62)
+            )
+        );
+    }
+
+    #[test]
+    fn an_armed_weapon_rings_the_enemies_it_can_hit() {
+        use crate::mission::mission_one::{ids, mission_one};
+
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(battle))
+            .insert_resource(InteractionState {
+                mode: InteractionMode::Attack(ids::PILE_LANCE),
+                ..InteractionState::default()
+            })
+            .add_systems(Update, apply_unit_transforms);
+        let mut ring = |unit| {
+            let ring = app
+                .world_mut()
+                .spawn((
+                    TokenSelectionVisual(unit),
+                    Node::default(),
+                    ImageNode::default(),
+                    ZIndex::default(),
+                    Visibility::Hidden,
+                ))
+                .id();
+            let inset = app
+                .world_mut()
+                .spawn((TokenSelectionInset(unit), ImageNode::default()))
+                .id();
+            (ring, inset)
+        };
+        // The opening Striker stands next to the Vanguard; the Riflemen are
+        // out of the Pile Lance's one-cell reach.
+        let striker = ring(ids::STRIKER);
+        let rifleman = ring(ids::RIFLEMAN_LEFT);
+        app.update();
+
+        let world = app.world();
+        assert_eq!(
+            world.get::<Visibility>(striker.0),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            world.get::<ImageNode>(striker.0).unwrap().color,
+            theme::BOARD_ATTACK
+        );
+        assert_eq!(
+            world
+                .get::<ImageNode>(striker.1)
+                .unwrap()
+                .color
+                .with_alpha(1.0),
+            theme::BOARD_ATTACK_FILL
+        );
+        assert_eq!(
+            world.get::<Visibility>(rifleman.0),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            world.get::<ImageNode>(rifleman.1).unwrap().color,
+            theme::BOARD_DARK
+        );
+    }
+
+    #[test]
+    fn idle_move_previews_stop_once_the_mech_has_moved() {
+        use crate::mission::mission_one::{ids, mission_one};
+
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        let interaction = InteractionState::default();
+        let preview = cell_highlights(&battle, &interaction, &BTreeSet::new());
+        assert!(!preview.cells.is_empty());
+        assert!(
+            preview
+                .cells
+                .values()
+                .all(|kind| *kind == CellHighlight::MoveRange)
+        );
+        assert_eq!(preview.hovered, None, "a preview is not clickable");
+
+        battle.move_unit(ids::VANGUARD, GridPos::new(4, 8)).unwrap();
+        let moved = cell_highlights(&battle, &interaction, &BTreeSet::new());
+        assert!(moved.cells.is_empty());
+
+        // Aegis marks only the living allies next to the Vanguard.
+        let mut aegis = InteractionState {
+            mode: InteractionMode::AegisTarget,
+            ..InteractionState::default()
+        };
+        let allies = cell_highlights(&battle, &aegis, &BTreeSet::new());
+        assert!(!allies.cells.is_empty());
+        for (cell, kind) in &allies.cells {
+            assert_eq!(*kind, CellHighlight::Ally);
+            assert_eq!(cell.manhattan(GridPos::new(4, 8)), 1);
+        }
+        aegis.mode = InteractionMode::Inspect;
+        assert!(
+            cell_highlights(&battle, &aegis, &BTreeSet::new())
+                .cells
+                .is_empty()
+        );
     }
 }

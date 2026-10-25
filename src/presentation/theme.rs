@@ -45,10 +45,14 @@ pub const MUTED: Color = Color::srgb_u8(109, 130, 153);
 pub const BOARD_STROKE: Color = Color::srgb_u8(22, 40, 58);
 pub const BOARD_LIGHT: Color = Color::srgb_u8(13, 24, 38);
 pub const BOARD_DARK: Color = Color::srgb_u8(10, 20, 32);
-pub const BOARD_REACHABLE: Color = Color::srgb_u8(20, 87, 108);
 pub const BOARD_SELECTED: Color = Color::srgb_u8(62, 199, 219);
 pub const BOARD_ATTACK: Color = Color::srgb_u8(255, 209, 117);
-pub const BOARD_ATTACK_INSET: Color = Color::srgb_u8(82, 64, 31);
+/// Highlight fills, drawn over terrain at the alpha the highlight picks:
+/// cyan where a mech can move, amber where its weapon reaches.
+pub const BOARD_MOVE_FILL: Color = Color::srgb_u8(46, 214, 255);
+pub const BOARD_ATTACK_FILL: Color = Color::srgb_u8(255, 186, 38);
+/// Rim of the clickable cell under the cursor.
+pub const BOARD_HOVER: Color = Color::WHITE;
 pub const BOARD_INSPECTED: Color = Color::srgb_u8(255, 156, 96);
 pub const BOARD_TELEGRAPH: Color = Color::srgba(1.0, 0.12, 0.1, 0.56);
 pub const BOARD_EXTRACTION: Color = Color::srgba(1.0, 0.82, 0.38, 0.75);

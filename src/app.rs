@@ -27,6 +27,7 @@ use crate::{
         layout::{setup_canvas, update_canvas_scale},
         map_view::{navigate_map, sync_map_view},
         playback::{begin_restarted_round, play_battle_events},
+        prompt::sync_battle_prompt,
         screens::{
             setup_aftermath_screen, setup_briefing_screen, setup_ending_screen,
             setup_mission_select_screen, setup_pre_mission_story, setup_title_screen,
@@ -214,7 +215,12 @@ impl Plugin for ScorpiusPlugin {
             )
             .add_systems(
                 Update,
-                (update_hud, update_battle_menu, update_asset_status_text)
+                (
+                    update_hud,
+                    update_battle_menu,
+                    update_asset_status_text,
+                    sync_battle_prompt,
+                )
                     .after(play_battle_events)
                     .run_if(in_state(GameScreen::Battle)),
             )

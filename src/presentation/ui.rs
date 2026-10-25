@@ -32,6 +32,7 @@ use super::{
         on_command_button_click, restart_allowed,
     },
     layout::spawn_canvas_root,
+    prompt::spawn_battle_prompt,
     theme,
 };
 
@@ -1944,6 +1945,7 @@ pub fn setup_mission_ui(
         0.0,
     );
     spawn_field_tip_band(&mut commands, root, &ui_assets);
+    spawn_battle_prompt(&mut commands, root, &ui_assets);
 
     commands.spawn((
         Text::new("Loading battle UI assets..."),

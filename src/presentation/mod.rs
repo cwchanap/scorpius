@@ -8,6 +8,7 @@ pub mod interaction;
 pub mod layout;
 pub mod map_view;
 pub mod playback;
+pub mod prompt;
 pub mod screens;
 pub mod sound;
 pub mod sync;
@@ -65,6 +66,11 @@ pub struct CellVisual(pub GridPos);
 /// picking.
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CellInsetVisual(pub GridPos);
+
+/// The translucent diamond over a cell's inset that carries move, attack,
+/// and ally highlights, so terrain art keeps its colors underneath.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CellOverlayVisual(pub GridPos);
 
 #[derive(Component)]
 pub struct PresentationRoot;
@@ -137,6 +143,11 @@ pub struct TokenFootprintVisual(pub UnitId);
 /// Non-pickable selection/inspection diamond beneath a token card.
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenSelectionVisual(pub UnitId);
+
+/// The fill inside a token's selection diamond: dark under the active or
+/// inspected mech, the ring's color under an armed command's target.
+#[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenSelectionInset(pub UnitId);
 
 #[derive(Component, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenHpFill(pub UnitId);
