@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::domain::{
     battle::BattleState,
     board::GridPos,
@@ -171,6 +173,34 @@ impl BattleState {
         events.extend(self.check_terminal_state());
 
         Ok(events)
+    }
+
+    /// Every board cell the weapon reaches from the attacker's cell: inside
+    /// its range band and, for a push weapon, on the attacker's row or
+    /// column. Whether a cell holds something to hit is `preview_attack`'s call.
+    pub fn weapon_reach(
+        &self,
+        attacker: UnitId,
+        weapon: WeaponId,
+    ) -> Result<BTreeSet<GridPos>, BattleError> {
+        let unit = self
+            .unit(attacker)
+            .ok_or(BattleError::UnknownUnit(attacker))?;
+        let spec = self
+            .weapon(weapon)
+            .ok_or(BattleError::UnknownWeapon(weapon))?;
+        let (from, board) = (unit.position, self.board());
+        let x_max = from.x.saturating_add(spec.max_range).min(board.width() - 1);
+        let y_max = from
+            .y
+            .saturating_add(spec.max_range)
+            .min(board.height() - 1);
+        Ok((from.y.saturating_sub(spec.max_range)..=y_max)
+            .flat_map(|y| {
+                (from.x.saturating_sub(spec.max_range)..=x_max).map(move |x| GridPos::new(x, y))
+            })
+            .filter(|cell| check_reach(unit, spec, *cell).is_ok())
+            .collect())
     }
 
     pub(super) fn resolve_enemy_profile_against(
@@ -438,23 +468,7 @@ impl BattleState {
             return Err(BattleError::OutOfBounds(target));
         }
 
-        let distance = attacking_unit.position.manhattan(target);
-        if distance < weapon_spec.min_range || distance > weapon_spec.max_range {
-            return Err(BattleError::TargetOutOfRange {
-                attacker,
-                weapon,
-                target,
-            });
-        }
-        if weapon_spec.push
-            && attacking_unit.position.x != target.x
-            && attacking_unit.position.y != target.y
-        {
-            return Err(BattleError::PushTargetNotAligned {
-                attacker: attacking_unit.position,
-                target,
-            });
-        }
+        check_reach(attacking_unit, weapon_spec, target)?;
 
         let target_unit = self
             .occupant_at(target)
@@ -600,6 +614,29 @@ pub(crate) fn weapon_reaches(weapon: &WeaponSpec, attacker: GridPos, target: Gri
         && (!weapon.push || attacker.x == target.x || attacker.y == target.y)
 }
 
+/// The range band and push alignment every player attack must satisfy.
+fn check_reach(
+    attacker: &UnitState,
+    weapon: &WeaponSpec,
+    target: GridPos,
+) -> Result<(), BattleError> {
+    let distance = attacker.position.manhattan(target);
+    if distance < weapon.min_range || distance > weapon.max_range {
+        return Err(BattleError::TargetOutOfRange {
+            attacker: attacker.id,
+            weapon: weapon.id,
+            target,
+        });
+    }
+    if weapon.push && attacker.position.x != target.x && attacker.position.y != target.y {
+        return Err(BattleError::PushTargetNotAligned {
+            attacker: attacker.position,
+            target,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AttackPreview, incoming_attack_values, preview_for_profile};
@@ -637,6 +674,45 @@ mod tests {
         assert_eq!(
             battle.attack(ids::VANGUARD, ids::PILE_LANCE, GridPos::new(4, 6)),
             Err(BattleError::ActionAlreadySpent(ids::VANGUARD))
+        );
+    }
+
+    #[test]
+    fn weapon_reach_is_the_range_band_and_push_lanes_preview_accepts() {
+        let mut battle = adjacent_vanguard_and_striker(2);
+        battle.begin_activation(ids::VANGUARD).unwrap();
+        let at = battle.unit(ids::VANGUARD).unwrap().position;
+
+        // Anchor Cannon: range 2-3 and push, so only its row and column.
+        let reach = battle
+            .weapon_reach(ids::VANGUARD, ids::ANCHOR_CANNON)
+            .unwrap();
+        assert!(!reach.is_empty());
+        for cell in &reach {
+            let distance = at.manhattan(*cell);
+            assert!((2..=3).contains(&distance), "{cell:?} is {distance} away");
+            assert!(cell.x == at.x || cell.y == at.y, "{cell:?} is off-lane");
+        }
+        assert!(reach.contains(&GridPos::new(at.x, at.y - 2)));
+        assert!(!reach.contains(&GridPos::new(at.x - 1, at.y - 1)));
+
+        // Every cell preview accepts is in reach; the adjacent Striker is
+        // out of a 2-3 band but inside the Pile Lance's.
+        let striker = GridPos::new(4, 6);
+        assert!(!reach.contains(&striker));
+        let lance = battle.weapon_reach(ids::VANGUARD, ids::PILE_LANCE).unwrap();
+        assert!(lance.contains(&striker));
+        assert!(lance.iter().all(|cell| at.manhattan(*cell) == 1));
+        assert!(
+            battle
+                .preview_attack(ids::VANGUARD, ids::PILE_LANCE, striker)
+                .is_ok()
+        );
+        assert_eq!(
+            battle.weapon_reach(ids::VANGUARD, crate::domain::model::WeaponId(999)),
+            Err(BattleError::UnknownWeapon(crate::domain::model::WeaponId(
+                999
+            )))
         );
     }
 

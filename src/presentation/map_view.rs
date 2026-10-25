@@ -56,6 +56,12 @@ pub fn cell_base_fill(board: &BoardState, cell: GridPos) -> Color {
     }
 }
 
+/// Resting rim of a cell's outer diamond, shared by cell spawn and
+/// highlight sync like [`cell_base_fill`].
+pub fn cell_base_rim(_board: &BoardState, _cell: GridPos) -> Color {
+    theme::BOARD_STROKE
+}
+
 /// A left-button press on the regional map, at its logical window position.
 /// It pans the map once it travels past a click's jitter, and a press that
 /// panned is not also a cell click.

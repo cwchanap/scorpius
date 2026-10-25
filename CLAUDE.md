@@ -132,6 +132,12 @@ grid to the authored 2.5D stage.
   finished battle's events have played). A cut-in holds its strike's hit/miss sound until the blow
   lands. Bare test apps without `SoundPlugin` stay silent. `N` mutes on any screen.
 - `sync.rs` — reconciles marker entities against current state each frame (spawn/despawn diffing).
+  `cell_highlights` projects the armed command onto the board (blue move cells, amber weapon reach
+  from `BattleState::weapon_reach` with pulsing targets `preview_attack` accepts, mint Aegis allies,
+  a white rim on the clickable hovered cell) and paints each cell's `CellOverlayVisual`; terrain
+  insets are never tinted.
+- `prompt.rs` — the one-line next-step prompt above the stage (`battle_prompt`): what the player
+  can do now and which key does it. Hidden outside an idle Player phase.
 - `ui.rs` — native Bevy UI. `HudSnapshot::from_battle` derives all HUD text from state, so HUD logic
   is testable without a renderer; the sidebar, Inspector, Preview, Threat, Log, and Result regions
   are projections of typed snapshots.

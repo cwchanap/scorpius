@@ -654,6 +654,19 @@ pub const CAPTURE_FIXTURES: &[CaptureFixture] = &[
         ],
     },
     CaptureFixture {
+        id: "battle-attack-reach",
+        profile: battle_profile(MissionId::One),
+        actions: &[
+            CaptureAction::Inspect(m1::GUNNER),
+            CaptureAction::Command(CommandAction::WeaponSlot(0)),
+            CaptureAction::FocusMap(GridPos::new(4, 5), 90),
+        ],
+        expect: &[
+            ExpectedFact::Screen(GameScreen::Battle),
+            ExpectedFact::Mode(InteractionMode::Attack(m1::RAIL_RIFLE)),
+        ],
+    },
+    CaptureFixture {
         id: "battle-aegis-targeting",
         profile: battle_profile(MissionId::One),
         actions: &[
