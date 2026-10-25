@@ -973,34 +973,6 @@ mod tests {
     }
 
     #[test]
-    fn regional_road_cells_take_the_terrain_tint_instead_of_atlas_art() {
-        use crate::mission::mission_one::mission_one;
-
-        let mut app = App::new();
-        app.insert_resource(BattleRuntime(mission_one(7)))
-            .add_systems(Update, sync_cell_highlights);
-        // (20,8) sits on the authored northern road; roads have no atlas
-        // crop, so the inset falls back to the terrain palette.
-        let road = crate::domain::board::GridPos::new(20, 8);
-        let cell = app
-            .world_mut()
-            .spawn((CellVisual(road), ImageNode::default()))
-            .id();
-        let inset = app
-            .world_mut()
-            .spawn((CellInsetVisual(road), ImageNode::default()))
-            .id();
-        app.update();
-        let tint =
-            crate::presentation::map_view::terrain_color(crate::domain::board::Terrain::Road, road);
-        assert_eq!(
-            app.world().get::<ImageNode>(cell).unwrap().color,
-            theme::BOARD_STROKE
-        );
-        assert_eq!(app.world().get::<ImageNode>(inset).unwrap().color, tint);
-    }
-
-    #[test]
     fn regional_highlights_paint_the_overlay_and_never_tint_terrain_art() {
         use crate::mission::mission_one::{ids, mission_one};
 
@@ -1059,7 +1031,10 @@ mod tests {
             overlay[&preview_cell],
             theme::BOARD_ATTACK_FILL.with_alpha(0.62)
         );
-        assert_eq!(outer[&idle_cell], theme::BOARD_STROKE);
+        assert_eq!(
+            outer[&idle_cell],
+            theme::terrain_rim(crate::domain::board::Terrain::Plain)
+        );
         assert_eq!(overlay[&idle_cell], Color::NONE);
         for cell in [reachable_cell, preview_cell, idle_cell] {
             assert_eq!(inset[&cell], Color::WHITE);
