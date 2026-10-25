@@ -23,9 +23,9 @@ use scorpius::presentation::assets::UiAssets;
 use scorpius::presentation::battlefield::setup_mission_scene;
 use scorpius::presentation::campaign_ui::{
     BriefingSnapshot, CampaignStatus, CampaignUiAction, DialogueCursor, MissionSelectRow,
-    ScreenRoot, apply_campaign_action as apply_campaign_action_for_screen, briefing_snapshot,
-    dialogue_snapshot, ending_snapshot, mission_select_available, mission_select_rows,
-    upgrade_row_snapshot,
+    ScreenRoot, advance_dialogue_on_key, apply_campaign_action as apply_campaign_action_for_screen,
+    briefing_snapshot, dialogue_snapshot, ending_snapshot, mission_select_available,
+    mission_select_rows, upgrade_row_snapshot,
 };
 use scorpius::presentation::screens::{
     setup_briefing_screen, setup_mission_select_screen, setup_title_screen,
@@ -1061,6 +1061,68 @@ fn advancing_dialogue_walks_all_lines_then_opens_briefing() {
         &mut next,
     );
     assert_eq!(pending(&next), Some(GameScreen::Battle));
+}
+
+#[test]
+fn enter_and_space_advance_story_and_aftermath_dialogue() {
+    fn tap(app: &mut App, key: KeyCode) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
+        app.update();
+        let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        input.release(key);
+        input.clear();
+    }
+    fn screen(app: &App) -> GameScreen {
+        *app.world().resource::<State<GameScreen>>().get()
+    }
+    fn cursor(app: &App) -> DialogueCursor {
+        *app.world().resource::<DialogueCursor>()
+    }
+
+    let mut app = App::new();
+    app.add_plugins(StatesPlugin)
+        .insert_resource(CampaignRuntime(CampaignSession {
+            state: Some(CampaignState::new_game()),
+            save: SaveFile::new(temp_save_path("dialogue-keys")),
+            last_completion: None,
+            replay: None,
+        }))
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<DialogueCursor>()
+        .init_resource::<CampaignStatus>()
+        .init_state::<GameScreen>()
+        .add_systems(Update, advance_dialogue_on_key);
+    app.update();
+
+    // Off the dialogue screens the keys do nothing.
+    tap(&mut app, KeyCode::Enter);
+    app.update();
+    assert_eq!(screen(&app), GameScreen::Title);
+    assert_eq!(cursor(&app), DialogueCursor(0));
+
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(GameScreen::PreMissionStory);
+    app.update();
+    tap(&mut app, KeyCode::Enter);
+    assert_eq!(cursor(&app), DialogueCursor(1));
+    tap(&mut app, KeyCode::Space);
+    assert_eq!(cursor(&app), DialogueCursor(2));
+    // The last line hands off to the briefing, as the Next button does.
+    tap(&mut app, KeyCode::NumpadEnter);
+    app.update();
+    assert_eq!(screen(&app), GameScreen::Briefing);
+
+    app.insert_resource(ActiveMission(mission_definition(MissionId::One).unwrap()))
+        .insert_resource(DialogueCursor(0));
+    app.world_mut()
+        .resource_mut::<NextState<GameScreen>>()
+        .set(GameScreen::Aftermath);
+    app.update();
+    tap(&mut app, KeyCode::Enter);
+    assert_eq!(cursor(&app), DialogueCursor(1));
 }
 
 #[test]

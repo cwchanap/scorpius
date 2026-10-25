@@ -25,7 +25,7 @@ use super::{
         BATTLE_STAGE_SIZE, MAP_UNIT_HEIGHT, MAP_UNIT_WIDTH, grid_from_map_point,
         grid_from_stage_point, unit_root_top_left,
     },
-    map_view::MapView,
+    map_view::{MapDrag, MapView},
 };
 
 pub use super::battle_menu::MenuState;
@@ -270,9 +270,11 @@ pub fn on_battlefield_stage_click(
     mut preview_cells: ResMut<AttackPreviewCells>,
     asset_status: Res<AssetLoadStatus>,
     view: Res<MapView>,
+    drag: Res<MapDrag>,
 ) {
     let click = _click;
-    if click.original_event_target() != click.entity {
+    // A press that panned the map ends there, not on the cell under it.
+    if click.original_event_target() != click.entity || drag.panning {
         return;
     }
     if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
@@ -345,9 +347,13 @@ pub fn on_battlefield_token_click(
     mut playback: ResMut<EventPlayback>,
     mut preview_cells: ResMut<AttackPreviewCells>,
     asset_status: Res<AssetLoadStatus>,
+    drag: Res<MapDrag>,
 ) {
     click.propagate(false);
-    if click.button != PointerButton::Primary || !stage_event_ready(&asset_status, &playback) {
+    if click.button != PointerButton::Primary
+        || drag.panning
+        || !stage_event_ready(&asset_status, &playback)
+    {
         return;
     }
     let Ok(token) = tokens.get(click.entity) else {

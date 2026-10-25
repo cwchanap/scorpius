@@ -1,6 +1,9 @@
 use bevy::{
     asset::RenderAssetUsages,
-    input::mouse::{MouseScrollUnit, MouseWheel},
+    input::{
+        gestures::PinchGesture,
+        mouse::{MouseScrollUnit, MouseWheel},
+    },
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     window::PrimaryWindow,
@@ -22,6 +25,8 @@ use crate::domain::{
 };
 
 const MINIMAP_SIZE: f32 = 176.0;
+/// How far, in design pixels, a left press may wander and still be a click.
+const DRAG_THRESHOLD: f32 = 8.0;
 
 /// One source of truth for "this board renders as the regional canvas".
 /// Spawn, highlight sync, and [`MapView`] must never disagree or tiles
@@ -48,6 +53,14 @@ pub fn cell_base_fill(board: &BoardState, cell: GridPos) -> Color {
     } else {
         theme::BOARD_DARK
     }
+}
+
+/// A left-button press on the regional map. It pans the map once it travels
+/// past a click's jitter, and a press that panned is not also a cell click.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct MapDrag {
+    press: Option<Vec2>,
+    pub panning: bool,
 }
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
@@ -354,7 +367,7 @@ pub fn spawn_map_controls(
             .observe(on_map_action);
     }
     commands.spawn((
-        Text::new("Arrows / MMB: pan\nWheel: zoom\nHome: center"),
+        Text::new("Drag / Arrows: pan\nWheel / Pinch: zoom\nHome: center"),
         theme::ibm_plex_mono(&assets.fonts, 14.0, FontWeight(400)),
         TextColor(theme::TEXT),
         Node {
@@ -456,11 +469,13 @@ fn on_map_action(
 #[allow(clippy::too_many_arguments)]
 pub fn navigate_map(
     mut view: ResMut<MapView>,
+    mut drag: ResMut<MapDrag>,
     battle: Res<BattleRuntime>,
     mut interaction: ResMut<InteractionState>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut wheel: MessageReader<MouseWheel>,
+    mut pinch: MessageReader<PinchGesture>,
     windows: Query<&Window, With<PrimaryWindow>>,
     time: Res<Time>,
     mut last_cursor: Local<Option<Vec2>>,
@@ -469,6 +484,7 @@ pub fn navigate_map(
 ) {
     if !view.is_regional() {
         wheel.clear();
+        pinch.clear();
         *last_cursor = None;
         *middle_was_held = false;
         return;
@@ -505,11 +521,29 @@ pub fn navigate_map(
             && point.x < BATTLE_STAGE_SIZE.x
             && point.y < BATTLE_STAGE_SIZE.y
     });
+    // The drag outlives the frame Left comes up: that frame's click already
+    // fired in PreUpdate and read `panning` to skip the cell under it.
+    if mouse.just_pressed(MouseButton::Left) {
+        drag.set_if_neq(MapDrag {
+            press: inside,
+            panning: false,
+        });
+    } else if !mouse.pressed(MouseButton::Left) {
+        drag.set_if_neq(MapDrag::default());
+    }
     if let Some(point) = inside {
+        if let Some(press) = drag.press
+            && !drag.panning
+            && point.distance(press) > DRAG_THRESHOLD
+        {
+            // Past a click's jitter the press becomes a pan that catches up
+            // from the press point, so the map stays under the cursor.
+            drag.panning = true;
+            *last_cursor = Some(press);
+        }
         // The frame Middle goes down only establishes the drag anchor:
         // cursor motion since the previous update must not pan the map.
-        if mouse.pressed(MouseButton::Middle)
-            && *middle_was_held
+        if (drag.panning || mouse.pressed(MouseButton::Middle) && *middle_was_held)
             && let Some(last) = *last_cursor
         {
             let zoom = view.zoom;
@@ -517,16 +551,25 @@ pub fn navigate_map(
             view.clamp();
         }
         for event in wheel.read() {
-            let amount = event.y
-                * if event.unit == MouseScrollUnit::Pixel {
-                    0.005
-                } else {
-                    0.15
-                };
-            view.zoom_at(point, amount.clamp(-1.0, 1.0).exp());
+            match event.unit {
+                // Trackpads scroll in pixels: two fingers pan, as on any Mac
+                // map, and a pinch zooms instead.
+                MouseScrollUnit::Pixel => {
+                    let zoom = view.zoom;
+                    view.center -= Vec2::new(event.x, event.y) / zoom;
+                    view.clamp();
+                }
+                MouseScrollUnit::Line => {
+                    view.zoom_at(point, (event.y * 0.15).clamp(-1.0, 1.0).exp());
+                }
+            }
+        }
+        for event in pinch.read() {
+            view.zoom_at(point, event.0.clamp(-1.0, 1.0).exp());
         }
     } else {
         wheel.clear();
+        pinch.clear();
     }
     *last_cursor = inside;
     *middle_was_held = mouse.pressed(MouseButton::Middle);
@@ -954,6 +997,7 @@ mod tests {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Time>()
             .add_message::<MouseWheel>()
+            .add_message::<PinchGesture>()
             .add_systems(Startup, setup_mission_scene)
             .add_systems(Update, navigate_map);
         let window = app
@@ -1028,19 +1072,35 @@ mod tests {
             window,
             phase: TouchPhase::Moved,
         });
-        app.world_mut().write_message(MouseWheel {
-            unit: MouseScrollUnit::Pixel,
-            x: 0.0,
-            y: 12.0,
-            window,
-            phase: TouchPhase::Moved,
-        });
         let zoom_before = after_drag.zoom;
         app.update();
         assert_ne!(
             app.world().resource::<MapView>().zoom,
             zoom_before,
-            "wheel events zoom around the cursor",
+            "a mouse wheel zooms around the cursor",
+        );
+
+        // A trackpad scrolls in pixels: two fingers pan, and a pinch zooms.
+        let before_scroll = *app.world().resource::<MapView>();
+        app.world_mut().write_message(MouseWheel {
+            unit: MouseScrollUnit::Pixel,
+            x: 0.0,
+            y: 40.0,
+            window,
+            phase: TouchPhase::Moved,
+        });
+        app.update();
+        let scrolled = *app.world().resource::<MapView>();
+        assert_eq!(scrolled.zoom, before_scroll.zoom);
+        assert!(
+            scrolled.center.y < before_scroll.center.y,
+            "two fingers moving down pull the map down with them",
+        );
+        app.world_mut().write_message(PinchGesture(0.2));
+        app.update();
+        assert!(
+            app.world().resource::<MapView>().zoom > scrolled.zoom,
+            "a pinch out zooms in",
         );
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
@@ -1090,6 +1150,7 @@ mod tests {
         let mut flat = App::new();
         flat.insert_resource(BattleRuntime(BattleState::viability_fixture()))
             .insert_resource(MapView::new(BattleState::viability_fixture().board()))
+            .init_resource::<MapDrag>()
             .init_resource::<InteractionState>()
             .init_resource::<AttackPreviewCells>()
             .init_resource::<EventPlayback>()
@@ -1097,6 +1158,7 @@ mod tests {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<Time>()
             .add_message::<MouseWheel>()
+            .add_message::<PinchGesture>()
             .add_systems(Update, navigate_map);
         let flat_window = flat
             .world_mut()
@@ -1121,6 +1183,75 @@ mod tests {
             MapView::new(BattleState::viability_fixture().board()),
             "flat boards keep the authored view",
         );
+    }
+
+    #[test]
+    fn left_drag_pans_only_past_click_jitter_and_flags_the_press_as_panning() {
+        let mut battle = mission_one(7);
+        battle.begin_round().unwrap();
+        let mut app = App::new();
+        app.insert_resource(BattleRuntime(battle))
+            .insert_resource(blank_ui_assets())
+            .init_resource::<Assets<Image>>()
+            .init_resource::<InteractionState>()
+            .init_resource::<AttackPreviewCells>()
+            .init_resource::<EventPlayback>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Time>()
+            .add_message::<MouseWheel>()
+            .add_message::<PinchGesture>()
+            .add_systems(Startup, setup_mission_scene)
+            .add_systems(Update, navigate_map);
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: (1920, 1080).into(),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        let press = battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5;
+        let move_cursor = |app: &mut App, point: Vec2| {
+            app.world_mut()
+                .get_mut::<Window>(window)
+                .unwrap()
+                .set_cursor_position(Some(point));
+            app.update();
+        };
+        move_cursor(&mut app, press);
+        let opened = *app.world().resource::<MapView>();
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+        // A click's jitter neither pans nor turns the press into a drag.
+        move_cursor(&mut app, press + Vec2::new(4.0, 3.0));
+        assert_eq!(*app.world().resource::<MapView>(), opened);
+        assert!(!app.world().resource::<MapDrag>().panning);
+
+        // Past the threshold the map catches up from the press point, so the
+        // grabbed spot stays under the cursor.
+        move_cursor(&mut app, press + Vec2::new(60.0, 30.0));
+        let dragged = *app.world().resource::<MapView>();
+        assert!(app.world().resource::<MapDrag>().panning);
+        assert!(
+            (dragged.center - (opened.center - Vec2::new(60.0, 30.0) / opened.zoom)).length() < 1.0,
+            "the map follows the cursor from the press point",
+        );
+
+        // Release ends the drag; the next press starts as a click again.
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Left);
+        app.update();
+        assert_eq!(*app.world().resource::<MapDrag>(), MapDrag::default());
     }
 
     #[test]
@@ -1197,6 +1328,7 @@ mod tests {
                 ..default()
             })
             .add_message::<MouseWheel>()
+            .add_message::<PinchGesture>()
             .add_systems(Startup, setup_mission_scene)
             .add_systems(Update, navigate_map);
         app.world_mut().spawn((
