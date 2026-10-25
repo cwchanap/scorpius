@@ -222,6 +222,7 @@ impl Plugin for ScorpiusPlugin {
                     sync_battle_prompt,
                 )
                     .after(play_battle_events)
+                    .after(handle_keyboard_shortcuts)
                     .run_if(in_state(GameScreen::Battle)),
             )
             .add_systems(OnEnter(GameScreen::Aftermath), setup_aftermath_screen)
