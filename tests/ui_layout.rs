@@ -690,9 +690,11 @@ fn production_left_drag_pans_the_map_without_clicking_the_cell_under_it() {
     assert_ne!(app.world().resource::<StatusMessage>().0, "");
 
     // A flick that crosses the threshold on the release frame is still a
-    // pan: picking dispatches that click before `navigate_map` runs.
+    // pan: picking dispatches that click before `navigate_map` runs, and the
+    // map still follows the flick.
     app.world_mut().resource_mut::<StatusMessage>().0.clear();
     send_headless_mouse(&mut app, window, end, Some(ButtonState::Pressed));
+    let before_flick = *app.world().resource::<MapView>();
     let flick = end + Vec2::new(40.0, 0.0);
     send_headless_pointer_action(
         &mut app,
@@ -705,6 +707,11 @@ fn production_left_drag_pans_the_map_without_clicking_the_cell_under_it() {
     send_headless_mouse(&mut app, window, flick, Some(ButtonState::Released));
     assert_eq!(app.world().resource::<StagePointerCounts>().clicks, 3);
     assert_eq!(app.world().resource::<StatusMessage>().0, "");
+    assert!(
+        app.world().resource::<MapView>().center.x < before_flick.center.x,
+        "a release-frame flick pans the map with it",
+    );
+    assert!(!app.world().resource::<MapDrag>().panning);
 }
 
 #[test]

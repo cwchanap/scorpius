@@ -531,21 +531,20 @@ pub fn navigate_map(
             .map(|point| point - battle_stage_rect().min)
     };
     let pointer = window.and_then(Window::cursor_position);
+    // Physical window pixels per design pixel, for deltas the OS reports in pixels.
+    let px_per_design =
+        window.map_or(1.0, Window::scale_factor) * layout.map_or(1.0, |layout| layout.scale);
     let inside = pointer.and_then(to_stage).filter(|point| {
         point.x >= 0.0
             && point.y >= 0.0
             && point.x < BATTLE_STAGE_SIZE.x
             && point.y < BATTLE_STAGE_SIZE.y
     });
-    // The drag outlives the frame Left comes up: that frame's click already
-    // fired in PreUpdate and asked `pans_at` whether to skip the cell.
     if mouse.just_pressed(MouseButton::Left) {
         drag.set_if_neq(MapDrag {
             press: pointer.filter(|_| inside.is_some()),
             panning: false,
         });
-    } else if !mouse.pressed(MouseButton::Left) {
-        drag.set_if_neq(MapDrag::default());
     }
     if let Some(point) = inside {
         if let (Some(press), Some(at)) = (drag.press, pointer)
@@ -572,7 +571,7 @@ pub fn navigate_map(
                 // map, and a pinch zooms instead.
                 MouseScrollUnit::Pixel => {
                     let zoom = view.zoom;
-                    view.center -= Vec2::new(event.x, event.y) / zoom;
+                    view.center -= Vec2::new(event.x, event.y) / (px_per_design * zoom);
                     view.clamp();
                 }
                 MouseScrollUnit::Line => {
@@ -586,6 +585,12 @@ pub fn navigate_map(
     } else {
         wheel.clear();
         pinch.clear();
+    }
+    // The drag ends only after the release frame's last motion has panned:
+    // that frame's click already fired in PreUpdate and asked `pans_at`
+    // whether to skip the cell.
+    if !mouse.pressed(MouseButton::Left) {
+        drag.set_if_neq(MapDrag::default());
     }
     *last_cursor = inside;
     *middle_was_held = mouse.pressed(MouseButton::Middle);
@@ -1201,8 +1206,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn left_drag_pans_only_past_click_jitter_and_flags_the_press_as_panning() {
+    /// A regional Mission 1 scene with only `navigate_map` running, in a
+    /// primary window of `resolution` logical pixels.
+    fn navigate_app(resolution: (u32, u32)) -> (App, Entity) {
         let mut battle = mission_one(7);
         battle.begin_round().unwrap();
         let mut app = App::new();
@@ -1223,12 +1229,48 @@ mod tests {
             .world_mut()
             .spawn((
                 Window {
-                    resolution: (1920, 1080).into(),
+                    resolution: resolution.into(),
                     ..default()
                 },
                 PrimaryWindow,
             ))
             .id();
+        (app, window)
+    }
+
+    #[test]
+    fn trackpad_scroll_tracks_the_fingers_on_a_scaled_canvas() {
+        // A 960×540 window fits the 1920×1080 design canvas at half scale.
+        let (mut app, window) = navigate_app((960, 540));
+        let stage_center = (battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5) * 0.5;
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(Some(stage_center));
+        app.update();
+        let before = *app.world().resource::<MapView>();
+        app.world_mut().write_message(MouseWheel {
+            unit: MouseScrollUnit::Pixel,
+            x: 0.0,
+            y: -20.0,
+            window,
+            phase: TouchPhase::Moved,
+        });
+        app.update();
+        let after = *app.world().resource::<MapView>();
+        // 20 window pixels are 40 design pixels on screen, so the map
+        // moves with the fingers rather than at half their speed.
+        assert!(
+            (after.center.y - (before.center.y + 40.0 / before.zoom)).abs() < 0.5,
+            "{} -> {}",
+            before.center.y,
+            after.center.y,
+        );
+    }
+
+    #[test]
+    fn left_drag_pans_only_past_click_jitter_and_flags_the_press_as_panning() {
+        let (mut app, window) = navigate_app((1920, 1080));
         let press = battle_stage_rect().min + BATTLE_STAGE_SIZE * 0.5;
         let move_cursor = |app: &mut App, point: Vec2| {
             app.world_mut()
@@ -1262,11 +1304,18 @@ mod tests {
             "the map follows the cursor from the press point",
         );
 
-        // Release ends the drag; the next press starts as a click again.
+        // The release frame's own motion still pans, then the drag ends and
+        // the next press starts as a click again.
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .release(MouseButton::Left);
-        app.update();
+        move_cursor(&mut app, press + Vec2::new(80.0, 30.0));
+        assert!(
+            (app.world().resource::<MapView>().center.x - (dragged.center.x - 20.0 / dragged.zoom))
+                .abs()
+                < 1.0,
+            "the release frame's motion pans too",
+        );
         assert_eq!(*app.world().resource::<MapDrag>(), MapDrag::default());
     }
 
